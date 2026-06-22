@@ -1,4 +1,4 @@
-﻿// src/components/Dashboard.js
+// src/components/Dashboard.js
 import React from 'react';
 import { STATUS_CONFIG } from '../data/initialData';
 
@@ -72,7 +72,7 @@ function ProjectCard({ project, onClick }) {
       <div className="card-mini-stats">
         <div className="card-mini-stat">
           <div className="card-mini-stat-value" style={{ color: 'var(--green)' }}>
-            {monthlyRev > 0 ? `$${monthlyRev}` : 'â€”'}
+            {monthlyRev > 0 ? `$${monthlyRev}` : '???'}
           </div>
           <div className="card-mini-stat-label">MRR</div>
         </div>
@@ -125,7 +125,7 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
       <div className="page-header">
         <div>
           <h1 className="page-title">Mission Control</h1>
-          <p className="page-subtitle">Dream App Lab â€” All Projects Overview</p>
+          <p className="page-subtitle">Dream App Lab ??? All Projects Overview</p>
         </div>
         <div className="page-actions">
           <div className="live-indicator">
@@ -165,7 +165,7 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
         <div className="stat-card indigo">
           <div className="stat-label">Active Projects</div>
           <div className="stat-value">{projects.length}</div>
-          <div className="stat-sub">{liveCount} live Â· {inDevCount} in dev</div>
+          <div className="stat-sub">{liveCount} live ?? {inDevCount} in dev</div>
         </div>
         <div className="stat-card electric">
           <div className="stat-label">Overall Progress</div>
@@ -189,7 +189,7 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
         <>
           <div className="section-header">
             <h2 className="section-title">
-              <span>ðŸ“±</span> Your Apps
+              <span>????</span> Your Apps
               <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--text-secondary)' }}>({ownApps.length})</span>
             </h2>
           </div>
@@ -206,7 +206,7 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
         <>
           <div className="section-header">
             <h2 className="section-title">
-              <span>ðŸŒ</span> Websites & Web Apps
+              <span>????</span> Websites & Web Apps
               <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--text-secondary)' }}>({clientProjects.length})</span>
             </h2>
           </div>
@@ -221,7 +221,7 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
       {/* Pipeline */}
       <div className="section-header">
         <h2 className="section-title">
-          <span>ðŸš€</span> App Pipeline
+          <span>????</span> App Pipeline
           <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--text-secondary)' }}>({(pipeline || []).length} ideas)</span>
         </h2>
       </div>

@@ -1,4 +1,4 @@
-﻿// src/App.js
+// src/App.js
 import React, { useState } from 'react';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { INITIAL_PROJECTS, PIPELINE_APPS } from './data/initialData';
