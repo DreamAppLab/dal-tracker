@@ -72,7 +72,7 @@ function ProjectCard({ project, onClick }) {
       <div className="card-mini-stats">
         <div className="card-mini-stat">
           <div className="card-mini-stat-value" style={{ color: 'var(--green)' }}>
-            {monthlyRev > 0 ? `$${monthlyRev}` : '—'}
+            {monthlyRev > 0 ? `$${monthlyRev}` : '???'}
           </div>
           <div className="card-mini-stat-label">MRR</div>
         </div>
@@ -125,7 +125,7 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
       <div className="page-header">
         <div>
           <h1 className="page-title">Mission Control</h1>
-          <p className="page-subtitle">Dream App Lab — All Projects Overview</p>
+          <p className="page-subtitle">Dream App Lab ??? All Projects Overview</p>
         </div>
         <div className="page-actions">
           <div className="live-indicator">
@@ -165,7 +165,7 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
         <div className="stat-card indigo">
           <div className="stat-label">Active Projects</div>
           <div className="stat-value">{projects.length}</div>
-          <div className="stat-sub">{liveCount} live · {inDevCount} in dev</div>
+          <div className="stat-sub">{liveCount} live ?? {inDevCount} in dev</div>
         </div>
         <div className="stat-card electric">
           <div className="stat-label">Overall Progress</div>

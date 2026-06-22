@@ -2,9 +2,9 @@
 import React from 'react';
 import { STATUS_CONFIG } from '../data/initialData';
 
-const NAV_ICON = {
-  dashboard: '⊞',
-  project: '◈'
+// removed
+  dashboard: '???',
+  project: '???'
 };
 
 export default function Sidebar({ projects, activeView, selectedProjectId, onNavigate, onSelectProject, onAddProject, sidebarOpen, setSidebarOpen }) {
@@ -18,7 +18,7 @@ export default function Sidebar({ projects, activeView, selectedProjectId, onNav
           </div>
         )}
         <button className="sidebar-toggle" onClick={() => setSidebarOpen(!sidebarOpen)} title="Toggle sidebar">
-          {sidebarOpen ? '◀' : '▶'}
+          {sidebarOpen ? '???' : '???'}
         </button>
       </div>
 
