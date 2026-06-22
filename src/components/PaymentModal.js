@@ -24,7 +24,7 @@ export default function PaymentModal({ type, onSave, onClose }) {
           <div className="modal-title" style={{ color: isOut ? 'var(--coral)' : 'var(--green)' }}>
             {isOut ? 'Log Payment Out' : 'Log Payment In'}
           </div>
-          <button className="btn btn-ghost btn-sm" onClick={onClose}>???</button>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
         </div>
         <div className="modal-body">
           <div style={{ padding: '10px 12px', background: isOut ? 'var(--coral-dim)' : 'rgba(34,197,94,0.1)', border: `1px solid ${isOut ? 'rgba(255,91,91,0.2)' : 'rgba(34,197,94,0.2)'}`, borderRadius: 8, fontSize: 12, color: isOut ? 'var(--coral)' : 'var(--green)', marginBottom: 16 }}>

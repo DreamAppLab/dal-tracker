@@ -8,7 +8,7 @@ export const INITIAL_PROJECTS = [
     status: "live",
     tagline: "K-12 Classroom Management",
     color: "#6366F1",
-    logo: "📚",
+    logo: "MCL",
     bundleId: "com.dreamapplab.myclasslog",
     launchDate: "2024-01-15",
     revenue: { monthly: 420, total: 3780, currency: "USD", model: "freemium" },
@@ -45,7 +45,7 @@ export const INITIAL_PROJECTS = [
     status: "live",
     tagline: "Travel Journaling",
     color: "#00D4B8",
-    logo: "✈️",
+    logo: "TMA",
     bundleId: "com.dreamapplab.tenmilesahead",
     launchDate: "2024-03-10",
     revenue: { monthly: 185, total: 1295, currency: "USD", model: "paid" },
@@ -78,7 +78,7 @@ export const INITIAL_PROJECTS = [
     status: "in-development",
     tagline: "RV Maintenance & Management",
     color: "#F59E0B",
-    logo: "🚐",
+    logo: "RVV",
     bundleId: "com.dreamapplab.rvvault",
     launchDate: null,
     revenue: { monthly: 0, total: 0, currency: "USD", model: "freemium" },
@@ -112,7 +112,7 @@ export const INITIAL_PROJECTS = [
     status: "submitted",
     tagline: "Personal Health Symptom Journal",
     color: "#FF5B5B",
-    logo: "🩺",
+    logo: "FLP",
     bundleId: "com.dreamapplab.flarepad",
     launchDate: null,
     price: 2.99,
@@ -145,7 +145,7 @@ export const INITIAL_PROJECTS = [
     status: "in-development",
     tagline: "Home Repair & Warranty Tracker",
     color: "#F59E0B",
-    logo: "🏠",
+    logo: "LGA",
     bundleId: "com.dreamapplab.logabode",
     launchDate: null,
     price: 2.99,
@@ -177,7 +177,7 @@ export const INITIAL_PROJECTS = [
     status: "in-development",
     tagline: "dreamapplab.com — Studio Site",
     color: "#58c6f4",
-    logo: "🌐",
+    logo: "WEB",
     bundleId: null,
     launchDate: null,
     revenue: { monthly: 0, total: 0, currency: "USD", model: "lead-gen" },
@@ -209,12 +209,12 @@ export const INITIAL_PROJECTS = [
 ];
 
 export const PIPELINE_APPS = [
-  { id: "plantcare", name: "Plant Care Journal", logo: "🌿", color: "#22C55E", status: "ideation" },
-  { id: "petsymptom", name: "Pet Symptom Journal", logo: "🐾", color: "#8B5CF6", status: "ideation" },
-  { id: "yarnstash", name: "Yarn & Fabric Stash Tracker", logo: "🧶", color: "#EC4899", status: "ideation" },
-  { id: "medsideeffect", name: "Medication Side Effect Journal", logo: "💊", color: "#06B6D4", status: "ideation" },
-  { id: "migrainelogger", name: "Migraine Pattern Logger", logo: "🧠", color: "#7C3AED", status: "ideation" },
-  { id: "parentcare", name: "Aging Parent Care Journal", logo: "❤️", color: "#F43F5E", status: "ideation" }
+  { id: "plantcare", name: "Plant Care Journal", logo: "PLT", color: "#22C55E", status: "ideation" },
+  { id: "petsymptom", name: "Pet Symptom Journal", logo: "PET", color: "#8B5CF6", status: "ideation" },
+  { id: "yarnstash", name: "Yarn & Fabric Stash Tracker", logo: "YRN", color: "#EC4899", status: "ideation" },
+  { id: "medsideeffect", name: "Medication Side Effect Journal", logo: "MED", color: "#06B6D4", status: "ideation" },
+  { id: "migrainelogger", name: "Migraine Pattern Logger", logo: "MIG", color: "#7C3AED", status: "ideation" },
+  { id: "parentcare", name: "Aging Parent Care Journal", logo: "FAM", color: "#F43F5E", status: "ideation" }
 ];
 
 export const STATUS_CONFIG = {

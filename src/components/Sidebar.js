@@ -2,6 +2,10 @@
 import React from 'react';
 import { STATUS_CONFIG } from '../data/initialData';
 
+const NAV_ICON = {
+  dashboard: '⊞',
+  project: '◈'
+};
 
 export default function Sidebar({ projects, activeView, selectedProjectId, onNavigate, onSelectProject, onAddProject, sidebarOpen, setSidebarOpen }) {
   return (
@@ -24,7 +28,7 @@ export default function Sidebar({ projects, activeView, selectedProjectId, onNav
           className={`sidebar-item ${activeView === 'dashboard' ? 'active' : ''}`}
           onClick={() => onNavigate('dashboard')}
         >
-          <span className="sidebar-item-icon">📊</span>
+          <span className="sidebar-item-icon"></span>
           {sidebarOpen && <span className="sidebar-item-text">Dashboard</span>}
         </button>
 

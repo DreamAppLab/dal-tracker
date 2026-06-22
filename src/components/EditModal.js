@@ -16,7 +16,7 @@ export default function EditModal({ edit, onSave, onClose }) {
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <div className="modal-title">{edit ? 'Edit Item' : 'Add Edit Needed'}</div>
-          <button className="btn btn-ghost btn-sm" onClick={onClose}>???</button>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
         </div>
         <div className="modal-body">
           <div className="form-row">

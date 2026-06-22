@@ -55,8 +55,8 @@ function generateEditsPDF(project, filter) {
           color:${e.priority === 'high' ? '#dc2626' : e.priority === 'medium' ? '#d97706' : '#2563eb'};
           padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">${e.priority.toUpperCase()}</span>
       </td>
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px">${e.notes || '???'}</td>
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px;text-align:center;color:${e.amount > 0 ? '#d97706' : '#666'};font-weight:${e.amount > 0 ? '700' : '400'}">${e.amount > 0 ? '$' + e.amount.toFixed(2) : '???'}</td>
+      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px">${e.notes || '—'}</td>
+      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px;text-align:center;color:${e.amount > 0 ? '#d97706' : '#666'};font-weight:${e.amount > 0 ? '700' : '400'}">${e.amount > 0 ? '$' + e.amount.toFixed(2) : '—'}</td>
       <td style="padding:10px;border:1px solid #dee2e6;font-size:13px">${formatDate(e.createdAt)}</td>
       <td style="padding:10px;border:1px solid #dee2e6;font-size:13px;text-align:center">${e.sentToDev ? 'Yes' + (e.sentToDevAt ? ' (' + formatDate(e.sentToDevAt) + ')' : '') : 'No'}</td>
       <td style="padding:10px;border:1px solid #dee2e6;font-size:13px;text-align:center">${e.completed ? 'Done' : 'Open'}</td>
@@ -66,7 +66,7 @@ function generateEditsPDF(project, filter) {
   const html = `<!DOCTYPE html><html><head><title>${project.name} - Edits Needed</title>
     <style>body{font-family:Arial,sans-serif;margin:40px;color:#1a1a1a}h1{font-size:22px;margin-bottom:4px}.meta{color:#666;font-size:13px;margin-bottom:24px}.total{margin-top:16px;padding:12px 16px;background:#fef9c3;border-radius:8px;font-weight:700;font-size:14px;color:#d97706}table{width:100%;border-collapse:collapse}th{background:#1a2234;color:white;padding:10px;text-align:left;font-size:12px;border:1px solid #dee2e6}</style>
     </head><body>
-    <h1>${project.name} ??? Edits Needed</h1>
+    <h1>${project.name} — Edits Needed</h1>
     <div class="meta">Generated: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} | Filter: ${filter} | ${sorted.length} item(s)</div>
     <table><thead><tr><th>Page</th><th>Location</th><th>Item</th><th>Priority</th><th>Notes</th><th>Cost</th><th>Date Added</th><th>Sent to Dev</th><th>Status</th></tr></thead>
     <tbody>${rows}</tbody></table>
@@ -91,11 +91,11 @@ function getFilteredEdits(edits, filter) {
 }
 
 const TABS = [
-  { key: 'overview', label: 'Overview', icon: '????' },
-  { key: 'milestones', label: 'Milestones', icon: '????' },
-  { key: 'edits', label: 'Edits Needed', icon: '??????' },
-  { key: 'stack', label: 'Tech Stack', icon: '??????' },
-  { key: 'financials', label: 'Financials', icon: '????' }
+  { key: "overview", label: "Overview" },
+  { key: "milestones", label: "Milestones" },
+  { key: "edits", label: "Edits Needed" },
+  { key: "stack", label: "Tech Stack" },
+  { key: "financials", label: "Financials" }
 ];
 
 export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
@@ -228,7 +228,7 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
           if (t.key === 'financials') count = (project.expenses || []).length + (project.payments || []).length;
           return (
             <button key={t.key} className={`tab-btn ${activeTab === t.key ? 'active' : ''}`} onClick={() => setActiveTab(t.key)}>
-              {t.icon} {t.label}
+              {t.label}
               {count !== null && count > 0 && <span className="tab-count">{count}</span>}
             </button>
           );
@@ -285,7 +285,7 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
           <div className="item-list">
             {(project.milestones || []).slice(-3).reverse().map(m => (
               <div key={m.id} className={`item-row ${m.completed ? 'completed' : ''}`}>
-                <div className="check-btn checked" style={{ background: m.completed ? project.color : undefined, borderColor: project.color }}>{m.completed ? '???' : ''}</div>
+                <div className="check-btn checked" style={{ background: m.completed ? project.color : undefined, borderColor: project.color }}>{m.completed ? '✓' : ''}</div>
                 <div className="item-main">
                   <div className="item-title">{m.title}</div>
                   <div className="item-desc">{m.description}</div>
@@ -304,20 +304,20 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
             <button className="btn btn-primary btn-sm" onClick={() => { setEditingItem(null); setShowMilestoneModal(true); }}>+ Add Milestone</button>
           </div>
           {(project.milestones || []).length === 0 ? (
-            <div className="empty-state"><div className="empty-state-icon">????</div><div className="empty-state-text">No milestones yet.</div></div>
+            <div className="empty-state"><div className="empty-state-icon"></div><div className="empty-state-text">No milestones yet.</div></div>
           ) : (
             <div className="item-list">
               {(project.milestones || []).map(m => (
                 <div key={m.id} className={`item-row ${m.completed ? 'completed' : ''}`}>
-                  <button className={`check-btn ${m.completed ? 'checked' : ''}`} style={m.completed ? { background: project.color, borderColor: project.color } : { borderColor: project.color }} onClick={() => toggleMilestone(m.id)}>{m.completed ? '???' : ''}</button>
+                  <button className={`check-btn ${m.completed ? 'checked' : ''}`} style={m.completed ? { background: project.color, borderColor: project.color } : { borderColor: project.color }} onClick={() => toggleMilestone(m.id)}>{m.completed ? '✓' : ''}</button>
                   <div className="item-main">
                     <div className="item-title">{m.title}{m.dueDate && <span className="tag" style={{ background: 'var(--bg-surface)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}>{m.dueDate}</span>}</div>
                     <div className="item-desc">{m.description}</div>
                   </div>
                   {m.amount > 0 && <div className="item-amount">${m.amount.toLocaleString()}</div>}
                   <div className="item-actions">
-                    <button className="icon-btn" onClick={() => { setEditingItem(m); setShowMilestoneModal(true); }}>???</button>
-                    <button className="icon-btn danger" onClick={() => deleteMilestone(m.id)}>???</button>
+                    <button className="icon-btn" onClick={() => { setEditingItem(m); setShowMilestoneModal(true); }}>✏</button>
+                    <button className="icon-btn danger" onClick={() => deleteMilestone(m.id)}>✕</button>
                   </div>
                 </div>
               ))}
@@ -356,14 +356,14 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
             </div>
           )}
           {sortedEdits.length === 0 ? (
-            <div className="empty-state"><div className="empty-state-icon">??????</div><div className="empty-state-text">No edits in this filter.</div></div>
+            <div className="empty-state"><div className="empty-state-icon"></div><div className="empty-state-text">No edits in this filter.</div></div>
           ) : (
             <div className="item-list">
               {sortedEdits.map(e => {
                 const pc = PRIORITY_CONFIG[e.priority] || PRIORITY_CONFIG.medium;
                 return (
                   <div key={e.id} className={`item-row ${e.completed ? 'completed' : ''}`}>
-                    <button className={`check-btn ${e.completed ? 'checked' : ''}`} style={e.completed ? { background: project.color, borderColor: project.color } : { borderColor: project.color }} onClick={() => toggleEdit(e.id)}>{e.completed ? '???' : ''}</button>
+                    <button className={`check-btn ${e.completed ? 'checked' : ''}`} style={e.completed ? { background: project.color, borderColor: project.color } : { borderColor: project.color }} onClick={() => toggleEdit(e.id)}>{e.completed ? '✓' : ''}</button>
                     <div className="item-main">
                       <div className="item-title">
                         {e.item}
@@ -373,16 +373,16 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
                       </div>
                       <div className="item-tags">
                         <span className="tag" style={{ background: 'var(--indigo-dim)', color: 'var(--indigo)' }}>{e.page}</span>
-                        <span className="tag" style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>???? {e.location}</span>
+                        <span className="tag" style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}> {e.location}</span>
                         {e.createdAt && <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 4 }}>Added {formatDate(e.createdAt)}</span>}
                         {e.sentToDevAt && <span style={{ fontSize: 10, color: 'var(--green)', marginLeft: 4 }}>Sent {formatDate(e.sentToDevAt)}</span>}
                       </div>
-                      {e.notes && <div className="item-desc" style={{ marginTop: 6 }}>???? {e.notes}</div>}
+                      {e.notes && <div className="item-desc" style={{ marginTop: 6 }}>Note: {e.notes}</div>}
                     </div>
                     <div className="item-actions">
-                      <button className="icon-btn" title={e.sentToDev ? 'Unmark sent' : 'Mark sent to dev'} onClick={() => toggleSentToDev(e.id)} style={e.sentToDev ? { color: 'var(--green)', borderColor: 'var(--green)' } : {}}>???</button>
-                      <button className="icon-btn" onClick={() => { setEditingItem(e); setShowEditModal(true); }}>???</button>
-                      <button className="icon-btn danger" onClick={() => deleteEdit(e.id)}>???</button>
+                      <button className="icon-btn" title={e.sentToDev ? 'Unmark sent' : 'Mark sent to dev'} onClick={() => toggleSentToDev(e.id)} style={e.sentToDev ? { color: 'var(--green)', borderColor: 'var(--green)' } : {}}>✉</button>
+                      <button className="icon-btn" onClick={() => { setEditingItem(e); setShowEditModal(true); }}>✏</button>
+                      <button className="icon-btn danger" onClick={() => deleteEdit(e.id)}>✕</button>
                     </div>
                   </div>
                 );
@@ -399,7 +399,7 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
             <button className="btn btn-primary btn-sm" onClick={() => setShowStackModal(true)}>+ Add Layer</button>
           </div>
           {(project.techStack || []).length === 0 ? (
-            <div className="empty-state"><div className="empty-state-icon">??????</div><div className="empty-state-text">No tech stack defined yet.</div></div>
+            <div className="empty-state"><div className="empty-state-icon"></div><div className="empty-state-text">No tech stack defined yet.</div></div>
           ) : (
             <table className="stack-table">
               <thead><tr><th>Layer</th><th>Technology</th><th style={{ width: 40 }}></th></tr></thead>
@@ -408,7 +408,7 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
                   <tr key={i}>
                     <td><span className="layer-badge">{s.layer}</span></td>
                     <td><span className="tech-value">{s.tech}</span></td>
-                    <td><button className="icon-btn danger" onClick={() => deleteTechStack(i)}>???</button></td>
+                    <td><button className="icon-btn danger" onClick={() => deleteTechStack(i)}>✕</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -484,7 +484,7 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
                   <div key={e.id} className="expense-row" style={{ background: 'var(--bg-card)' }}>
                     <div>
                       <div className="expense-name">{e.item}</div>
-                      <div className="expense-meta">{e.page} ??? {e.location} {e.sentToDev ? '?? Sent to Dev' : '?? Not yet sent'}</div>
+                      <div className="expense-meta">{e.page} — {e.location} {e.sentToDev ? '· Sent to Dev' : '· Not yet sent'}</div>
                     </div>
                     <div className="expense-amount">${e.amount.toFixed(2)}</div>
                   </div>
@@ -495,7 +495,7 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
 
           {/* Payments OUT */}
           <div className="data-section-header" style={{ marginTop: 8 }}>
-            <h3 className="data-section-title" style={{ color: 'var(--coral)' }}>Payments Out ??? To Developer / Vendors</h3>
+            <h3 className="data-section-title" style={{ color: 'var(--coral)' }}>Payments Out — To Developer / Vendors</h3>
             <button className="btn btn-primary btn-sm" onClick={() => { setPaymentType('out'); setShowPaymentModal(true); }}>+ Log Payment Out</button>
           </div>
           {paymentsOut.length === 0 ? (
@@ -515,7 +515,7 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div className="expense-amount" style={{ color: 'var(--coral)' }}>${p.amount.toFixed(2)}</div>
-                    <button className="icon-btn danger" onClick={() => deletePayment(p.id)}>???</button>
+                    <button className="icon-btn danger" onClick={() => deletePayment(p.id)}>✕</button>
                   </div>
                 </div>
               ))}
@@ -528,7 +528,7 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
 
           {/* Payments IN */}
           <div className="data-section-header">
-            <h3 className="data-section-title" style={{ color: 'var(--green)' }}>Payments In ??? From Clients / Revenue</h3>
+            <h3 className="data-section-title" style={{ color: 'var(--green)' }}>Payments In — From Clients / Revenue</h3>
             <button className="btn btn-primary btn-sm" onClick={() => { setPaymentType('in'); setShowPaymentModal(true); }}>+ Log Payment In</button>
           </div>
           {paymentsIn.length === 0 ? (
@@ -548,7 +548,7 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div className="expense-amount" style={{ color: 'var(--green)' }}>${p.amount.toFixed(2)}</div>
-                    <button className="icon-btn danger" onClick={() => deletePayment(p.id)}>???</button>
+                    <button className="icon-btn danger" onClick={() => deletePayment(p.id)}>✕</button>
                   </div>
                 </div>
               ))}
@@ -565,7 +565,7 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
             <button className="btn btn-primary btn-sm" onClick={() => { setEditingItem(null); setShowExpenseModal(true); }}>+ Add Expense</button>
           </div>
           {(project.expenses || []).length === 0 ? (
-            <div className="empty-state"><div className="empty-state-icon">????</div><div className="empty-state-text">No recurring expenses yet.</div></div>
+            <div className="empty-state"><div className="empty-state-icon"></div><div className="empty-state-text">No recurring expenses yet.</div></div>
           ) : (
             <div className="expense-list">
               {(project.expenses || []).map(e => {
@@ -581,8 +581,8 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <div className="expense-amount">${monthlyAmt.toFixed(2)}<span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 400 }}>/mo</span></div>
-                      <button className="icon-btn" onClick={() => { setEditingItem(e); setShowExpenseModal(true); }}>???</button>
-                      <button className="icon-btn danger" onClick={() => deleteExpense(e.id)}>???</button>
+                      <button className="icon-btn" onClick={() => { setEditingItem(e); setShowExpenseModal(true); }}>✏</button>
+                      <button className="icon-btn danger" onClick={() => deleteExpense(e.id)}>✕</button>
                     </div>
                   </div>
                 );
