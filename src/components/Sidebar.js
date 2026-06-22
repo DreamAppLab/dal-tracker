@@ -3,10 +3,6 @@ import React from 'react';
 import { STATUS_CONFIG } from '../data/initialData';
 
 
-  dashboard: '⊞',
-  project: '◈'
-};
-
 export default function Sidebar({ projects, activeView, selectedProjectId, onNavigate, onSelectProject, onAddProject, sidebarOpen, setSidebarOpen }) {
   return (
     <aside className={`sidebar ${sidebarOpen ? '' : 'collapsed'}`}>
