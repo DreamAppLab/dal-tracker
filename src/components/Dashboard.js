@@ -106,6 +106,11 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
   const liveCount = projects.filter(p => p.status === 'live').length;
   const inDevCount = projects.filter(p => p.status === 'in-development').length;
   const openEdits = projects.reduce((s, p) => s + (p.edits || []).filter(e => !e.completed).length, 0);
+  const totalOutstanding = projects.reduce((s, p) => {
+    const editCosts = (p.edits || []).filter(e => e.amount > 0 && !e.completed).reduce((sum, e) => sum + (e.amount || 0), 0);
+    const milestoneCosts = (p.milestones || []).filter(m => m.amount > 0 && !m.completed).reduce((sum, m) => sum + (m.amount || 0), 0);
+    return s + editCosts + milestoneCosts;
+  }, 0);
   const openMilestones = projects.reduce((s, p) => s + (p.milestones || []).filter(m => !m.completed).length, 0);
 
   const totalAllTasks = projects.reduce((s, p) => {
@@ -181,6 +186,11 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
           <div className="stat-label">Open Milestones</div>
           <div className="stat-value">{openMilestones}</div>
           <div className="stat-sub">Pending completion</div>
+        </div>
+        <div className="stat-card amber">
+          <div className="stat-label">Total Outstanding</div>
+          <div className="stat-value" style={{ color: totalOutstanding > 0 ? 'var(--amber)' : 'var(--text-secondary)' }}>${totalOutstanding.toLocaleString()}</div>
+          <div className="stat-sub">Unpaid across all projects</div>
         </div>
       </div>
 

@@ -25,6 +25,10 @@ function getOutstandingEditCosts(project) {
   return (project.edits || []).filter(e => e.amount > 0 && !e.completed).reduce((sum, e) => sum + (e.amount || 0), 0);
 }
 
+function getOutstandingMilestoneCosts(project) {
+  return (project.milestones || []).filter(m => m.amount > 0 && !m.completed).reduce((sum, m) => sum + (m.amount || 0), 0);
+}
+
 function getTotalPaidOut(project) {
   return (project.payments || []).filter(p => p.type === 'out').reduce((sum, p) => sum + p.amount, 0);
 }
@@ -55,8 +59,8 @@ function generateEditsPDF(project, filter) {
           color:${e.priority === 'high' ? '#dc2626' : e.priority === 'medium' ? '#d97706' : '#2563eb'};
           padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">${e.priority.toUpperCase()}</span>
       </td>
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px">${e.notes || '—'}</td>
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px;text-align:center;color:${e.amount > 0 ? '#d97706' : '#666'};font-weight:${e.amount > 0 ? '700' : '400'}">${e.amount > 0 ? '$' + e.amount.toFixed(2) : '—'}</td>
+      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px">${e.notes || '???'}</td>
+      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px;text-align:center;color:${e.amount > 0 ? '#d97706' : '#666'};font-weight:${e.amount > 0 ? '700' : '400'}">${e.amount > 0 ? '$' + e.amount.toFixed(2) : '???'}</td>
       <td style="padding:10px;border:1px solid #dee2e6;font-size:13px">${formatDate(e.createdAt)}</td>
       <td style="padding:10px;border:1px solid #dee2e6;font-size:13px;text-align:center">${e.sentToDev ? 'Yes' + (e.sentToDevAt ? ' (' + formatDate(e.sentToDevAt) + ')' : '') : 'No'}</td>
       <td style="padding:10px;border:1px solid #dee2e6;font-size:13px;text-align:center">${e.completed ? 'Done' : 'Open'}</td>
@@ -66,7 +70,7 @@ function generateEditsPDF(project, filter) {
   const html = `<!DOCTYPE html><html><head><title>${project.name} - Edits Needed</title>
     <style>body{font-family:Arial,sans-serif;margin:40px;color:#1a1a1a}h1{font-size:22px;margin-bottom:4px}.meta{color:#666;font-size:13px;margin-bottom:24px}.total{margin-top:16px;padding:12px 16px;background:#fef9c3;border-radius:8px;font-weight:700;font-size:14px;color:#d97706}table{width:100%;border-collapse:collapse}th{background:#1a2234;color:white;padding:10px;text-align:left;font-size:12px;border:1px solid #dee2e6}</style>
     </head><body>
-    <h1>${project.name} — Edits Needed</h1>
+    <h1>${project.name} ??? Edits Needed</h1>
     <div class="meta">Generated: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} | Filter: ${filter} | ${sorted.length} item(s)</div>
     <table><thead><tr><th>Page</th><th>Location</th><th>Item</th><th>Priority</th><th>Notes</th><th>Cost</th><th>Date Added</th><th>Sent to Dev</th><th>Status</th></tr></thead>
     <tbody>${rows}</tbody></table>
@@ -112,6 +116,8 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
   const prog = getProgress(project);
   const monthlyExp = getMonthlyExpenses(project);
   const outstandingEditCosts = getOutstandingEditCosts(project);
+  const outstandingMilestoneCosts = getOutstandingMilestoneCosts(project);
+  const totalOutstanding = outstandingEditCosts + outstandingMilestoneCosts;
   const totalPaidOut = getTotalPaidOut(project);
   const totalPaidIn = getTotalPaidIn(project);
   const sc = STATUS_CONFIG[project.status] || STATUS_CONFIG.ideation;
@@ -254,9 +260,9 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
               <div className="stat-sub">{paymentsOut.length} payment{paymentsOut.length !== 1 ? 's' : ''} made</div>
             </div>
             <div className="stat-card amber">
-              <div className="stat-label">Outstanding Dev Costs</div>
-              <div className="stat-value" style={{ color: outstandingEditCosts > 0 ? 'var(--amber)' : 'var(--text-secondary)' }}>${outstandingEditCosts.toFixed(0)}</div>
-              <div className="stat-sub">{hasCostCount} edit{hasCostCount !== 1 ? 's' : ''} with cost</div>
+              <div className="stat-label">Total Outstanding</div>
+              <div className="stat-value" style={{ color: totalOutstanding > 0 ? 'var(--amber)' : 'var(--text-secondary)' }}>${totalOutstanding.toFixed(0)}</div>
+              <div className="stat-sub">Edits + milestones unpaid</div>
             </div>
             <div className="stat-card indigo">
               <div className="stat-label">Monthly Operating</div>
@@ -285,7 +291,7 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
           <div className="item-list">
             {(project.milestones || []).slice(-3).reverse().map(m => (
               <div key={m.id} className={`item-row ${m.completed ? 'completed' : ''}`}>
-                <div className="check-btn checked" style={{ background: m.completed ? project.color : undefined, borderColor: project.color }}>{m.completed ? '✓' : ''}</div>
+                <div className="check-btn checked" style={{ background: m.completed ? project.color : undefined, borderColor: project.color }}>{m.completed ? '???' : ''}</div>
                 <div className="item-main">
                   <div className="item-title">{m.title}</div>
                   <div className="item-desc">{m.description}</div>
@@ -309,15 +315,15 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
             <div className="item-list">
               {(project.milestones || []).map(m => (
                 <div key={m.id} className={`item-row ${m.completed ? 'completed' : ''}`}>
-                  <button className={`check-btn ${m.completed ? 'checked' : ''}`} style={m.completed ? { background: project.color, borderColor: project.color } : { borderColor: project.color }} onClick={() => toggleMilestone(m.id)}>{m.completed ? '✓' : ''}</button>
+                  <button className={`check-btn ${m.completed ? 'checked' : ''}`} style={m.completed ? { background: project.color, borderColor: project.color } : { borderColor: project.color }} onClick={() => toggleMilestone(m.id)}>{m.completed ? '???' : ''}</button>
                   <div className="item-main">
                     <div className="item-title">{m.title}{m.dueDate && <span className="tag" style={{ background: 'var(--bg-surface)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}>{m.dueDate}</span>}</div>
                     <div className="item-desc">{m.description}</div>
                   </div>
                   {m.amount > 0 && <div className="item-amount">${m.amount.toLocaleString()}</div>}
                   <div className="item-actions">
-                    <button className="icon-btn" onClick={() => { setEditingItem(m); setShowMilestoneModal(true); }}>✏</button>
-                    <button className="icon-btn danger" onClick={() => deleteMilestone(m.id)}>✕</button>
+                    <button className="icon-btn" onClick={() => { setEditingItem(m); setShowMilestoneModal(true); }}>???</button>
+                    <button className="icon-btn danger" onClick={() => deleteMilestone(m.id)}>???</button>
                   </div>
                 </div>
               ))}
@@ -363,7 +369,7 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
                 const pc = PRIORITY_CONFIG[e.priority] || PRIORITY_CONFIG.medium;
                 return (
                   <div key={e.id} className={`item-row ${e.completed ? 'completed' : ''}`}>
-                    <button className={`check-btn ${e.completed ? 'checked' : ''}`} style={e.completed ? { background: project.color, borderColor: project.color } : { borderColor: project.color }} onClick={() => toggleEdit(e.id)}>{e.completed ? '✓' : ''}</button>
+                    <button className={`check-btn ${e.completed ? 'checked' : ''}`} style={e.completed ? { background: project.color, borderColor: project.color } : { borderColor: project.color }} onClick={() => toggleEdit(e.id)}>{e.completed ? '???' : ''}</button>
                     <div className="item-main">
                       <div className="item-title">
                         {e.item}
@@ -380,9 +386,9 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
                       {e.notes && <div className="item-desc" style={{ marginTop: 6 }}>Note: {e.notes}</div>}
                     </div>
                     <div className="item-actions">
-                      <button className="icon-btn" title={e.sentToDev ? 'Unmark sent' : 'Mark sent to dev'} onClick={() => toggleSentToDev(e.id)} style={e.sentToDev ? { color: 'var(--green)', borderColor: 'var(--green)' } : {}}>✉</button>
-                      <button className="icon-btn" onClick={() => { setEditingItem(e); setShowEditModal(true); }}>✏</button>
-                      <button className="icon-btn danger" onClick={() => deleteEdit(e.id)}>✕</button>
+                      <button className="icon-btn" title={e.sentToDev ? 'Unmark sent' : 'Mark sent to dev'} onClick={() => toggleSentToDev(e.id)} style={e.sentToDev ? { color: 'var(--green)', borderColor: 'var(--green)' } : {}}>???</button>
+                      <button className="icon-btn" onClick={() => { setEditingItem(e); setShowEditModal(true); }}>???</button>
+                      <button className="icon-btn danger" onClick={() => deleteEdit(e.id)}>???</button>
                     </div>
                   </div>
                 );
@@ -408,7 +414,7 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
                   <tr key={i}>
                     <td><span className="layer-badge">{s.layer}</span></td>
                     <td><span className="tech-value">{s.tech}</span></td>
-                    <td><button className="icon-btn danger" onClick={() => deleteTechStack(i)}>✕</button></td>
+                    <td><button className="icon-btn danger" onClick={() => deleteTechStack(i)}>???</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -433,16 +439,16 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
               <div className="stat-sub">To developer / vendors</div>
             </div>
             <div className="stat-card amber">
-              <div className="stat-label">Outstanding Dev Costs</div>
-              <div className="stat-value" style={{ color: outstandingEditCosts > 0 ? 'var(--amber)' : 'var(--text-secondary)' }}>${outstandingEditCosts.toFixed(2)}</div>
-              <div className="stat-sub">Unpaid edit charges</div>
+              <div className="stat-label">Total Outstanding</div>
+              <div className="stat-value" style={{ color: totalOutstanding > 0 ? 'var(--amber)' : 'var(--text-secondary)' }}>${totalOutstanding.toFixed(2)}</div>
+              <div className="stat-sub">Edits ${outstandingEditCosts.toFixed(0)} + Milestones ${outstandingMilestoneCosts.toFixed(0)}</div>
             </div>
             <div className="stat-card teal">
-              <div className="stat-label">Net Position</div>
-              <div className="stat-value" style={{ color: (totalPaidIn - totalPaidOut) >= 0 ? 'var(--green)' : 'var(--coral)' }}>
-                ${(totalPaidIn - totalPaidOut).toFixed(2)}
+              <div className="stat-label">Balance Owed to Dev</div>
+              <div className="stat-value" style={{ color: (totalOutstanding - totalPaidOut) > 0 ? 'var(--coral)' : 'var(--green)' }}>
+                ${Math.max(0, totalOutstanding - totalPaidOut).toFixed(2)}
               </div>
-              <div className="stat-sub">Paid in minus paid out</div>
+              <div className="stat-sub">Outstanding minus paid out</div>
             </div>
           </div>
 
@@ -484,7 +490,7 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
                   <div key={e.id} className="expense-row" style={{ background: 'var(--bg-card)' }}>
                     <div>
                       <div className="expense-name">{e.item}</div>
-                      <div className="expense-meta">{e.page} — {e.location} {e.sentToDev ? '· Sent to Dev' : '· Not yet sent'}</div>
+                      <div className="expense-meta">{e.page} ??? {e.location} {e.sentToDev ? '?? Sent to Dev' : '?? Not yet sent'}</div>
                     </div>
                     <div className="expense-amount">${e.amount.toFixed(2)}</div>
                   </div>
@@ -493,9 +499,28 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
             </div>
           )}
 
+          {/* Outstanding milestone costs */}
+          {outstandingMilestoneCosts > 0 && (
+            <div style={{ padding: '16px 20px', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 10, marginBottom: 20 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 8 }}>Outstanding Milestone Costs</div>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 700, color: 'var(--indigo)', marginBottom: 12 }}>${outstandingMilestoneCosts.toFixed(2)}</div>
+              <div className="expense-list">
+                {(project.milestones || []).filter(m => m.amount > 0 && !m.completed).map(m => (
+                  <div key={m.id} className="expense-row" style={{ background: 'var(--bg-card)' }}>
+                    <div>
+                      <div className="expense-name">{m.title}</div>
+                      <div className="expense-meta">{m.dueDate ? 'Due: ' + m.dueDate : 'No due date'}</div>
+                    </div>
+                    <div className="expense-amount" style={{ color: 'var(--indigo)' }}>${m.amount.toLocaleString()}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Payments OUT */}
           <div className="data-section-header" style={{ marginTop: 8 }}>
-            <h3 className="data-section-title" style={{ color: 'var(--coral)' }}>Payments Out — To Developer / Vendors</h3>
+            <h3 className="data-section-title" style={{ color: 'var(--coral)' }}>Payments Out ??? To Developer / Vendors</h3>
             <button className="btn btn-primary btn-sm" onClick={() => { setPaymentType('out'); setShowPaymentModal(true); }}>+ Log Payment Out</button>
           </div>
           {paymentsOut.length === 0 ? (
@@ -515,7 +540,7 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div className="expense-amount" style={{ color: 'var(--coral)' }}>${p.amount.toFixed(2)}</div>
-                    <button className="icon-btn danger" onClick={() => deletePayment(p.id)}>✕</button>
+                    <button className="icon-btn danger" onClick={() => deletePayment(p.id)}>???</button>
                   </div>
                 </div>
               ))}
@@ -523,12 +548,23 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
                 <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Total Paid Out</div>
                 <div className="expense-amount" style={{ color: 'var(--coral)', fontSize: 16 }}>${totalPaidOut.toFixed(2)}</div>
               </div>
+              {totalOutstanding > 0 && (
+                <div className="expense-row" style={{ background: 'rgba(245,158,11,0.08)', borderColor: 'rgba(245,158,11,0.2)' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Remaining Balance Owed</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>${totalOutstanding.toFixed(2)} outstanding minus ${totalPaidOut.toFixed(2)} paid</div>
+                  </div>
+                  <div className="expense-amount" style={{ color: Math.max(0, totalOutstanding - totalPaidOut) > 0 ? 'var(--amber)' : 'var(--green)', fontSize: 16 }}>
+                    ${Math.max(0, totalOutstanding - totalPaidOut).toFixed(2)}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {/* Payments IN */}
           <div className="data-section-header">
-            <h3 className="data-section-title" style={{ color: 'var(--green)' }}>Payments In — From Clients / Revenue</h3>
+            <h3 className="data-section-title" style={{ color: 'var(--green)' }}>Payments In ??? From Clients / Revenue</h3>
             <button className="btn btn-primary btn-sm" onClick={() => { setPaymentType('in'); setShowPaymentModal(true); }}>+ Log Payment In</button>
           </div>
           {paymentsIn.length === 0 ? (
@@ -548,7 +584,7 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div className="expense-amount" style={{ color: 'var(--green)' }}>${p.amount.toFixed(2)}</div>
-                    <button className="icon-btn danger" onClick={() => deletePayment(p.id)}>✕</button>
+                    <button className="icon-btn danger" onClick={() => deletePayment(p.id)}>???</button>
                   </div>
                 </div>
               ))}
@@ -581,8 +617,8 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <div className="expense-amount">${monthlyAmt.toFixed(2)}<span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 400 }}>/mo</span></div>
-                      <button className="icon-btn" onClick={() => { setEditingItem(e); setShowExpenseModal(true); }}>✏</button>
-                      <button className="icon-btn danger" onClick={() => deleteExpense(e.id)}>✕</button>
+                      <button className="icon-btn" onClick={() => { setEditingItem(e); setShowExpenseModal(true); }}>???</button>
+                      <button className="icon-btn danger" onClick={() => deleteExpense(e.id)}>???</button>
                     </div>
                   </div>
                 );
