@@ -2,7 +2,7 @@
 import React from 'react';
 import { STATUS_CONFIG } from '../data/initialData';
 
-const NAV_ICON = {
+
   dashboard: '⊞',
   project: '◈'
 };

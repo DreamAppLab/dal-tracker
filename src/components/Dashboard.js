@@ -1,6 +1,6 @@
 // src/components/Dashboard.js
 import React from 'react';
-import { STATUS_CONFIG, PIPELINE_APPS } from '../data/initialData';
+import { STATUS_CONFIG } from '../data/initialData';
 
 function getProgress(project) {
   const allTasks = [

@@ -10,7 +10,7 @@ import './App.css';
 
 function App() {
   const [projects, setProjects] = useLocalStorage('dal-projects', INITIAL_PROJECTS);
-  const [pipeline, setPipeline] = useLocalStorage('dal-pipeline', PIPELINE_APPS);
+  const [pipeline] = useLocalStorage('dal-pipeline', PIPELINE_APPS);
   const [activeView, setActiveView] = useState('dashboard');
   const [selectedProject, setSelectedProject] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
