@@ -320,7 +320,7 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
               className="form-input"
               value={project.pricing || ''}
               onChange={e => onUpdate({ ...project, pricing: e.target.value })}
-              placeholder="e.g. Free, $4.99, Freemium"
+              placeholder="e.g. $3.99 one-time, or Freemium $2.99/mo · $24.99/yr via RevenueCat"
             />
           </div>
           <div className="data-section-header">

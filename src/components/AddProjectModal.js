@@ -111,7 +111,7 @@ export default function AddProjectModal({ onAdd, onClose }) {
           </div>
           <div className="form-group">
             <label className="form-label">Pricing</label>
-            <input className="form-input" value={form.pricing} onChange={e => set('pricing', e.target.value)} placeholder="e.g. Free, $4.99, Freemium" />
+            <input className="form-input" value={form.pricing} onChange={e => set('pricing', e.target.value)} placeholder="e.g. $3.99 one-time, or Freemium $2.99/mo · $24.99/yr via RevenueCat" />
           </div>
         </div>
         <div className="modal-footer">
