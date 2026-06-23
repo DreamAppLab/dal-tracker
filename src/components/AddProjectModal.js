@@ -7,7 +7,7 @@ const COLORS = ['#00D4B8', '#6366F1', '#F59E0B', '#FF5B5B', '#22C55E', '#58c6f4'
 export default function AddProjectModal({ onAdd, onClose }) {
   const [form, setForm] = useState({
     name: '', tagline: '', type: 'own-app', platform: 'mobile', status: 'in-development',
-    logo: '📱', color: '#00D4B8', bundleId: '', price: 0,
+    logo: '📱', color: '#00D4B8', bundleId: '', pricing: '', price: 0,
     revenue: { monthly: 0, total: 0, model: 'paid' },
     expenses: [], milestones: [], edits: [], techStack: []
   });
@@ -108,6 +108,10 @@ export default function AddProjectModal({ onAdd, onClose }) {
           <div className="form-group">
             <label className="form-label">Bundle ID / Domain</label>
             <input className="form-input" value={form.bundleId} onChange={e => set('bundleId', e.target.value)} placeholder="com.dreamapplab.appname or domain.com" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Pricing</label>
+            <input className="form-input" value={form.pricing} onChange={e => set('pricing', e.target.value)} placeholder="e.g. Free, $4.99, Freemium" />
           </div>
         </div>
         <div className="modal-footer">

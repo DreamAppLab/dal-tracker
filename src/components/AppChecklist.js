@@ -9,7 +9,7 @@ const CHECKLIST_PHASES = [
       { id: 's1_2', label: 'Check app name availability on Apple App Store', note: 'Search appstoreconnect.apple.com or the App Store on your phone. Check exact match + close variations.' },
       { id: 's1_3', label: 'Check app name availability on Google Play Store', note: 'Search play.google.com. If the name is taken, choose a different one before building anything.' },
       { id: 's1_4', label: 'Confirm bundle ID format: com.dreamapplab.appname', note: 'All lowercase, no hyphens. e.g. com.dreamapplab.appname — confirm it is not already registered.' },
-      { id: 's1_5', label: 'Decide on pricing — paid, free, or freemium', note: 'Research comparable apps in the category. Consider whether the app justifies a subscription model (requires backend like Firebase + RevenueCat).' },
+      { id: 's1_5', label: 'Confirm pricing — enter in the Pricing field on the project card', note: 'Research comparable apps in the category. Consider whether the app justifies a subscription model (requires backend like Firebase + RevenueCat).' },
       { id: 's1_6', label: 'Decide on backend requirements', note: 'No backend = AsyncStorage only, simplest path. Backend needed = plan for Firebase or similar, login flow, data sync, and additional review questions at submission.' },
     ]
   },
