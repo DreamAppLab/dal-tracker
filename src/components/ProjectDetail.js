@@ -6,6 +6,7 @@ import EditModal from './EditModal';
 import ExpenseModal from './ExpenseModal';
 import TechStackModal from './TechStackModal';
 import PaymentModal from './PaymentModal';
+import AppChecklist from './AppChecklist';
 
 function getProgress(project) {
   const allTasks = [...(project.milestones || []), ...(project.edits || [])];
@@ -94,13 +95,18 @@ function getFilteredEdits(edits, filter) {
   }
 }
 
-const TABS = [
+const BASE_TABS = [
   { key: "overview", label: "Overview" },
   { key: "milestones", label: "Milestones" },
   { key: "edits", label: "Edits Needed" },
   { key: "stack", label: "Tech Stack" },
   { key: "financials", label: "Financials" }
 ];
+
+function isAppProject(project) {
+  if (!project.type) return false;
+  return project.type === 'own-app' || project.type === 'client-app';
+}
 
 export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
   const [activeTab, setActiveTab] = useState('overview');
@@ -113,6 +119,10 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
   const [editingItem, setEditingItem] = useState(null);
   const [editsFilter, setEditsFilter] = useState('all');
 
+  const isApp = isAppProject(project);
+  const TABS = isApp
+    ? [...BASE_TABS, { key: 'checklist', label: '📋 Pub Checklist' }]
+    : BASE_TABS;
   const prog = getProgress(project);
   const monthlyExp = getMonthlyExpenses(project);
   const outstandingEditCosts = getOutstandingEditCosts(project);
@@ -645,6 +655,10 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
             </div>
           )}
         </div>
+      )}
+
+      {activeTab === 'checklist' && isApp && (
+        <AppChecklist project={project} />
       )}
 
       {showMilestoneModal && <MilestoneModal milestone={editingItem} onSave={handleSaveMilestone} onClose={() => { setShowMilestoneModal(false); setEditingItem(null); }} />}
