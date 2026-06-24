@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { INITIAL_PROJECTS, PIPELINE_APPS } from './data/initialData';
 import Dashboard from './components/Dashboard';
+import ASODashboard from './components/ASODashboard';
 import ProjectDetail from './components/ProjectDetail';
 import Sidebar from './components/Sidebar';
 import AddProjectModal from './components/AddProjectModal';
@@ -62,6 +63,7 @@ function App() {
             onAddProject={() => setShowAddModal(true)}
           />
         )}
+        {activeView === 'aso' && <ASODashboard />}
         {activeView === 'project' && currentProject && (
           <ProjectDetail
             project={currentProject}
