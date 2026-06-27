@@ -91,7 +91,7 @@ function App() {
             onAddProject={() => setShowAddModal(true)}
           />
         )}
-        {activeView === 'aso' && <ASODashboard />}
+        {activeView === 'aso' && <ASODashboard projects={projects} />}
         {activeView === 'project' && currentProject && (
           <ProjectDetail
             project={currentProject}
