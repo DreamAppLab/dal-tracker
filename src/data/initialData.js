@@ -170,6 +170,31 @@ export const INITIAL_PROJECTS = [
     edits: []
   },
   {
+    id: "familywatch",
+    name: "FamilyWatch",
+    type: "own-app",
+    platform: "mobile",
+    status: "in-development",
+    tagline: "Everyone in the loop. Every day.",
+    color: "#00BFA5",
+    logo: "FW",
+    bundleId: "com.dreamapplab.familywatch",
+    launchDate: null,
+    price: 0,
+    pricing: "Freemium $4.99/mo · $34.99/yr via RevenueCat",
+    revenue: { monthly: 0, total: 0, currency: "USD", model: "freemium" },
+    subscriptionPrice: { monthly: 4.99, yearly: 34.99 },
+    techStack: [
+      { layer: "Framework", tech: "React Native / Expo SDK 54" },
+      { layer: "Backend", tech: "Firebase" },
+      { layer: "Payments", tech: "RevenueCat" }
+    ],
+    stores: { ios: false, android: false },
+    milestones: [],
+    edits: [],
+    notes: "Caregiving companion app. Firebase project: familywatch-8b302. Pre-launch — bug fixes in progress."
+  },
+  {
     id: "dal-website",
     name: "Dream App Lab Website",
     type: "own-website",
