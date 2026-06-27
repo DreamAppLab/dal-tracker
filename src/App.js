@@ -1,5 +1,5 @@
 // src/App.js
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { INITIAL_PROJECTS, PIPELINE_APPS } from './data/initialData';
 import Dashboard from './components/Dashboard';
@@ -11,6 +11,18 @@ import './App.css';
 
 function App() {
   const [projects, setProjects] = useLocalStorage('dal-projects', INITIAL_PROJECTS);
+
+  useEffect(() => {
+    setProjects(prev => prev.map(project => {
+      const seed = INITIAL_PROJECTS.find(p => p.id === project.id);
+      if (!seed || !seed.edits?.length) return project;
+      const existingIds = new Set((project.edits || []).map(e => e.id));
+      const newEdits = seed.edits.filter(e => !existingIds.has(e.id));
+      if (!newEdits.length) return project;
+      return { ...project, edits: [...(project.edits || []), ...newEdits] };
+    }));
+  }, []);
+
   const [pipeline] = useLocalStorage('dal-pipeline', PIPELINE_APPS);
   const [activeView, setActiveView] = useState('dashboard');
   const [selectedProject, setSelectedProject] = useState(null);
