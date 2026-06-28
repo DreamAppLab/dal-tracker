@@ -4,6 +4,7 @@ import { useLocalStorage } from './hooks/useLocalStorage';
 import { INITIAL_PROJECTS, PIPELINE_APPS } from './data/initialData';
 import Dashboard from './components/Dashboard';
 import ASODashboard from './components/ASODashboard';
+import SubscriptionsDashboard from './components/SubscriptionsDashboard';
 import ProjectDetail from './components/ProjectDetail';
 import Sidebar from './components/Sidebar';
 import AddProjectModal from './components/AddProjectModal';
@@ -64,6 +65,7 @@ function App() {
           />
         )}
         {activeView === 'aso' && <ASODashboard />}
+        {activeView === 'subscriptions' && <SubscriptionsDashboard />}
         {activeView === 'project' && currentProject && (
           <ProjectDetail
             project={currentProject}
