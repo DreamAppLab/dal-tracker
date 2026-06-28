@@ -7,6 +7,7 @@ import ExpenseModal from './ExpenseModal';
 import TechStackModal from './TechStackModal';
 import PaymentModal from './PaymentModal';
 import AppChecklist from './AppChecklist';
+import ProjectVault from './ProjectVault';
 
 function getProgress(project) {
   const allTasks = [...(project.milestones || []), ...(project.edits || [])];
@@ -100,7 +101,8 @@ const BASE_TABS = [
   { key: "milestones", label: "Milestones" },
   { key: "edits", label: "Edits Needed" },
   { key: "stack", label: "Tech Stack" },
-  { key: "financials", label: "Financials" }
+  { key: "financials", label: "Financials" },
+  { key: "vault", label: "🔑 Vault" }
 ];
 
 function isAppProject(project) {
@@ -247,7 +249,6 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
             <span className="platform-chip">{project.platform}</span>
             <span className="detail-meta-item">{project.tagline}</span>
             {project.bundleId && <span className="detail-meta-item" style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{project.bundleId}</span>}
-            {project.pricing && <span className="detail-meta-item">{project.pricing}</span>}
           </div>
         </div>
         <div className="detail-header-actions">
@@ -313,15 +314,6 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
             <div className="progress-track" style={{ height: 10 }}>
               <div className="progress-fill" style={{ width: `${prog.pct}%`, background: `linear-gradient(90deg, ${project.color}, ${project.color}88)` }} />
             </div>
-          </div>
-          <div className="form-group" style={{ marginBottom: 24 }}>
-            <label className="form-label">Pricing</label>
-            <input
-              className="form-input"
-              value={project.pricing || ''}
-              onChange={e => onUpdate({ ...project, pricing: e.target.value })}
-              placeholder="e.g. $3.99 one-time, or Freemium $2.99/mo · $24.99/yr via RevenueCat"
-            />
           </div>
           <div className="data-section-header">
             <h3 className="data-section-title">Recent Milestones</h3>
@@ -669,6 +661,10 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
 
       {activeTab === 'checklist' && isApp && (
         <AppChecklist project={project} />
+      )}
+
+      {activeTab === 'vault' && (
+        <ProjectVault project={project} onUpdate={onUpdate} />
       )}
 
       {showMilestoneModal && <MilestoneModal milestone={editingItem} onSave={handleSaveMilestone} onClose={() => { setShowMilestoneModal(false); setEditingItem(null); }} />}

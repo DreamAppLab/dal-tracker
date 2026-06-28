@@ -8,7 +8,7 @@ export const INITIAL_PROJECTS = [
     status: "live",
     tagline: "K-12 Classroom Management",
     color: "#6366F1",
-    logo: "MCL",
+    logo: "📚",
     bundleId: "com.dreamapplab.myclasslog",
     launchDate: "2024-01-15",
     revenue: { monthly: 420, total: 3780, currency: "USD", model: "freemium" },
@@ -45,7 +45,7 @@ export const INITIAL_PROJECTS = [
     status: "live",
     tagline: "Travel Journaling",
     color: "#00D4B8",
-    logo: "TMA",
+    logo: "✈️",
     bundleId: "com.dreamapplab.tenmilesahead",
     launchDate: "2024-03-10",
     revenue: { monthly: 185, total: 1295, currency: "USD", model: "paid" },
@@ -78,7 +78,7 @@ export const INITIAL_PROJECTS = [
     status: "in-development",
     tagline: "RV Maintenance & Management",
     color: "#F59E0B",
-    logo: "RVV",
+    logo: "🚐",
     bundleId: "com.dreamapplab.rvvault",
     launchDate: null,
     revenue: { monthly: 0, total: 0, currency: "USD", model: "freemium" },
@@ -112,7 +112,7 @@ export const INITIAL_PROJECTS = [
     status: "submitted",
     tagline: "Personal Health Symptom Journal",
     color: "#FF5B5B",
-    logo: "FLP",
+    logo: "🩺",
     bundleId: "com.dreamapplab.flarepad",
     launchDate: null,
     price: 2.99,
@@ -145,7 +145,7 @@ export const INITIAL_PROJECTS = [
     status: "in-development",
     tagline: "Home Repair & Warranty Tracker",
     color: "#F59E0B",
-    logo: "LGA",
+    logo: "🏠",
     bundleId: "com.dreamapplab.logabode",
     launchDate: null,
     price: 2.99,
@@ -170,46 +170,6 @@ export const INITIAL_PROJECTS = [
     edits: []
   },
   {
-    id: "familywatch",
-    name: "FamilyWatch",
-    type: "own-app",
-    platform: "mobile",
-    status: "in-development",
-    tagline: "Everyone in the loop. Every day.",
-    color: "#00BFA5",
-    logo: "FW",
-    bundleId: "com.dreamapplab.familywatch",
-    launchDate: null,
-    price: 0,
-    pricing: "Freemium $4.99/mo · $34.99/yr via RevenueCat",
-    revenue: { monthly: 0, total: 0, currency: "USD", model: "freemium" },
-    subscriptionPrice: { monthly: 4.99, yearly: 34.99 },
-    techStack: [
-      { layer: "Framework", tech: "React Native / Expo SDK 54" },
-      { layer: "Backend", tech: "Firebase" },
-      { layer: "Payments", tech: "RevenueCat" }
-    ],
-    stores: { ios: false, android: false },
-    milestones: [],
- edits: [
-      { id: "fw1", page: "Quick Add", location: "Medication", item: "Equipment providers showing under Contacts/Providers", notes: "If a provider is added when adding equipment, they should only show under Equipment — not under Providers/Contacts.", priority: "medium", completed: false, sentToDev: false, sentToDevAt: null, amount: 0, dateAdded: "2026-06-27" },
-      { id: "fw2", page: "Medical", location: "MD Integrations", item: "Dig into what is needed for MD integrations", notes: "Research and scope what would be required to integrate with medical data sources.", priority: "medium", completed: false, sentToDev: false, sentToDevAt: null, amount: 0, dateAdded: "2026-06-27" },
-      { id: "fw3", page: "Somewhere", location: "Calendar", item: "Schedule calendar with color coded family members", notes: "Add a calendar view with entries color coded per family member.", priority: "medium", completed: false, sentToDev: false, sentToDevAt: null, amount: 0, dateAdded: "2026-06-27" },
-      { id: "fw4", page: "Settings", location: "Family", item: "New invite code generated when permissions are revoked", notes: "When permissions are revoked a new code should be generated. Need to determine what happens to users already using the old code.", priority: "medium", completed: false, sentToDev: false, sentToDevAt: null, amount: 0, dateAdded: "2026-06-27" },
-      { id: "fw5", page: "Medical", location: "Appointments", item: "Edit time and/or date does not save — reverts to original", notes: "When editing an appointment time or date, the change does not persist and reverts back to the originally set value.", priority: "medium", completed: false, sentToDev: false, sentToDevAt: null, amount: 0, dateAdded: "2026-06-27" },
-      { id: "fw6", page: "Medical", location: "All", item: "Ability to delete or edit anything under Medical", notes: "Add edit and delete options to all Medical records. Deleting should show a confirmation: Are you sure you want to delete?", priority: "medium", completed: false, sentToDev: false, sentToDevAt: null, amount: 0, dateAdded: "2026-06-27" },
-      { id: "fw7", page: "Medical", location: "Medication Given", item: "Medication Given shows under Medication instead of Medication Given", notes: "Medication Given entries are appearing in the Medication section. They should only appear under Medication Given.", priority: "medium", completed: false, sentToDev: false, sentToDevAt: null, amount: 0, dateAdded: "2026-06-27" },
-      { id: "fw8", page: "Dashboard", location: "Recipient", item: "Active person is blacked out when more than one person exists", notes: "When there is more than one care recipient, the currently active/selected person appears blacked out on the dashboard.", priority: "medium", completed: false, sentToDev: false, sentToDevAt: null, amount: 0, dateAdded: "2026-06-27" },
-      { id: "fw9", page: "Settings", location: "Recipient", item: "Ability to add more than one recipient — tie to family plan", notes: "Allow adding multiple care recipients. This could be a family plan feature/upsell.", priority: "medium", completed: false, sentToDev: false, sentToDevAt: null, amount: 0, dateAdded: "2026-06-27" },
-      { id: "fw10", page: "Medical", location: "Emergency Card", item: "Primary care checkbox when adding a doctor", notes: "When adding a doctor, include a checkbox to mark as Primary Care. Only one primary care doctor allowed at a time.", priority: "medium", completed: false, sentToDev: false, sentToDevAt: null, amount: 0, dateAdded: "2026-06-27" },
-      { id: "fw11", page: "Caregiver Checkin", location: "Change name", item: "Rename Wellness Check-In to Caregiver Check-In", notes: "Update the label everywhere it appears in the app.", priority: "medium", completed: false, sentToDev: false, sentToDevAt: null, amount: 0, dateAdded: "2026-06-27" },
-      { id: "fw12", page: "Quick Add", location: "Appointment", item: "Move Other to end of list", notes: "Other should always appear at the bottom of any list regardless of alphabetical order.", priority: "medium", completed: false, sentToDev: false, sentToDevAt: null, amount: 0, dateAdded: "2026-06-27" },
-      { id: "fw13", page: "Quick Add", location: "Emergency Card", item: "Change order — put Insurance above Primary Doctor", notes: "Reorder the Emergency Card fields so Insurance appears above Primary Doctor.", priority: "medium", completed: false, sentToDev: false, sentToDevAt: null, amount: 0, dateAdded: "2026-06-27" },
-      { id: "fw14", page: "Emergency Card", location: "Settings", item: "Insurance provider, card number, blood type — confirm on onboarding", notes: "Confirm these fields appear on the onboarding screen. For blood type, list all standard blood types plus NK (Not Known).", priority: "medium", completed: false, sentToDev: false, sentToDevAt: null, amount: 0, dateAdded: "2026-06-27" }
-    ],
-    notes: "Caregiving companion app. Firebase project: familywatch-8b302. Pre-launch — bug fixes in progress."
-  },
-  {
     id: "dal-website",
     name: "Dream App Lab Website",
     type: "own-website",
@@ -217,7 +177,7 @@ export const INITIAL_PROJECTS = [
     status: "in-development",
     tagline: "dreamapplab.com — Studio Site",
     color: "#58c6f4",
-    logo: "WEB",
+    logo: "🌐",
     bundleId: null,
     launchDate: null,
     revenue: { monthly: 0, total: 0, currency: "USD", model: "lead-gen" },
@@ -249,12 +209,12 @@ export const INITIAL_PROJECTS = [
 ];
 
 export const PIPELINE_APPS = [
-  { id: "plantcare", name: "Plant Care Journal", logo: "PLT", color: "#22C55E", status: "ideation" },
-  { id: "petsymptom", name: "Pet Symptom Journal", logo: "PET", color: "#8B5CF6", status: "ideation" },
-  { id: "yarnstash", name: "Yarn & Fabric Stash Tracker", logo: "YRN", color: "#EC4899", status: "ideation" },
-  { id: "medsideeffect", name: "Medication Side Effect Journal", logo: "MED", color: "#06B6D4", status: "ideation" },
-  { id: "migrainelogger", name: "Migraine Pattern Logger", logo: "MIG", color: "#7C3AED", status: "ideation" },
-  { id: "parentcare", name: "Aging Parent Care Journal", logo: "FAM", color: "#F43F5E", status: "ideation" }
+  { id: "plantcare", name: "Plant Care Journal", logo: "🌿", color: "#22C55E", status: "ideation" },
+  { id: "petsymptom", name: "Pet Symptom Journal", logo: "🐾", color: "#8B5CF6", status: "ideation" },
+  { id: "yarnstash", name: "Yarn & Fabric Stash Tracker", logo: "🧶", color: "#EC4899", status: "ideation" },
+  { id: "medsideeffect", name: "Medication Side Effect Journal", logo: "💊", color: "#06B6D4", status: "ideation" },
+  { id: "migrainelogger", name: "Migraine Pattern Logger", logo: "🧠", color: "#7C3AED", status: "ideation" },
+  { id: "parentcare", name: "Aging Parent Care Journal", logo: "❤️", color: "#F43F5E", status: "ideation" }
 ];
 
 export const STATUS_CONFIG = {

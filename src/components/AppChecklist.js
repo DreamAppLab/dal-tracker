@@ -9,7 +9,7 @@ const CHECKLIST_PHASES = [
       { id: 's1_2', label: 'Check app name availability on Apple App Store', note: 'Search appstoreconnect.apple.com or the App Store on your phone. Check exact match + close variations.' },
       { id: 's1_3', label: 'Check app name availability on Google Play Store', note: 'Search play.google.com. If the name is taken, choose a different one before building anything.' },
       { id: 's1_4', label: 'Confirm bundle ID format: com.dreamapplab.appname', note: 'All lowercase, no hyphens. e.g. com.dreamapplab.appname — confirm it is not already registered.' },
-      { id: 's1_5', label: 'Confirm pricing — enter in the Pricing field on the project card', note: 'Research comparable apps in the category. Consider whether the app justifies a subscription model (requires backend like Firebase + RevenueCat).' },
+      { id: 's1_5', label: 'Decide on pricing — paid, free, or freemium', note: 'Research comparable apps in the category. Consider whether the app justifies a subscription model (requires backend like Firebase + RevenueCat).' },
       { id: 's1_6', label: 'Decide on backend requirements', note: 'No backend = AsyncStorage only, simplest path. Backend needed = plan for Firebase or similar, login flow, data sync, and additional review questions at submission.' },
     ]
   },
@@ -33,6 +33,9 @@ const CHECKLIST_PHASES = [
       { id: 's3_4', label: 'Test thoroughly in Expo Go on a real device', note: 'Test every screen, every button, every edge case — empty states, data entry, deletion, error states.' },
       { id: 's3_5', label: 'If app has backend — test auth flows, data sync, and offline behavior', note: 'Test login, logout, password reset, data persistence across sessions, and what happens with no internet.' },
       { id: 's3_6', label: 'Fix all bugs before moving to EAS builds', note: 'Do NOT proceed with known bugs. Much harder to fix post-submission.' },
+      { id: 's3_7', label: 'Set up RevenueCat — even if no IAP planned yet', note: 'Install react-native-purchases, create project in RevenueCat dashboard, connect iOS and Android apps. Do this for EVERY app. It takes 30 mins now vs hours later if you need to add IAP after launch.' },
+      { id: 's3_8', label: 'Add in-app review prompt using expo-store-review', note: 'Trigger after a meaningful positive action (e.g. 3rd or 5th entry saved). One-time AsyncStorage flag. Check isAvailableAsync() before calling requestReview(). Never on first launch or timer.' },
+      { id: 's3_9', label: 'Add Share App button in Settings screen', note: 'Use React Native built-in Share API (no extra package). Share message should include App Store link. This drives organic word-of-mouth downloads at zero cost.' },
     ]
   },
   {
@@ -174,9 +177,11 @@ const CHECKLIST_PHASES = [
       { id: 's12_11', label: '[iOS] All screenshot sizes uploaded: 6.5", 5.5", iPad 13"' },
       { id: 's12_12', label: '[Android] Feature graphic uploaded — full color with icon + name + tagline' },
       { id: 's12_13', label: 'Privacy policy URL is live and accessible' },
-      { id: 's12_14', label: 'In-app review prompt fires at correct trigger and storage flag prevents repeat' },
-      { id: 's12_15', label: 'Final code pushed to GitHub' },
-      { id: 's12_16', label: 'Tested on a real physical device one final time before submitting' },
+      { id: 's12_14', label: 'RevenueCat SDK initialized and both iOS and Android apps connected in RC dashboard', note: 'Even if no IAP — always configure RevenueCat before submission.' },
+      { id: 's12_15', label: 'In-app review prompt fires at correct trigger and AsyncStorage flag prevents repeat', note: 'Test on a real device before submitting.' },
+      { id: 's12_16', label: 'Share App button in Settings opens native share sheet with correct App Store link', note: 'Test on real device.' },
+      { id: 's12_17', label: 'Final code pushed to GitHub' },
+      { id: 's12_18', label: 'Tested on a real physical device one final time before submitting' },
     ]
   },
 ];

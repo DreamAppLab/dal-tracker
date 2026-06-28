@@ -1,6 +1,6 @@
 // src/components/Dashboard.js
 import React from 'react';
-import { STATUS_CONFIG } from '../data/initialData';
+import { STATUS_CONFIG, PIPELINE_APPS } from '../data/initialData';
 
 function getProgress(project) {
   const allTasks = [
@@ -72,7 +72,7 @@ function ProjectCard({ project, onClick }) {
       <div className="card-mini-stats">
         <div className="card-mini-stat">
           <div className="card-mini-stat-value" style={{ color: 'var(--green)' }}>
-            {monthlyRev > 0 ? `$${monthlyRev}` : '???'}
+            {monthlyRev > 0 ? `$${monthlyRev}` : '—'}
           </div>
           <div className="card-mini-stat-label">MRR</div>
         </div>
@@ -106,11 +106,6 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
   const liveCount = projects.filter(p => p.status === 'live').length;
   const inDevCount = projects.filter(p => p.status === 'in-development').length;
   const openEdits = projects.reduce((s, p) => s + (p.edits || []).filter(e => !e.completed).length, 0);
-  const totalOutstanding = projects.reduce((s, p) => {
-    const editCosts = (p.edits || []).filter(e => e.amount > 0 && !e.completed).reduce((sum, e) => sum + (e.amount || 0), 0);
-    const milestoneCosts = (p.milestones || []).filter(m => m.amount > 0 && !m.completed).reduce((sum, m) => sum + (m.amount || 0), 0);
-    return s + editCosts + milestoneCosts;
-  }, 0);
   const openMilestones = projects.reduce((s, p) => s + (p.milestones || []).filter(m => !m.completed).length, 0);
 
   const totalAllTasks = projects.reduce((s, p) => {
@@ -130,7 +125,7 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
       <div className="page-header">
         <div>
           <h1 className="page-title">Mission Control</h1>
-          <p className="page-subtitle">Dream App Lab ??? All Projects Overview</p>
+          <p className="page-subtitle">Dream App Lab — All Projects Overview</p>
         </div>
         <div className="page-actions">
           <div className="live-indicator">
@@ -170,7 +165,7 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
         <div className="stat-card indigo">
           <div className="stat-label">Active Projects</div>
           <div className="stat-value">{projects.length}</div>
-          <div className="stat-sub">{liveCount} live ?? {inDevCount} in dev</div>
+          <div className="stat-sub">{liveCount} live · {inDevCount} in dev</div>
         </div>
         <div className="stat-card electric">
           <div className="stat-label">Overall Progress</div>
@@ -187,11 +182,6 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
           <div className="stat-value">{openMilestones}</div>
           <div className="stat-sub">Pending completion</div>
         </div>
-        <div className="stat-card amber">
-          <div className="stat-label">Total Outstanding</div>
-          <div className="stat-value" style={{ color: totalOutstanding > 0 ? 'var(--amber)' : 'var(--text-secondary)' }}>${totalOutstanding.toLocaleString()}</div>
-          <div className="stat-sub">Unpaid across all projects</div>
-        </div>
       </div>
 
       {/* Own Apps */}
@@ -199,7 +189,7 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
         <>
           <div className="section-header">
             <h2 className="section-title">
-              <span>APP</span> Your Apps
+              <span>📱</span> Your Apps
               <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--text-secondary)' }}>({ownApps.length})</span>
             </h2>
           </div>
@@ -216,7 +206,7 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
         <>
           <div className="section-header">
             <h2 className="section-title">
-              <span>WEB</span> Websites & Web Apps
+              <span>🌐</span> Websites & Web Apps
               <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--text-secondary)' }}>({clientProjects.length})</span>
             </h2>
           </div>
@@ -231,7 +221,7 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
       {/* Pipeline */}
       <div className="section-header">
         <h2 className="section-title">
-          <span>NEW</span> App Pipeline
+          <span>🚀</span> App Pipeline
           <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--text-secondary)' }}>({(pipeline || []).length} ideas)</span>
         </h2>
       </div>

@@ -1,5 +1,7 @@
 // src/components/ASODashboard.js
 import React, { useState, useEffect } from 'react';
+import { useLocalStorage } from '../hooks/useLocalStorage';
+import { INITIAL_PROJECTS } from '../data/initialData';
 import {
   ASO_PHASES,
   ASO_TOOLS,
@@ -44,7 +46,8 @@ function KeywordRow({ keyword, rank, onChange, onRemove }) {
   );
 }
 
-export default function ASODashboard({ projects }) {
+export default function ASODashboard() {
+  const [projects] = useLocalStorage('dal-projects', INITIAL_PROJECTS);
   const [checked, setChecked] = useState(loadAsoChecked);
   const [openPhases, setOpenPhases] = useState({ a1: true });
   const [keywords, setKeywords] = useState(loadAsoKeywords);

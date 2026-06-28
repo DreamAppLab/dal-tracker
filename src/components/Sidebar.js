@@ -2,6 +2,11 @@
 import React from 'react';
 import { STATUS_CONFIG } from '../data/initialData';
 
+const NAV_ICON = {
+  dashboard: '⊞',
+  project: '◈'
+};
+
 export default function Sidebar({ projects, activeView, selectedProjectId, onNavigate, onSelectProject, onAddProject, sidebarOpen, setSidebarOpen }) {
   return (
     <aside className={`sidebar ${sidebarOpen ? '' : 'collapsed'}`}>
@@ -13,7 +18,7 @@ export default function Sidebar({ projects, activeView, selectedProjectId, onNav
           </div>
         )}
         <button className="sidebar-toggle" onClick={() => setSidebarOpen(!sidebarOpen)} title="Toggle sidebar">
-          {sidebarOpen ? '<' : '>'}
+          {sidebarOpen ? '◀' : '▶'}
         </button>
       </div>
 
@@ -23,7 +28,7 @@ export default function Sidebar({ projects, activeView, selectedProjectId, onNav
           className={`sidebar-item ${activeView === 'dashboard' ? 'active' : ''}`}
           onClick={() => onNavigate('dashboard')}
         >
-          <span className="sidebar-item-icon">[=]</span>
+          <span className="sidebar-item-icon">📊</span>
           {sidebarOpen && <span className="sidebar-item-text">Dashboard</span>}
         </button>
         <button className={`sidebar-item ${activeView === 'aso' ? 'active' : ''}`} onClick={() => onNavigate('aso')}>
@@ -42,7 +47,7 @@ export default function Sidebar({ projects, activeView, selectedProjectId, onNav
                   className={`sidebar-item ${selectedProjectId === p.id ? 'active' : ''}`}
                   onClick={() => onSelectProject(p)}
                 >
-                  <span className="sidebar-item-icon" style={{ fontSize: 13, color: p.color, fontWeight: 700 }}>{p.logo || p.name.substring(0,3)}</span>
+                  <span className="sidebar-item-icon">{p.logo}</span>
                   <span className="sidebar-item-text">{p.name}</span>
                   <span className="sidebar-status-dot" style={{ background: sc?.color || '#94A3B8' }} />
                 </button>
@@ -58,7 +63,7 @@ export default function Sidebar({ projects, activeView, selectedProjectId, onNav
                   className={`sidebar-item ${selectedProjectId === p.id ? 'active' : ''}`}
                   onClick={() => onSelectProject(p)}
                 >
-                  <span className="sidebar-item-icon" style={{ fontSize: 13, color: p.color, fontWeight: 700 }}>{p.logo || p.name.substring(0,3)}</span>
+                  <span className="sidebar-item-icon">{p.logo}</span>
                   <span className="sidebar-item-text">{p.name}</span>
                   <span className="sidebar-status-dot" style={{ background: sc?.color || '#94A3B8' }} />
                 </button>

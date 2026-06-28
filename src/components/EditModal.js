@@ -1,13 +1,11 @@
 // src/components/EditModal.js
 import React, { useState } from 'react';
 
-const COMMON_PAGES = ['Dashboard', 'Homepage', 'Settings', 'Profile', 'Navigation', 'Onboarding', 'Login', 'Signup', 'Adding RV', 'Maintenance Item', 'Vendor', 'Campgrounds', 'Travel Stats', 'Work Orders', 'Other'];
+const COMMON_PAGES = ['Dashboard', 'Homepage', 'Settings', 'Profile', 'Navigation', 'Onboarding', 'Login', 'Signup', 'Other'];
 
 export default function EditModal({ edit, onSave, onClose }) {
   const [form, setForm] = useState(edit || {
-    page: '', location: '', item: '', notes: '', priority: 'medium', 
-    completed: false, sentToDev: false, amount: 0,
-    createdAt: new Date().toISOString()
+    page: '', location: '', item: '', notes: '', priority: 'medium', completed: false
   });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -50,37 +48,17 @@ export default function EditModal({ edit, onSave, onClose }) {
             <div className="form-group">
               <label className="form-label">Priority</label>
               <select className="form-select" value={form.priority} onChange={e => set('priority', e.target.value)}>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
+                <option value="high">🔴 High</option>
+                <option value="medium">🟡 Medium</option>
+                <option value="low">🔵 Low</option>
               </select>
             </div>
-            <div className="form-group">
-              <label className="form-label">Dev Cost ($) <span style={{color:'var(--text-muted)',fontWeight:400}}>(if applicable)</span></label>
-              <input 
-                className="form-input" 
-                type="number" 
-                step="0.01"
-                value={form.amount || ''} 
-                onChange={e => set('amount', parseFloat(e.target.value) || 0)} 
-                placeholder="0.00"
-              />
+            <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)', paddingBottom: 10 }}>
+                <input type="checkbox" checked={form.completed} onChange={e => set('completed', e.target.checked)} />
+                Already completed
+              </label>
             </div>
-          </div>
-          {form.amount > 0 && (
-            <div style={{ padding: '10px 12px', background: 'var(--amber-dim)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 8, fontSize: 12, color: 'var(--amber)', marginBottom: 12 }}>
-              This edit will appear as a <strong>${form.amount.toFixed(2)} outstanding charge</strong> in Financials until marked completed.
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: 20, marginTop: 4 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)' }}>
-              <input type="checkbox" checked={form.completed} onChange={e => set('completed', e.target.checked)} />
-              Completed
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)' }}>
-              <input type="checkbox" checked={form.sentToDev} onChange={e => set('sentToDev', e.target.checked)} />
-              Sent to Developer
-            </label>
           </div>
         </div>
         <div className="modal-footer">
