@@ -7,7 +7,7 @@ import ExpenseModal from './ExpenseModal';
 import TechStackModal from './TechStackModal';
 import PaymentModal from './PaymentModal';
 import AppChecklist from './AppChecklist';
-import ProjectVault from './ProjectVault';
+import ProjectVault from '../ProjectVault';
 
 function getProgress(project) {
   const allTasks = [...(project.milestones || []), ...(project.edits || [])];
@@ -263,6 +263,7 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
           if (t.key === 'edits') count = openCount;
           if (t.key === 'stack') count = (project.techStack || []).length;
           if (t.key === 'financials') count = (project.expenses || []).length + (project.payments || []).length;
+          if (t.key === 'vault') count = (project.vault || []).length;
           return (
             <button key={t.key} className={`tab-btn ${activeTab === t.key ? 'active' : ''}`} onClick={() => setActiveTab(t.key)}>
               {t.label}

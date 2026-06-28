@@ -1,4 +1,4 @@
-// src/components/ProjectVault.js
+// src/ProjectVault.js
 import React, { useState } from 'react';
 
 const ENTRY_TYPES = [
