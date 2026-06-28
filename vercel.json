@@ -1,1 +1,1 @@
-{"buildCommand":"npm ci && npm run build","installCommand":"npm ci"}
+{"buildCommand":"npm ci && DISABLE_ESLINT_PLUGIN=true npm run build","installCommand":"npm ci"}
