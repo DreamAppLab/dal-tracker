@@ -1,38 +1,48 @@
-// src/App.js
-import React, { useState } from 'react';
-import { useLocalStorage } from './hooks/useLocalStorage';
-import { INITIAL_PROJECTS, PIPELINE_APPS } from './data/initialData';
-import Dashboard from './components/Dashboard';
-import ProjectDetail from './components/ProjectDetail';
-import Sidebar from './components/Sidebar';
-import AddProjectModal from './components/AddProjectModal';
-import './App.css';
+import React, { useState, useEffect } from 'react';
+import { db } from '../firebase';
+import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { PIPELINE_APPS } from '../data/initialData';
+import Dashboard from './Dashboard';
+import ProjectDetail from './ProjectDetail';
+import Sidebar from './Sidebar';
+import AddProjectModal from './AddProjectModal';
+import '../App.css';
 
 function App() {
-  const [projects, setProjects] = useLocalStorage('dal-projects', INITIAL_PROJECTS);
-  const [pipeline] = useLocalStorage('dal-pipeline', PIPELINE_APPS);
+  const [projects, setProjects] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [pipeline] = useState(PIPELINE_APPS);
   const [activeView, setActiveView] = useState('dashboard');
   const [selectedProject, setSelectedProject] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'projects'), (snapshot) => {
+      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setProjects(data);
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
 
   const handleSelectProject = (project) => {
     setSelectedProject(project);
     setActiveView('project');
   };
 
-  const handleUpdateProject = (updatedProject) => {
-    setProjects(prev => prev.map(p => p.id === updatedProject.id ? updatedProject : p));
+  const handleUpdateProject = async (updatedProject) => {
+    await setDoc(doc(db, 'projects', updatedProject.id), updatedProject);
     setSelectedProject(updatedProject);
   };
 
-  const handleAddProject = (newProject) => {
-    setProjects(prev => [...prev, newProject]);
+  const handleAddProject = async (newProject) => {
+    await setDoc(doc(db, 'projects', newProject.id), newProject);
     setShowAddModal(false);
   };
 
-  const handleDeleteProject = (projectId) => {
-    setProjects(prev => prev.filter(p => p.id !== projectId));
+  const handleDeleteProject = async (projectId) => {
+    await deleteDoc(doc(db, 'projects', projectId));
     setActiveView('dashboard');
     setSelectedProject(null);
   };
@@ -40,6 +50,14 @@ function App() {
   const currentProject = selectedProject
     ? projects.find(p => p.id === selectedProject.id) || selectedProject
     : null;
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0a0f1e', color: '#fff', fontSize: 18 }}>
+        Loading Mission Control...
+      </div>
+    );
+  }
 
   return (
     <div className="app-shell">
