@@ -8,6 +8,7 @@ import SubscriptionsDashboard from './components/SubscriptionsDashboard';
 import ProjectDetail from './components/ProjectDetail';
 import Sidebar from './components/Sidebar';
 import AddProjectModal from './components/AddProjectModal';
+import RevenueModal from './components/RevenueModal';
 import './App.css';
 
 function App() {
@@ -16,6 +17,7 @@ function App() {
   const [activeView, setActiveView] = useState('dashboard');
   const [selectedProject, setSelectedProject] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showRevenueModal, setShowRevenueModal] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const handleSelectProject = (project) => {
@@ -62,6 +64,7 @@ function App() {
             pipeline={pipeline}
             onSelectProject={handleSelectProject}
             onAddProject={() => setShowAddModal(true)}
+            onShowRevenue={() => setShowRevenueModal(true)}
           />
         )}
         {activeView === 'aso' && <ASODashboard />}
@@ -79,6 +82,13 @@ function App() {
         <AddProjectModal
           onAdd={handleAddProject}
           onClose={() => setShowAddModal(false)}
+        />
+      )}
+      {showRevenueModal && (
+        <RevenueModal
+          projects={projects}
+          onClose={() => setShowRevenueModal(false)}
+          onUpdateProject={handleUpdateProject}
         />
       )}
     </div>

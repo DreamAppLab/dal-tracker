@@ -99,7 +99,7 @@ function ProjectCard({ project, onClick }) {
   );
 }
 
-export default function Dashboard({ projects, pipeline, onSelectProject, onAddProject }) {
+export default function Dashboard({ projects, pipeline, onSelectProject, onAddProject, onShowRevenue }) {
   const totalMRR = projects.reduce((s, p) => s + (p.revenue?.monthly || 0), 0);
   const totalRevenue = projects.reduce((s, p) => s + (p.revenue?.total || 0), 0);
   const totalMonthlyExp = projects.reduce((s, p) => s + getMonthlyExpenses(p), 0);
@@ -157,7 +157,14 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
           </div>
           <div className="stat-sub">Revenue minus costs</div>
         </div>
-        <div className="stat-card amber">
+        <div
+          className="stat-card amber"
+          onClick={onShowRevenue}
+          onKeyDown={(e) => e.key === 'Enter' && onShowRevenue?.()}
+          role="button"
+          tabIndex={0}
+          style={{ cursor: onShowRevenue ? 'pointer' : undefined }}
+        >
           <div className="stat-label">Total Revenue</div>
           <div className="stat-value" style={{ color: 'var(--amber)' }}>${totalRevenue.toLocaleString()}</div>
           <div className="stat-sub">All time</div>
