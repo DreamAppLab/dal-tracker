@@ -16,7 +16,7 @@ function formatMoney(amount) {
   return `$${amount.toFixed(2)}`;
 }
 
-export default function SubscriptionsDashboard() {
+export default function SubscriptionsDashboard({ projects = [] }) {
   const [allocations, setAllocations] = useLocalStorage('dal-subscriptions', INITIAL_ALLOCATIONS);
 
   const appTotals = getAppMonthlyTotals(SUBSCRIPTIONS, allocations, SUBSCRIPTION_APPS);
