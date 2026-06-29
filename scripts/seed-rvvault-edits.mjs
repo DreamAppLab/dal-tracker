@@ -18,21 +18,23 @@ if (!snap.exists()) {
   process.exit(1);
 }
 
-const existingEdits = snap.data().edits || [];
-const existingIds = new Set(existingEdits.map((e) => e.id));
-const toAppend = (rvvault.edits || []).filter((e) => !existingIds.has(e.id));
-const mergedEdits = [...existingEdits, ...toAppend];
+// 1. Read current edits from Firestore
+const firestoreEdits = snap.data().edits || [];
 
-if (toAppend.length === 0) {
-  console.log(
-    `Success: no new edits to append on projects/${PROJECT_ID} (${existingEdits.length} existing item(s))`
-  );
-  process.exit(0);
+// 2. Get edits from initialData.js
+const initialEdits = rvvault.edits || [];
+
+// 3. Compare by id — only keep initialData edits not already in Firestore
+const existingIds = new Set(firestoreEdits.map((edit) => edit.id));
+const newEdits = initialEdits.filter((edit) => !existingIds.has(edit.id));
+
+// 4. Merge: existing preserved, new ones appended
+const mergedEdits = [...firestoreEdits, ...newEdits];
+
+if (newEdits.length > 0) {
+  await updateDoc(ref, { edits: mergedEdits });
 }
 
-await updateDoc(ref, { edits: mergedEdits });
-
-console.log(
-  `Success: appended ${toAppend.length} edit(s) to projects/${PROJECT_ID} (${existingEdits.length} existing + ${toAppend.length} new = ${mergedEdits.length} total)`
-);
+// 5. Log how many were added
+console.log(`Added ${newEdits.length} edit(s) to projects/${PROJECT_ID} (${firestoreEdits.length} → ${mergedEdits.length} total)`);
 process.exit(0);
