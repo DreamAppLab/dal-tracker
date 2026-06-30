@@ -1088,8 +1088,7 @@ option { background: var(--bg-card); }
   height: 10px;
   border-radius: 3px;
 }
-.calendar-legend-dot.dal { background: var(--amber); }
-.calendar-legend-dot.google { background: var(--teal); }
+.calendar-legend-dot.dal { background: var(--coral); }
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
@@ -1138,8 +1137,7 @@ option { background: var(--bg-card); }
   text-overflow: ellipsis;
   font-weight: 500;
 }
-.calendar-event-pill.dal { background: rgba(245, 158, 11, 0.2); color: var(--amber); }
-.calendar-event-pill.google { background: rgba(0, 212, 184, 0.15); color: var(--teal); }
+.calendar-event-pill.dal { background: var(--coral-dim); color: var(--coral); }
 .calendar-event-more { font-size: 9px; color: var(--text-muted); padding: 0 4px; }
 .calendar-event-row {
   display: flex;
@@ -1151,8 +1149,8 @@ option { background: var(--bg-card); }
   border: 1px solid var(--border);
   background: var(--bg-card);
 }
-.calendar-event-row.dal { border-left: 3px solid var(--amber); }
-.calendar-event-row.google { border-left: 3px solid var(--teal); }
+.calendar-event-row.dal { border-left: 3px solid var(--coral); }
+.calendar-event-row { border-left: 3px solid var(--teal); }
 .calendar-event-form { display: flex; flex-direction: column; }
 .calendar-error-banner {
   background: rgba(255, 91, 91, 0.1);
@@ -1163,6 +1161,68 @@ option { background: var(--bg-card); }
   color: var(--coral);
   margin-bottom: 16px;
 }
+
+/* ── CONNECTED CALENDAR ACCOUNTS ── */
+.connected-accounts-section {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+.connected-accounts-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.connected-accounts-title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+.connected-accounts-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+}
+.connected-accounts-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+.connected-account-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.connected-account-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.connected-account-email {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.connected-account-color-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: capitalize;
+}
+
 
 /* ── VAULT FILES ── */
 .vault-file-row {

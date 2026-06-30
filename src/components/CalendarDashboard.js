@@ -22,6 +22,7 @@ import {
   deleteDoc,
 } from 'firebase/firestore';
 import { useGoogleCalendar } from '../contexts/GoogleCalendarContext';
+import { getAccountColorStyle } from '../data/calendarColors';
 
 function EventForm({ onSave, onCancel, initial = null }) {
   const [form, setForm] = useState(
@@ -126,16 +127,72 @@ async function fetchGoogleEvents(accessToken, timeMin, timeMax) {
   }));
 }
 
+function EventPill({ event }) {
+  if (event.source === 'dal') {
+    return (
+      <div className="calendar-event-pill dal" title={event.title}>
+        {event.title}
+      </div>
+    );
+  }
+  const style = getAccountColorStyle(event.accountColor);
+  return (
+    <div className="calendar-event-pill" style={{ color: style.color, background: style.background }} title={event.title}>
+      {event.title}
+    </div>
+  );
+}
+
+function EventRow({ event, onDeleteDal }) {
+  if (event.source === 'dal') {
+    return (
+      <div className="calendar-event-row dal">
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 13 }}>{event.title}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+            {event.allDay
+              ? 'All day'
+              : `${format(parseISO(event.start), 'h:mm a')} – ${format(parseISO(event.end), 'h:mm a')}`}
+            {' · DAL Event'}
+          </div>
+          {event.description && (
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>{event.description}</div>
+          )}
+        </div>
+        <button className="btn btn-ghost btn-sm" style={{ color: 'var(--coral)' }} onClick={() => onDeleteDal(event.id)}>
+          Delete
+        </button>
+      </div>
+    );
+  }
+
+  const colorStyle = getAccountColorStyle(event.accountColor);
+  return (
+    <div className="calendar-event-row" style={{ borderLeftColor: colorStyle.color }}>
+      <div>
+        <div style={{ fontWeight: 600, fontSize: 13 }}>{event.title}</div>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+          {event.allDay
+            ? 'All day'
+            : `${format(parseISO(event.start), 'h:mm a')} – ${format(parseISO(event.end), 'h:mm a')}`}
+          {' · '}{event.accountEmail}
+        </div>
+        {event.description && (
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>{event.description}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function CalendarDashboard() {
   const {
-    accessToken,
-    googleUser,
+    connectedAccounts,
     connecting,
     error: googleError,
     setError: setGoogleError,
-    connectGoogle,
-    disconnectGoogle,
-    isConnected,
+    connectAccount,
+    disconnectAccount,
   } = useGoogleCalendar();
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -153,7 +210,7 @@ export default function CalendarDashboard() {
   }, []);
 
   useEffect(() => {
-    if (!accessToken) {
+    if (!connectedAccounts.length) {
       setGoogleEvents([]);
       return;
     }
@@ -164,8 +221,32 @@ export default function CalendarDashboard() {
       try {
         const monthStart = startOfMonth(currentMonth);
         const monthEnd = endOfMonth(currentMonth);
-        const events = await fetchGoogleEvents(accessToken, monthStart, monthEnd);
-        setGoogleEvents(events);
+        const results = await Promise.allSettled(
+          connectedAccounts.map(async (account) => {
+            const events = await fetchGoogleEvents(account.accessToken, monthStart, monthEnd);
+            return events.map(ev => ({
+              ...ev,
+              id: `${account.email}-${ev.id}`,
+              accountEmail: account.email,
+              accountColor: account.color,
+            }));
+          })
+        );
+
+        const merged = [];
+        const errors = [];
+        results.forEach((result, i) => {
+          if (result.status === 'fulfilled') {
+            merged.push(...result.value);
+          } else {
+            errors.push(`${connectedAccounts[i].email}: ${result.reason?.message || 'Failed to fetch'}`);
+          }
+        });
+
+        setGoogleEvents(merged);
+        if (errors.length) {
+          setGoogleError(errors.join('; '));
+        }
       } catch (err) {
         setGoogleError(err.message);
         setGoogleEvents([]);
@@ -174,7 +255,7 @@ export default function CalendarDashboard() {
       }
     };
     load();
-  }, [accessToken, currentMonth, setGoogleError]);
+  }, [connectedAccounts, currentMonth, setGoogleError]);
 
   const saveDalEvent = async (form) => {
     const id = `evt${Date.now()}`;
@@ -221,24 +302,43 @@ export default function CalendarDashboard() {
           <h1 className="page-title">Calendar</h1>
           <p className="page-subtitle">Gmail calendar sync + DAL reminders and deadlines</p>
         </div>
-        <div className="page-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {!isConnected ? (
-            <button className="btn btn-primary" onClick={connectGoogle} disabled={connecting}>
-              {connecting ? 'Connecting...' : '📅 Connect Google Calendar'}
-            </button>
-          ) : (
-            <div className="live-indicator" style={{ marginRight: 8 }}>
-              <span className="live-dot" />
-              {googleUser?.email || 'Google Calendar connected'}
-            </div>
-          )}
-          {isConnected && (
-            <button className="btn btn-ghost btn-sm" onClick={disconnectGoogle}>Disconnect</button>
-          )}
+        <div className="page-actions">
           <button className="btn btn-secondary" onClick={() => setShowAddForm(true)}>
             + Add DAL Event
           </button>
         </div>
+      </div>
+
+      <div className="connected-accounts-section">
+        <div className="connected-accounts-header">
+          <h3 className="connected-accounts-title">Connected Accounts</h3>
+          <button className="btn btn-primary btn-sm" onClick={connectAccount} disabled={connecting}>
+            {connecting ? 'Connecting...' : '+ Connect Account'}
+          </button>
+        </div>
+        {connectedAccounts.length === 0 ? (
+          <p className="connected-accounts-empty">No Google accounts connected yet.</p>
+        ) : (
+          <ul className="connected-accounts-list">
+            {connectedAccounts.map(account => {
+              const colorStyle = getAccountColorStyle(account.color);
+              return (
+                <li key={account.email} className="connected-account-row">
+                  <span className="connected-account-dot" style={{ background: colorStyle.color }} />
+                  <span className="connected-account-email">{account.email}</span>
+                  <span className="connected-account-color-label">{account.color}</span>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    style={{ color: 'var(--coral)', marginLeft: 'auto' }}
+                    onClick={() => disconnectAccount(account.email)}
+                  >
+                    Disconnect
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
 
       {googleError && (
@@ -249,9 +349,15 @@ export default function CalendarDashboard() {
         <span className="calendar-legend-item">
           <span className="calendar-legend-dot dal" /> DAL Events
         </span>
-        <span className="calendar-legend-item">
-          <span className="calendar-legend-dot google" /> Gmail Calendar
-        </span>
+        {connectedAccounts.map(account => {
+          const colorStyle = getAccountColorStyle(account.color);
+          return (
+            <span key={account.email} className="calendar-legend-item">
+              <span className="calendar-legend-dot" style={{ background: colorStyle.color }} />
+              {account.email}
+            </span>
+          );
+        })}
         {loadingGoogle && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Syncing Google events...</span>}
       </div>
 
@@ -280,9 +386,7 @@ export default function CalendarDashboard() {
               <div className="calendar-day-num">{format(day, 'd')}</div>
               <div className="calendar-day-events">
                 {dayEvents.slice(0, 3).map(ev => (
-                  <div key={ev.id} className={`calendar-event-pill ${ev.source}`} title={ev.title}>
-                    {ev.title}
-                  </div>
+                  <EventPill key={ev.id} event={ev} />
                 ))}
                 {dayEvents.length > 3 && (
                   <div className="calendar-event-more">+{dayEvents.length - 3} more</div>
@@ -303,25 +407,7 @@ export default function CalendarDashboard() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {selectedDayEvents.map(ev => (
-                <div key={ev.id} className={`calendar-event-row ${ev.source}`}>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 13 }}>{ev.title}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                      {ev.allDay
-                        ? 'All day'
-                        : `${format(parseISO(ev.start), 'h:mm a')} – ${format(parseISO(ev.end), 'h:mm a')}`}
-                      {' · '}{ev.source === 'dal' ? 'DAL Event' : 'Gmail'}
-                    </div>
-                    {ev.description && (
-                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>{ev.description}</div>
-                    )}
-                  </div>
-                  {ev.source === 'dal' && (
-                    <button className="btn btn-ghost btn-sm" style={{ color: 'var(--coral)' }} onClick={() => deleteDalEvent(ev.id)}>
-                      Delete
-                    </button>
-                  )}
-                </div>
+                <EventRow key={ev.id} event={ev} onDeleteDal={deleteDalEvent} />
               ))}
             </div>
           )}
