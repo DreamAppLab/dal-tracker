@@ -1016,6 +1016,126 @@ option { background: var(--bg-card); }
 }
 .revenue-trend-cell { display: flex; flex-direction: column; gap: 4px; }
 .revenue-trend-date { font-size: 10px; color: var(--text-muted); }
+
+/* ── REVENUE CARDS LAYOUT ── */
+.revenue-cards-canvas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-start;
+}
+.revenue-card-wrapper {
+  position: relative;
+  flex-shrink: 0;
+  min-width: 220px;
+  min-height: 160px;
+}
+.revenue-card-wrapper.drag-over .revenue-app-card {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 1px var(--teal);
+}
+.revenue-card-drag-handle {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 2;
+  cursor: grab;
+  color: var(--text-muted);
+  font-size: 14px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  user-select: none;
+  opacity: 0.6;
+}
+.revenue-card-drag-handle:hover { opacity: 1; color: var(--text-secondary); }
+.revenue-card-drag-handle:active { cursor: grabbing; }
+.revenue-card-resize-handle {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  z-index: 2;
+  opacity: 0.45;
+  background: linear-gradient(135deg, transparent 50%, var(--text-muted) 50%);
+  border-radius: 0 0 6px 0;
+}
+.revenue-card-resize-handle:hover { opacity: 0.9; }
+
+/* ── MANUAL SALES ── */
+.manual-sales-section { margin-top: 24px; }
+.manual-sales-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.manual-sales-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+.manual-sales-date {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  min-width: 90px;
+}
+.manual-sales-amount {
+  font-weight: 700;
+  color: var(--green);
+  min-width: 80px;
+}
+.manual-sales-note { color: var(--text-muted); flex: 1; }
+.manual-sales-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 0 0 16px;
+}
+.manual-sales-total {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+  padding: 12px 14px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+.manual-sales-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+.manual-sales-form .form-group { margin: 0; min-width: 140px; }
+.manual-sales-note-field { flex: 1; min-width: 200px; }
+.manual-sales-amount-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.manual-sales-currency {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* ── APP LOGOS ── */
+.sidebar-app-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+.app-logo-img { display: block; }
 .btn-disabled {
   display: inline-flex;
   align-items: center;

@@ -1,13 +1,14 @@
 // src/components/Sidebar.js
 import React from 'react';
 import { STATUS_CONFIG } from '../data/initialData';
+import AppLogo from './AppLogo';
 
 const NAV_ICON = {
   dashboard: '⊞',
   project: '◈'
 };
 
-export default function Sidebar({ projects, activeView, selectedProjectId, onNavigate, onSelectProject, onAddProject, sidebarOpen, setSidebarOpen }) {
+export default function Sidebar({ projects, revenueLogos = {}, activeView, selectedProjectId, onNavigate, onSelectProject, onAddProject, sidebarOpen, setSidebarOpen }) {
   return (
     <aside className={`sidebar ${sidebarOpen ? '' : 'collapsed'}`}>
       <div className="sidebar-logo">
@@ -62,13 +63,16 @@ export default function Sidebar({ projects, activeView, selectedProjectId, onNav
             <div className="sidebar-section-label" style={{ marginTop: 12 }}>Your Apps</div>
             {projects.filter(p => p.type === 'own-app').map(p => {
               const sc = STATUS_CONFIG[p.status];
+              const logoUrl = revenueLogos[p.id];
               return (
                 <button
                   key={p.id}
                   className={`sidebar-item ${selectedProjectId === p.id ? 'active' : ''}`}
                   onClick={() => onSelectProject(p)}
                 >
-                  <span className="sidebar-item-icon">{p.logo}</span>
+                  <span className="sidebar-item-icon sidebar-app-logo">
+                    <AppLogo logoUrl={logoUrl} fallback={p.logo} color={p.color} size={24} />
+                  </span>
                   <span className="sidebar-item-text">{p.name}</span>
                   <span className="sidebar-status-dot" style={{ background: sc?.color || '#94A3B8' }} />
                 </button>
@@ -78,13 +82,16 @@ export default function Sidebar({ projects, activeView, selectedProjectId, onNav
             <div className="sidebar-section-label" style={{ marginTop: 12 }}>Websites / Web Apps</div>
             {projects.filter(p => p.type !== 'own-app').map(p => {
               const sc = STATUS_CONFIG[p.status];
+              const logoUrl = revenueLogos[p.id];
               return (
                 <button
                   key={p.id}
                   className={`sidebar-item ${selectedProjectId === p.id ? 'active' : ''}`}
                   onClick={() => onSelectProject(p)}
                 >
-                  <span className="sidebar-item-icon">{p.logo}</span>
+                  <span className="sidebar-item-icon sidebar-app-logo">
+                    <AppLogo logoUrl={logoUrl} fallback={p.logo} color={p.color} size={24} />
+                  </span>
                   <span className="sidebar-item-text">{p.name}</span>
                   <span className="sidebar-status-dot" style={{ background: sc?.color || '#94A3B8' }} />
                 </button>

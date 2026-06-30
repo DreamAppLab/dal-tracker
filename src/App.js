@@ -15,6 +15,7 @@ import './App.css';
 
 function App() {
   const [projects, setProjects] = useState([]);
+  const [revenueLogos, setRevenueLogos] = useState({});
   const [loading, setLoading] = useState(true);
   const [pipeline] = useState(PIPELINE_APPS);
   const [activeView, setActiveView] = useState('dashboard');
@@ -27,6 +28,17 @@ function App() {
       const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setProjects(data);
       setLoading(false);
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'revenue'), (snapshot) => {
+      const logos = {};
+      snapshot.docs.forEach(d => {
+        if (d.data().logoUrl) logos[d.id] = d.data().logoUrl;
+      });
+      setRevenueLogos(logos);
     });
     return () => unsub();
   }, []);
@@ -69,6 +81,7 @@ function App() {
     <div className="app-shell">
       <Sidebar
         projects={projects}
+        revenueLogos={revenueLogos}
         activeView={activeView}
         selectedProjectId={currentProject?.id}
         onNavigate={setActiveView}
