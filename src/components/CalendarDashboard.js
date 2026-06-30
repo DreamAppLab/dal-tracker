@@ -3,15 +3,14 @@ import {
   format,
   startOfMonth,
   endOfMonth,
-  eachDayOfInterval,
   isSameMonth,
   isSameDay,
   addMonths,
   subMonths,
   startOfWeek,
-  endOfWeek,
   parseISO,
   isWithinInterval,
+  addDays,
 } from 'date-fns';
 import { db } from '../firebase';
 import {
@@ -23,6 +22,38 @@ import {
 } from 'firebase/firestore';
 import { useGoogleCalendar } from '../contexts/GoogleCalendarContext';
 import { getAccountColorStyle } from '../data/calendarColors';
+
+const WEEKDAY_HEADERS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+
+function getWorkdaysForMonth(month) {
+  const monthStart = startOfMonth(month);
+  const monthEnd = endOfMonth(month);
+  const gridStart = startOfWeek(monthStart, { weekStartsOn: 1 });
+  const lastWeekStart = startOfWeek(monthEnd, { weekStartsOn: 1 });
+  const gridEnd = addDays(lastWeekStart, 4);
+
+  const days = [];
+  let weekStart = gridStart;
+  while (weekStart <= gridEnd) {
+    for (let i = 0; i < 5; i++) {
+      days.push(addDays(weekStart, i));
+    }
+    weekStart = addDays(weekStart, 7);
+  }
+  return days;
+}
+
+function dalEventToForm(event) {
+  const start = parseISO(event.start.length === 10 ? `${event.start}T00:00:00` : event.start);
+  const end = parseISO(event.end.length === 10 ? `${event.end}T23:59:59` : event.end);
+  return {
+    title: event.title,
+    start: event.allDay ? format(start, 'yyyy-MM-dd') : format(start, "yyyy-MM-dd'T'HH:mm"),
+    end: event.allDay ? format(end, 'yyyy-MM-dd') : format(end, "yyyy-MM-dd'T'HH:mm"),
+    allDay: event.allDay,
+    description: event.description || '',
+  };
+}
 
 function EventForm({ onSave, onCancel, initial = null }) {
   const [form, setForm] = useState(
@@ -91,10 +122,96 @@ function EventForm({ onSave, onCancel, initial = null }) {
         />
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
-        <button type="submit" className="btn btn-primary btn-sm">Save Event</button>
+        <button type="submit" className="btn btn-primary btn-sm">{initial ? 'Save Changes' : 'Save Event'}</button>
         <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel}>Cancel</button>
       </div>
     </form>
+  );
+}
+
+function EventDetailsModal({ event, editing, onClose, onEdit, onDelete, onSaveEdit }) {
+  if (!event) return null;
+
+  if (editing && event.source === 'dal') {
+    return (
+      <div className="modal-overlay" onClick={onClose}>
+        <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <div className="modal-title">Edit DAL Event</div>
+            <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+          </div>
+          <div className="modal-body">
+            <EventForm
+              initial={dalEventToForm(event)}
+              onSave={onSaveEdit}
+              onCancel={onClose}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const start = parseISO(event.start.length === 10 ? `${event.start}T00:00:00` : event.start);
+  const end = parseISO(event.end.length === 10 ? `${event.end}T23:59:59` : event.end);
+  const dateStr = format(start, 'EEEE, MMMM d, yyyy');
+  const timeStr = event.allDay
+    ? 'All day'
+    : `${format(start, 'h:mm a')} – ${format(end, 'h:mm a')}`;
+
+  const isDal = event.source === 'dal';
+  const sourceStyle = isDal
+    ? { color: 'var(--coral)', background: 'var(--coral-dim)' }
+    : getAccountColorStyle(event.accountColor);
+  const sourceLabel = isDal ? 'DAL Event' : event.accountEmail;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal event-details-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <div className="modal-title">{event.title}</div>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div className="event-detail-row">
+            <span className="event-detail-label">Date</span>
+            <span className="event-detail-value">{dateStr}</span>
+          </div>
+          <div className="event-detail-row">
+            <span className="event-detail-label">Time</span>
+            <span className="event-detail-value">{timeStr}</span>
+          </div>
+          <div className="event-detail-row">
+            <span className="event-detail-label">Source</span>
+            <span className="event-detail-source" style={{ color: sourceStyle.color, background: sourceStyle.background }}>
+              <span className="event-detail-source-dot" style={{ background: sourceStyle.color }} />
+              {sourceLabel}
+            </span>
+          </div>
+          {event.location && (
+            <div className="event-detail-row">
+              <span className="event-detail-label">Location</span>
+              <span className="event-detail-value">{event.location}</span>
+            </div>
+          )}
+          {event.description && (
+            <div className="event-detail-row event-detail-row-block">
+              <span className="event-detail-label">Description</span>
+              <span className="event-detail-value event-detail-description">{event.description}</span>
+            </div>
+          )}
+        </div>
+        <div className="modal-footer">
+          {isDal && (
+            <>
+              <button className="btn btn-secondary" onClick={onEdit}>Edit</button>
+              <button className="btn btn-danger" onClick={onDelete}>Delete</button>
+            </>
+          )}
+          <button className="btn btn-primary" onClick={onClose} style={{ marginLeft: 'auto' }}>Close</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -123,64 +240,33 @@ async function fetchGoogleEvents(accessToken, timeMin, timeMax) {
     end: ev.end.dateTime || ev.end.date,
     allDay: !ev.start.dateTime,
     description: ev.description || '',
+    location: ev.location || '',
     source: 'google',
   }));
 }
 
-function EventPill({ event }) {
+function EventPill({ event, onSelect }) {
+  const handleClick = (e) => {
+    e.stopPropagation();
+    onSelect(event);
+  };
+
   if (event.source === 'dal') {
     return (
-      <div className="calendar-event-pill dal" title={event.title}>
+      <div className="calendar-event-pill dal" title={event.title} onClick={handleClick}>
         {event.title}
       </div>
     );
   }
   const style = getAccountColorStyle(event.accountColor);
   return (
-    <div className="calendar-event-pill" style={{ color: style.color, background: style.background }} title={event.title}>
+    <div
+      className="calendar-event-pill"
+      style={{ color: style.color, background: style.background }}
+      title={event.title}
+      onClick={handleClick}
+    >
       {event.title}
-    </div>
-  );
-}
-
-function EventRow({ event, onDeleteDal }) {
-  if (event.source === 'dal') {
-    return (
-      <div className="calendar-event-row dal">
-        <div>
-          <div style={{ fontWeight: 600, fontSize: 13 }}>{event.title}</div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-            {event.allDay
-              ? 'All day'
-              : `${format(parseISO(event.start), 'h:mm a')} – ${format(parseISO(event.end), 'h:mm a')}`}
-            {' · DAL Event'}
-          </div>
-          {event.description && (
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>{event.description}</div>
-          )}
-        </div>
-        <button className="btn btn-ghost btn-sm" style={{ color: 'var(--coral)' }} onClick={() => onDeleteDal(event.id)}>
-          Delete
-        </button>
-      </div>
-    );
-  }
-
-  const colorStyle = getAccountColorStyle(event.accountColor);
-  return (
-    <div className="calendar-event-row" style={{ borderLeftColor: colorStyle.color }}>
-      <div>
-        <div style={{ fontWeight: 600, fontSize: 13 }}>{event.title}</div>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-          {event.allDay
-            ? 'All day'
-            : `${format(parseISO(event.start), 'h:mm a')} – ${format(parseISO(event.end), 'h:mm a')}`}
-          {' · '}{event.accountEmail}
-        </div>
-        {event.description && (
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>{event.description}</div>
-        )}
-      </div>
     </div>
   );
 }
@@ -200,7 +286,8 @@ export default function CalendarDashboard() {
   const [googleEvents, setGoogleEvents] = useState([]);
   const [loadingGoogle, setLoadingGoogle] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [selectedDay, setSelectedDay] = useState(null);
+  const [selectedEvent, setSelectedEvent] = useState(null);
+  const [editingEvent, setEditingEvent] = useState(false);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'calendarEvents'), (snapshot) => {
@@ -273,17 +360,32 @@ export default function CalendarDashboard() {
     setShowAddForm(false);
   };
 
+  const updateDalEvent = async (id, form) => {
+    const start = form.allDay ? `${form.start.slice(0, 10)}T00:00:00` : new Date(form.start).toISOString();
+    const end = form.allDay ? `${form.end.slice(0, 10)}T23:59:59` : new Date(form.end).toISOString();
+    await setDoc(doc(db, 'calendarEvents', id), {
+      title: form.title.trim(),
+      start,
+      end,
+      allDay: form.allDay,
+      description: form.description || '',
+      source: 'dal',
+    });
+    closeEventModal();
+  };
+
   const deleteDalEvent = async (id) => {
     if (!window.confirm('Delete this event?')) return;
     await deleteDoc(doc(db, 'calendarEvents', id));
+    closeEventModal();
   };
 
-  const monthStart = startOfMonth(currentMonth);
-  const monthEnd = endOfMonth(currentMonth);
-  const calStart = startOfWeek(monthStart);
-  const calEnd = endOfWeek(monthEnd);
-  const days = eachDayOfInterval({ start: calStart, end: calEnd });
+  const closeEventModal = () => {
+    setSelectedEvent(null);
+    setEditingEvent(false);
+  };
 
+  const days = getWorkdaysForMonth(currentMonth);
   const allEvents = [...dalEvents, ...googleEvents];
 
   const getEventsForDay = (day) =>
@@ -292,8 +394,6 @@ export default function CalendarDashboard() {
       const end = parseISO(ev.end.length === 10 ? `${ev.end}T23:59:59` : ev.end);
       return isWithinInterval(day, { start, end }) || isSameDay(day, start);
     });
-
-  const selectedDayEvents = selectedDay ? getEventsForDay(selectedDay) : [];
 
   return (
     <div className="page">
@@ -368,28 +468,34 @@ export default function CalendarDashboard() {
         <button className="btn btn-ghost btn-sm" onClick={() => setCurrentMonth(new Date())}>Today</button>
       </div>
 
-      <div className="calendar-grid">
-        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+      <div className="calendar-grid calendar-grid-workweek">
+        {WEEKDAY_HEADERS.map(d => (
           <div key={d} className="calendar-day-header">{d}</div>
         ))}
         {days.map(day => {
           const dayEvents = getEventsForDay(day);
           const inMonth = isSameMonth(day, currentMonth);
           const isToday = isSameDay(day, new Date());
-          const isSelected = selectedDay && isSameDay(day, selectedDay);
           return (
             <div
               key={day.toISOString()}
-              className={`calendar-day ${!inMonth ? 'other-month' : ''} ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''}`}
-              onClick={() => setSelectedDay(day)}
+              className={`calendar-day ${!inMonth ? 'other-month' : ''} ${isToday ? 'today' : ''}`}
             >
               <div className="calendar-day-num">{format(day, 'd')}</div>
               <div className="calendar-day-events">
                 {dayEvents.slice(0, 3).map(ev => (
-                  <EventPill key={ev.id} event={ev} />
+                  <EventPill key={ev.id} event={ev} onSelect={setSelectedEvent} />
                 ))}
                 {dayEvents.length > 3 && (
-                  <div className="calendar-event-more">+{dayEvents.length - 3} more</div>
+                  <div
+                    className="calendar-event-more"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (dayEvents[3]) setSelectedEvent(dayEvents[3]);
+                    }}
+                  >
+                    +{dayEvents.length - 3} more
+                  </div>
                 )}
               </div>
             </div>
@@ -397,21 +503,15 @@ export default function CalendarDashboard() {
         })}
       </div>
 
-      {selectedDay && (
-        <div className="data-section" style={{ marginTop: 20 }}>
-          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12, color: 'var(--text-primary)' }}>
-            {format(selectedDay, 'EEEE, MMMM d, yyyy')}
-          </div>
-          {selectedDayEvents.length === 0 ? (
-            <div className="empty-state-text">No events on this day</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {selectedDayEvents.map(ev => (
-                <EventRow key={ev.id} event={ev} onDeleteDal={deleteDalEvent} />
-              ))}
-            </div>
-          )}
-        </div>
+      {selectedEvent && (
+        <EventDetailsModal
+          event={selectedEvent}
+          editing={editingEvent}
+          onClose={closeEventModal}
+          onEdit={() => setEditingEvent(true)}
+          onDelete={() => deleteDalEvent(selectedEvent.id)}
+          onSaveEdit={(form) => updateDalEvent(selectedEvent.id, form)}
+        />
       )}
 
       {showAddForm && (
