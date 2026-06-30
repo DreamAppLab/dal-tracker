@@ -1,36 +1,111 @@
 // src/components/SubscriptionsDashboard.js
-import React from 'react';
-import { useLocalStorage } from '../hooks/useLocalStorage';
+import React, { useState, useEffect } from 'react';
+import { db } from '../firebase';
+import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import {
   SUBSCRIPTION_APPS,
   SUBSCRIPTIONS,
-  INITIAL_ALLOCATIONS,
   getMonthlyCost,
   formatSubscriptionCost,
   getCheckedApps,
-  getAppMonthlyTotals
+  getAppMonthlyTotals,
 } from '../data/subscriptionsData';
+import AddSubscriptionModal from './AddSubscriptionModal';
 
 function formatMoney(amount) {
   if (!amount) return '$0.00';
   return `$${amount.toFixed(2)}`;
 }
 
-export default function SubscriptionsDashboard({ projects = [] }) {
-  const [allocations, setAllocations] = useLocalStorage('dal-subscriptions', INITIAL_ALLOCATIONS);
-
-  const appTotals = getAppMonthlyTotals(SUBSCRIPTIONS, allocations, SUBSCRIPTION_APPS);
-  const totalMonthlyTools = SUBSCRIPTIONS.reduce((sum, sub) => sum + getMonthlyCost(sub), 0);
-  const totalAllocated = Object.values(appTotals).reduce((sum, value) => sum + value, 0);
-  const allocatedSubs = SUBSCRIPTIONS.filter(sub => getCheckedApps(allocations, sub.id, SUBSCRIPTION_APPS).length > 0).length;
-
-  const toggleAllocation = (subscriptionId, appId) => {
-    setAllocations(prev => {
-      const subAllocations = { ...(prev[subscriptionId] || {}) };
-      subAllocations[appId] = !subAllocations[appId];
-      return { ...prev, [subscriptionId]: subAllocations };
-    });
+function seedSubscription(sub) {
+  return {
+    name: sub.name,
+    amount: sub.amount,
+    period: sub.period,
+    category: 'tools',
+    apps: {},
   };
+}
+
+export default function SubscriptionsDashboard() {
+  const [subscriptions, setSubscriptions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [seeded, setSeeded] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editAmount, setEditAmount] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'subscriptions'), async (snapshot) => {
+      if (snapshot.empty && !seeded) {
+        setSeeded(true);
+        await Promise.all(
+          SUBSCRIPTIONS.map(sub =>
+            setDoc(doc(db, 'subscriptions', sub.id), seedSubscription(sub))
+          )
+        );
+        return;
+      }
+
+      const data = snapshot.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      setSubscriptions(data);
+      setLoading(false);
+    });
+    return () => unsub();
+  }, [seeded]);
+
+  const getAllocations = () => {
+    const allocations = {};
+    subscriptions.forEach(sub => {
+      allocations[sub.id] = sub.apps || {};
+    });
+    return allocations;
+  };
+
+  const allocations = getAllocations();
+  const appTotals = getAppMonthlyTotals(subscriptions, allocations, SUBSCRIPTION_APPS);
+  const totalMonthlyTools = subscriptions.reduce((sum, sub) => sum + getMonthlyCost(sub), 0);
+  const totalAllocated = Object.values(appTotals).reduce((sum, value) => sum + value, 0);
+  const allocatedSubs = subscriptions.filter(sub => getCheckedApps(allocations, sub.id, SUBSCRIPTION_APPS).length > 0).length;
+
+  const toggleAllocation = async (subscriptionId, appId) => {
+    const sub = subscriptions.find(s => s.id === subscriptionId);
+    if (!sub) return;
+    const apps = { ...(sub.apps || {}) };
+    apps[appId] = !apps[appId];
+    await setDoc(doc(db, 'subscriptions', subscriptionId), { ...sub, apps });
+  };
+
+  const startEditPrice = (sub) => {
+    setEditingId(sub.id);
+    setEditAmount(String(sub.amount));
+  };
+
+  const savePrice = async (sub) => {
+    const amount = parseFloat(editAmount) || 0;
+    await setDoc(doc(db, 'subscriptions', sub.id), { ...sub, amount });
+    setEditingId(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditAmount('');
+  };
+
+  const handleAddSubscription = async (newSub) => {
+    await setDoc(doc(db, 'subscriptions', newSub.id), newSub);
+    setShowAddModal(false);
+  };
+
+  if (loading) {
+    return (
+      <div className="page" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 300 }}>
+        <span style={{ color: 'var(--text-muted)' }}>Loading subscriptions...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="page">
@@ -39,7 +114,10 @@ export default function SubscriptionsDashboard({ projects = [] }) {
           <h1 className="page-title">Subscriptions</h1>
           <p className="page-subtitle">Split shared tool costs across apps — check which apps use each subscription</p>
         </div>
-        <div className="page-actions">
+        <div className="page-actions" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button className="btn btn-primary" onClick={() => setShowAddModal(true)}>
+            + Add Subscription
+          </button>
           <div className="live-indicator">
             <span className="live-dot" />
             {formatMoney(totalMonthlyTools)}/mo total tools
@@ -51,12 +129,12 @@ export default function SubscriptionsDashboard({ projects = [] }) {
         <div className="stat-card teal">
           <div className="stat-label">Monthly Tool Spend</div>
           <div className="stat-value" style={{ color: 'var(--teal)' }}>{formatMoney(totalMonthlyTools)}</div>
-          <div className="stat-sub">{SUBSCRIPTIONS.length} subscriptions tracked</div>
+          <div className="stat-sub">{subscriptions.length} subscriptions tracked</div>
         </div>
         <div className="stat-card amber">
           <div className="stat-label">Allocated</div>
           <div className="stat-value" style={{ color: 'var(--amber)' }}>{formatMoney(totalAllocated)}</div>
-          <div className="stat-sub">{allocatedSubs} of {SUBSCRIPTIONS.length} subscriptions assigned</div>
+          <div className="stat-sub">{allocatedSubs} of {subscriptions.length} subscriptions assigned</div>
         </div>
         <div className="stat-card indigo">
           <div className="stat-label">Apps</div>
@@ -77,16 +155,49 @@ export default function SubscriptionsDashboard({ projects = [] }) {
               </tr>
             </thead>
             <tbody>
-              {SUBSCRIPTIONS.map(sub => {
+              {subscriptions.map(sub => {
                 const monthly = getMonthlyCost(sub);
                 const checked = getCheckedApps(allocations, sub.id, SUBSCRIPTION_APPS);
                 const share = checked.length ? monthly / checked.length : 0;
+                const isEditing = editingId === sub.id;
 
                 return (
                   <tr key={sub.id}>
                     <td className="subscriptions-sticky-col">
-                      <div className="subscriptions-name">{sub.name}</div>
-                      <div className="subscriptions-cost">{formatSubscriptionCost(sub)}</div>
+                      <div className="subscriptions-name-row">
+                        <div className="subscriptions-name">{sub.name}</div>
+                        {!isEditing && (
+                          <button
+                            className="subscriptions-edit-btn"
+                            onClick={() => startEditPrice(sub)}
+                            title="Edit price"
+                          >
+                            ✏️
+                          </button>
+                        )}
+                      </div>
+                      {isEditing ? (
+                        <div className="subscriptions-price-edit">
+                          <input
+                            className="form-input"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={editAmount}
+                            onChange={e => setEditAmount(e.target.value)}
+                            style={{ width: 80, fontSize: 12, padding: '4px 8px' }}
+                            autoFocus
+                          />
+                          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>/{sub.period === 'yearly' ? 'yr' : 'mo'}</span>
+                          <button className="btn btn-primary btn-sm" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => savePrice(sub)}>Save</button>
+                          <button className="btn btn-ghost btn-sm" style={{ padding: '2px 8px', fontSize: 11 }} onClick={cancelEdit}>Cancel</button>
+                        </div>
+                      ) : (
+                        <div className="subscriptions-cost">{formatSubscriptionCost(sub)}</div>
+                      )}
+                      {sub.category && (
+                        <div className="subscriptions-split" style={{ textTransform: 'capitalize' }}>{sub.category}</div>
+                      )}
                       {checked.length > 0 && monthly > 0 && (
                         <div className="subscriptions-split">{formatMoney(share)}/app</div>
                       )}
@@ -129,6 +240,13 @@ export default function SubscriptionsDashboard({ projects = [] }) {
           </table>
         </div>
       </div>
+
+      {showAddModal && (
+        <AddSubscriptionModal
+          onAdd={handleAddSubscription}
+          onClose={() => setShowAddModal(false)}
+        />
+      )}
     </div>
   );
 }

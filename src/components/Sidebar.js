@@ -36,11 +36,25 @@ export default function Sidebar({ projects, activeView, selectedProjectId, onNav
           {sidebarOpen && <span className="sidebar-item-text">ASO</span>}
         </button>
         <button
+          className={`sidebar-item ${activeView === 'revenue' ? 'active' : ''}`}
+          onClick={() => onNavigate('revenue')}
+        >
+          <span className="sidebar-item-icon">💰</span>
+          {sidebarOpen && <span className="sidebar-item-text">Revenue</span>}
+        </button>
+        <button
           className={`sidebar-item ${activeView === 'subscriptions' ? 'active' : ''}`}
           onClick={() => onNavigate('subscriptions')}
         >
           <span className="sidebar-item-icon">💳</span>
           {sidebarOpen && <span className="sidebar-item-text">Subscriptions</span>}
+        </button>
+        <button
+          className={`sidebar-item ${activeView === 'calendar' ? 'active' : ''}`}
+          onClick={() => onNavigate('calendar')}
+        >
+          <span className="sidebar-item-icon">📅</span>
+          {sidebarOpen && <span className="sidebar-item-text">Calendar</span>}
         </button>
 
         {sidebarOpen && (

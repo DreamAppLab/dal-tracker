@@ -1,5 +1,7 @@
 // src/ProjectVault.js
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
+import { storage } from './firebase';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 
 const ENTRY_TYPES = [
   { value: 'api_key', label: '🔑 API Key' },
@@ -9,23 +11,51 @@ const ENTRY_TYPES = [
   { value: 'id', label: '🪪 ID / Identifier' },
 ];
 
+const ALLOWED_TYPES = {
+  'application/pdf': { ext: 'pdf', icon: '📄', label: 'PDF' },
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': { ext: 'docx', icon: '📝', label: 'DOCX' },
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': { ext: 'xlsx', icon: '📊', label: 'XLSX' },
+  'image/png': { ext: 'png', icon: '🖼️', label: 'PNG' },
+  'image/jpeg': { ext: 'jpg', icon: '🖼️', label: 'JPG' },
+};
+
+const ACCEPT = '.pdf,.docx,.xlsx,.png,.jpg,.jpeg';
+
+function formatFileSize(bytes) {
+  if (!bytes) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getFileTypeInfo(mimeType, name) {
+  if (ALLOWED_TYPES[mimeType]) return ALLOWED_TYPES[mimeType];
+  const ext = name?.split('.').pop()?.toLowerCase();
+  const byExt = Object.values(ALLOWED_TYPES).find(t => t.ext === ext);
+  return byExt || { ext: 'file', icon: '📎', label: ext?.toUpperCase() || 'FILE' };
+}
+
 function EmptyVault() {
   return (
     <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-muted)' }}>
       <div style={{ fontSize: 36, marginBottom: 12 }}>🔑</div>
       <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 6 }}>No vault entries yet</div>
-      <div style={{ fontSize: 12 }}>Store API keys, credentials, URLs, and notes for this project</div>
+      <div style={{ fontSize: 12 }}>Store API keys, credentials, URLs, notes, and files for this project</div>
     </div>
   );
 }
 
 export default function ProjectVault({ project, onUpdate }) {
   const entries = project.vault || [];
+  const files = project.vaultFiles || [];
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [revealed, setRevealed] = useState({});
   const [copied, setCopied] = useState({});
   const [form, setForm] = useState({ type: 'api_key', label: '', value: '', notes: '' });
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
+  const fileInputRef = useRef(null);
 
   const resetForm = () => {
     setForm({ type: 'api_key', label: '', value: '', notes: '' });
@@ -67,6 +97,63 @@ export default function ProjectVault({ project, onUpdate }) {
     setRevealed(r => ({ ...r, [id]: !r[id] }));
   };
 
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+
+    if (!ALLOWED_TYPES[file.type] && !file.name.match(/\.(pdf|docx|xlsx|png|jpe?g)$/i)) {
+      setUploadError('Unsupported file type. Allowed: PDF, DOCX, XLSX, PNG, JPG');
+      return;
+    }
+
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const fileId = `f${Date.now()}`;
+      const storagePath = `vault/${project.id}/${fileId}_${file.name}`;
+      const storageRef = ref(storage, storagePath);
+      await uploadBytes(storageRef, file);
+      const downloadUrl = await getDownloadURL(storageRef);
+      const typeInfo = getFileTypeInfo(file.type, file.name);
+      const newFile = {
+        id: fileId,
+        name: file.name,
+        mimeType: file.type,
+        fileType: typeInfo.label,
+        size: file.size,
+        storagePath,
+        downloadUrl,
+        uploadedAt: new Date().toISOString(),
+        projectId: project.id,
+      };
+      onUpdate({ ...project, vaultFiles: [...files, newFile] });
+    } catch (err) {
+      setUploadError(err.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const downloadFile = (file) => {
+    const a = document.createElement('a');
+    a.href = file.downloadUrl;
+    a.download = file.name;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.click();
+  };
+
+  const deleteFile = async (file) => {
+    if (!window.confirm(`Delete "${file.name}"?`)) return;
+    try {
+      await deleteObject(ref(storage, file.storagePath));
+    } catch {
+      // file may already be gone from storage
+    }
+    onUpdate({ ...project, vaultFiles: files.filter(f => f.id !== file.id) });
+  };
+
   const isSensitive = (type) => type === 'api_key' || type === 'credential';
 
   const grouped = ENTRY_TYPES.map(t => ({
@@ -76,22 +163,72 @@ export default function ProjectVault({ project, onUpdate }) {
 
   return (
     <div className="data-section">
-      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 2 }}>
             Project Vault
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            API keys, credentials, URLs, and notes — {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
+            API keys, credentials, URLs, notes, and files — {entries.length} {entries.length === 1 ? 'entry' : 'entries'}, {files.length} {files.length === 1 ? 'file' : 'files'}
           </div>
         </div>
-        <button className="btn btn-primary btn-sm" onClick={() => { resetForm(); setShowForm(true); }}>
-          + Add Entry
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={ACCEPT}
+            style={{ display: 'none' }}
+            onChange={handleFileUpload}
+          />
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+          >
+            {uploading ? 'Uploading...' : '📎 Upload File'}
+          </button>
+          <button className="btn btn-primary btn-sm" onClick={() => { resetForm(); setShowForm(true); }}>
+            + Add Entry
+          </button>
+        </div>
       </div>
 
-      {/* Add/Edit Form */}
+      {uploadError && (
+        <div className="calendar-error-banner" style={{ marginBottom: 12 }}>{uploadError}</div>
+      )}
+
+      {files.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 8 }}>
+            📁 Files — {project.name}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {files.map(file => {
+              const typeInfo = getFileTypeInfo(file.mimeType, file.name);
+              return (
+                <div key={file.id} className="vault-file-row">
+                  <div className="vault-file-icon">{typeInfo.icon}</div>
+                  <div className="vault-file-info">
+                    <div className="vault-file-name">{file.name}</div>
+                    <div className="vault-file-meta">
+                      {typeInfo.label} · {formatFileSize(file.size)} · {new Date(file.uploadedAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => downloadFile(file)}>
+                      ⬇ Download
+                    </button>
+                    <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--coral)' }} onClick={() => deleteFile(file)}>
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {showForm && (
         <div style={{
           background: 'var(--bg-elevated)',
@@ -151,8 +288,7 @@ export default function ProjectVault({ project, onUpdate }) {
         </div>
       )}
 
-      {/* Entries */}
-      {entries.length === 0 && !showForm ? (
+      {entries.length === 0 && files.length === 0 && !showForm ? (
         <EmptyVault />
       ) : (
         grouped.map(group => (

@@ -5,6 +5,8 @@ import { PIPELINE_APPS } from './data/initialData';
 import Dashboard from './components/Dashboard';
 import ASODashboard from './components/ASODashboard';
 import SubscriptionsDashboard from './components/SubscriptionsDashboard';
+import RevenueDashboard from './components/RevenueDashboard';
+import CalendarDashboard from './components/CalendarDashboard';
 import ProjectDetail from './components/ProjectDetail';
 import Sidebar from './components/Sidebar';
 import AddProjectModal from './components/AddProjectModal';
@@ -85,8 +87,14 @@ function App() {
         {activeView === 'aso' && (
           <ASODashboard projects={projects} />
         )}
+        {activeView === 'revenue' && (
+          <RevenueDashboard />
+        )}
         {activeView === 'subscriptions' && (
-          <SubscriptionsDashboard projects={projects} />
+          <SubscriptionsDashboard />
+        )}
+        {activeView === 'calendar' && (
+          <CalendarDashboard />
         )}
         {activeView === 'project' && currentProject && (
           <ProjectDetail
