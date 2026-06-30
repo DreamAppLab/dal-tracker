@@ -1,5 +1,7 @@
 // src/components/Dashboard.js
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { db } from '../firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { STATUS_CONFIG, PIPELINE_APPS } from '../data/initialData';
 
 function getProgress(project) {
@@ -100,8 +102,19 @@ function ProjectCard({ project, onClick }) {
 }
 
 export default function Dashboard({ projects, pipeline, onSelectProject, onAddProject, onShowRevenue }) {
-  const totalMRR = projects.reduce((s, p) => s + (p.revenue?.monthly || 0), 0);
-  const totalRevenue = projects.reduce((s, p) => s + (p.revenue?.total || 0), 0);
+  const [dashboardSummary, setDashboardSummary] = useState(null);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'dashboard', 'summary'), (snapshot) => {
+      setDashboardSummary(snapshot.exists() ? snapshot.data() : null);
+    });
+    return () => unsub();
+  }, []);
+
+  const projectsMRR = projects.reduce((s, p) => s + (p.revenue?.monthly || 0), 0);
+  const projectsRevenue = projects.reduce((s, p) => s + (p.revenue?.total || 0), 0);
+  const totalMRR = dashboardSummary?.monthlyRevenue ?? projectsMRR;
+  const totalRevenue = dashboardSummary?.totalRevenue ?? projectsRevenue;
   const totalMonthlyExp = projects.reduce((s, p) => s + getMonthlyExpenses(p), 0);
   const liveCount = projects.filter(p => p.status === 'live').length;
   const inDevCount = projects.filter(p => p.status === 'in-development').length;

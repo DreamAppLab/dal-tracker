@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { db } from '../firebase';
-import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, setDoc, updateDoc, getDoc } from 'firebase/firestore';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { REVENUE_APPS, getDefaultRevenueDoc } from '../data/revenueAppsData';
+import { syncRevenueCatToFirestore } from '../utils/revenueCatApi';
 
 function formatMoney(amount) {
   return `$${(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -125,8 +126,11 @@ function RevenueAppDetail({ appMeta, data, onBack, onSave }) {
 export default function RevenueDashboard() {
   const [revenueData, setRevenueData] = useState({});
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [appErrors, setAppErrors] = useState({});
   const [selectedAppId, setSelectedAppId] = useState(null);
   const [seeded, setSeeded] = useState(false);
+  const autoSyncStarted = useRef(false);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'revenue'), async (snapshot) => {
@@ -139,7 +143,7 @@ export default function RevenueDashboard() {
       if (missing.length > 0 && !seeded) {
         setSeeded(true);
         await Promise.all(
-          missing.map(a => setDoc(doc(db, 'revenue', a.appId), getDefaultRevenueDoc(a.appId)))
+          missing.map(a => setDoc(doc(db, 'revenue', a.appId), getDefaultRevenueDoc(a.appId), { merge: true }))
         );
         return;
       }
@@ -150,17 +154,48 @@ export default function RevenueDashboard() {
     return () => unsub();
   }, [seeded]);
 
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const { errors } = await syncRevenueCatToFirestore(db, {
+        doc,
+        setDoc,
+        updateDoc,
+        getDoc,
+      });
+      setAppErrors(errors);
+    } catch (error) {
+      console.error('RevenueCat sync failed:', error);
+      const fallback = {};
+      REVENUE_APPS.forEach(a => {
+        fallback[a.appId] = error.message || 'RevenueCat sync failed';
+      });
+      setAppErrors(fallback);
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!loading && !autoSyncStarted.current) {
+      autoSyncStarted.current = true;
+      handleRefresh();
+    }
+  }, [loading, handleRefresh]);
+
   const totalRevenue = REVENUE_APPS.reduce((sum, a) => sum + (revenueData[a.appId]?.totalRevenue || 0), 0);
 
   const handleSave = async (appId, updated) => {
-    await setDoc(doc(db, 'revenue', appId), updated);
+    await setDoc(doc(db, 'revenue', appId), updated, { merge: true });
     setRevenueData(prev => ({ ...prev, [appId]: updated }));
   };
 
-  if (loading) {
+  if (loading || refreshing) {
     return (
       <div className="page" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 300 }}>
-        <span style={{ color: 'var(--text-muted)' }}>Loading revenue data...</span>
+        <span style={{ color: 'var(--text-muted)' }}>
+          {refreshing ? 'Syncing from RevenueCat...' : 'Loading revenue data...'}
+        </span>
       </div>
     );
   }
@@ -186,9 +221,14 @@ export default function RevenueDashboard() {
           <p className="page-subtitle">Sales & subscription revenue across all DAL apps</p>
         </div>
         <div className="page-actions">
-          <span className="btn btn-disabled" title="API integration coming soon">
+          <button
+            type="button"
+            className={`btn ${refreshing ? 'btn-disabled' : 'btn-secondary'}`}
+            onClick={handleRefresh}
+            disabled={refreshing}
+          >
             ↻ Refresh from RevenueCat
-          </span>
+          </button>
         </div>
       </div>
 
@@ -200,12 +240,14 @@ export default function RevenueDashboard() {
       <div className="stats-grid">
         {REVENUE_APPS.map(app => {
           const d = revenueData[app.appId] || {};
+          const syncError = appErrors[app.appId];
           return (
             <div
               key={app.appId}
               className="project-card revenue-app-card"
               onClick={() => setSelectedAppId(app.appId)}
               style={{ cursor: 'pointer' }}
+              title={syncError || undefined}
             >
               <div className="project-card-accent" style={{ background: `linear-gradient(90deg, ${app.color}, transparent)` }} />
               <div className="project-card-top">
@@ -215,7 +257,9 @@ export default function RevenueDashboard() {
                   </div>
                   <div>
                     <div className="project-name">{app.name}</div>
-                    <div className="project-tagline">Tap for full metrics</div>
+                    <div className="project-tagline">
+                      {syncError ? `Sync error: ${syncError}` : 'Tap for full metrics'}
+                    </div>
                   </div>
                 </div>
               </div>
