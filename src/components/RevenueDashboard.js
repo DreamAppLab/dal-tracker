@@ -1,5 +1,19 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { db, storage } from '../firebase';
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  rectSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { db } from '../firebase';
 import {
   collection,
   doc,
@@ -9,7 +23,6 @@ import {
   getDoc,
   updateDoc,
 } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { REVENUE_APPS, getDefaultRevenueDoc } from '../data/revenueAppsData';
 import { syncRevenueCatToFirestore } from '../utils/revenueCatApi';
@@ -18,12 +31,12 @@ import {
   sumManualSales,
   syncDashboardRevenueTotals,
 } from '../utils/revenueTotals';
+import { uploadAppLogo } from '../utils/uploadAppLogo';
 import AppLogo from './AppLogo';
 
 const LAYOUT_DOC_ID = 'layout';
 const DEFAULT_CARD_WIDTH = 300;
 const DEFAULT_CARD_HEIGHT = 200;
-const ACCEPTED_LOGO_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml'];
 
 function formatMoney(amount) {
   return `$${(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -47,6 +60,7 @@ function RevenueAppDetail({
   onBack,
   onSave,
   onManualSaleSaved,
+  onLogoSaved,
 }) {
   const [form, setForm] = useState({ ...data });
   const [saving, setSaving] = useState(false);
@@ -55,6 +69,7 @@ function RevenueAppDetail({
   const [saleNote, setSaleNote] = useState('');
   const [savingSale, setSavingSale] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [logoMessage, setLogoMessage] = useState(null);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -104,21 +119,20 @@ function RevenueAppDetail({
   const handleLogoUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!ACCEPTED_LOGO_TYPES.includes(file.type)) {
-      alert('Please upload a PNG, JPG, or SVG file.');
-      return;
-    }
+    setLogoMessage(null);
     setUploadingLogo(true);
     try {
-      const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
-      const storageRef = ref(storage, `appLogos/${appMeta.appId}/logo.${ext}`);
-      await uploadBytes(storageRef, file);
-      const logoUrl = await getDownloadURL(storageRef);
-      await setDoc(doc(db, 'revenue', appMeta.appId), { logoUrl }, { merge: true });
+      const logoUrl = await uploadAppLogo(appMeta.appId, file);
       setForm(prev => ({ ...prev, logoUrl }));
+      onLogoSaved?.(logoUrl);
+      setLogoMessage({ type: 'success', text: 'Logo uploaded successfully.' });
     } catch (err) {
       console.error('Logo upload failed:', err);
-      alert('Logo upload failed. Check the console for details.');
+      const detail = err?.code ? ` (${err.code})` : '';
+      setLogoMessage({
+        type: 'error',
+        text: `Logo upload failed: ${err.message || 'Unknown error'}${detail}. Deploy storage.rules in Firebase if uploads are blocked.`,
+      });
     } finally {
       setUploadingLogo(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -170,6 +184,12 @@ function RevenueAppDetail({
         </div>
       </div>
 
+      {logoMessage && (
+        <div className={`logo-upload-banner logo-upload-banner--${logoMessage.type}`}>
+          {logoMessage.text}
+        </div>
+      )}
+
       <div className="stats-grid" style={{ marginBottom: 24 }}>
         {[
           { key: 'mrr', label: 'MRR', color: 'var(--green)' },
@@ -200,7 +220,7 @@ function RevenueAppDetail({
       </div>
 
       <div className="chart-container">
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 16 }}>
+        <div className="section-label" style={{ marginBottom: 16 }}>
           Revenue Trend — Last 30 Days
         </div>
         <ResponsiveContainer width="100%" height={220}>
@@ -218,7 +238,7 @@ function RevenueAppDetail({
       </div>
 
       <div className="data-section">
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 12 }}>
+        <div className="section-label" style={{ marginBottom: 12 }}>
           Daily Revenue Values (editable)
         </div>
         <div className="revenue-trend-grid">
@@ -239,7 +259,7 @@ function RevenueAppDetail({
       </div>
 
       <div className="data-section manual-sales-section">
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 12 }}>
+        <div className="section-label" style={{ marginBottom: 12 }}>
           Manual Sales
         </div>
 
@@ -310,25 +330,35 @@ function RevenueAppDetail({
   );
 }
 
-function RevenueDraggableCard({
+function SortableRevenueCard({
   app,
   data,
   syncError,
   manualSalesTotal,
   cardSize,
-  isDragOver,
   onSelect,
-  onDragStart,
-  onDragEnd,
-  onDragOver,
-  onDragLeave,
-  onDrop,
   onResizeEnd,
 }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: app.appId });
+
   const cardRef = useRef(null);
   const combinedTotal = getCombinedTotalRevenue(data, manualSalesTotal);
   const width = cardSize?.width || DEFAULT_CARD_WIDTH;
   const height = cardSize?.height || DEFAULT_CARD_HEIGHT;
+
+  const sortableStyle = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 20 : undefined,
+    opacity: isDragging ? 0.85 : 1,
+  };
 
   const handleResizeStart = (e) => {
     e.preventDefault();
@@ -360,66 +390,64 @@ function RevenueDraggableCard({
   };
 
   return (
-    <div
-      ref={cardRef}
-      className={`revenue-card-wrapper${isDragOver ? ' drag-over' : ''}`}
-      style={{ width, height }}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-    >
+    <div ref={setNodeRef} style={sortableStyle}>
       <div
-        className="revenue-card-drag-handle"
-        draggable
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-        title="Drag to reorder"
+        ref={cardRef}
+        className="revenue-card-wrapper"
+        style={{ width, height }}
       >
-        ⠿
-      </div>
-      <div
-        className="project-card revenue-app-card"
-        onClick={onSelect}
-        style={{ cursor: 'pointer', height: 'calc(100% - 8px)' }}
-        title={syncError || undefined}
-      >
-        <div className="project-card-accent" style={{ background: `linear-gradient(90deg, ${app.color}, transparent)` }} />
-        <div className="project-card-top">
-          <div className="project-logo-wrap">
-            <AppLogo
-              logoUrl={data.logoUrl}
-              fallback={app.logo}
-              color={app.color}
-              size={48}
-            />
-            <div>
-              <div className="project-name">{app.name}</div>
-              <div className="project-tagline">
-                {syncError ? `Sync error: ${syncError}` : 'Tap for full metrics'}
+        <div
+          className="revenue-card-drag-handle"
+          {...attributes}
+          {...listeners}
+          title="Drag to reorder"
+        >
+          ⠿
+        </div>
+        <div
+          className="project-card revenue-app-card"
+          onClick={onSelect}
+          style={{ cursor: 'pointer', height: 'calc(100% - 8px)' }}
+          title={syncError || undefined}
+        >
+          <div className="project-card-accent" style={{ background: `linear-gradient(90deg, ${app.color}, transparent)` }} />
+          <div className="project-card-top">
+            <div className="project-logo-wrap">
+              <AppLogo
+                logoUrl={data.logoUrl}
+                fallback={app.logo}
+                color={app.color}
+                size={48}
+              />
+              <div>
+                <div className="project-name">{app.name}</div>
+                <div className="project-tagline">
+                  {syncError ? `Sync error: ${syncError}` : 'Tap for full metrics'}
+                </div>
               </div>
             </div>
           </div>
+          <div className="card-mini-stats">
+            <div className="card-mini-stat">
+              <div className="card-mini-stat-value" style={{ color: 'var(--green)' }}>{formatMoney(data.mrr)}</div>
+              <div className="card-mini-stat-label">MRR</div>
+            </div>
+            <div className="card-mini-stat">
+              <div className="card-mini-stat-value">{data.subscribers || 0}</div>
+              <div className="card-mini-stat-label">Subscribers</div>
+            </div>
+            <div className="card-mini-stat">
+              <div className="card-mini-stat-value" style={{ color: 'var(--indigo)' }}>{formatMoney(combinedTotal)}</div>
+              <div className="card-mini-stat-label">Total Revenue</div>
+            </div>
+          </div>
         </div>
-        <div className="card-mini-stats">
-          <div className="card-mini-stat">
-            <div className="card-mini-stat-value" style={{ color: 'var(--green)' }}>{formatMoney(data.mrr)}</div>
-            <div className="card-mini-stat-label">MRR</div>
-          </div>
-          <div className="card-mini-stat">
-            <div className="card-mini-stat-value">{data.subscribers || 0}</div>
-            <div className="card-mini-stat-label">Subscribers</div>
-          </div>
-          <div className="card-mini-stat">
-            <div className="card-mini-stat-value" style={{ color: 'var(--indigo)' }}>{formatMoney(combinedTotal)}</div>
-            <div className="card-mini-stat-label">Total Revenue</div>
-          </div>
-        </div>
+        <div
+          className="revenue-card-resize-handle"
+          onMouseDown={handleResizeStart}
+          title="Drag to resize"
+        />
       </div>
-      <div
-        className="revenue-card-resize-handle"
-        onMouseDown={handleResizeStart}
-        title="Drag to resize"
-      />
     </div>
   );
 }
@@ -433,9 +461,11 @@ export default function RevenueDashboard() {
   const [appErrors, setAppErrors] = useState({});
   const [selectedAppId, setSelectedAppId] = useState(null);
   const [seeded, setSeeded] = useState(false);
-  const [dragAppId, setDragAppId] = useState(null);
-  const [dragOverAppId, setDragOverAppId] = useState(null);
   const autoSyncStarted = useRef(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  );
 
   const refreshDashboardTotals = useCallback(async () => {
     try {
@@ -489,12 +519,6 @@ export default function RevenueDashboard() {
     });
     return () => unsub();
   }, []);
-
-  const saveCardLayout = useCallback(async (updates) => {
-    const next = { ...cardLayout, ...updates };
-    setCardLayout(next);
-    await setDoc(doc(db, 'revenueCardLayout', LAYOUT_DOC_ID), next, { merge: true });
-  }, [cardLayout]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -553,24 +577,28 @@ export default function RevenueDashboard() {
     await refreshDashboardTotals();
   }, [refreshDashboardTotals]);
 
-  const handleReorder = (targetAppId) => {
-    if (!dragAppId || dragAppId === targetAppId) return;
-    const order = [...(cardLayout.order || getDefaultLayout().order)];
-    const fromIdx = order.indexOf(dragAppId);
-    const toIdx = order.indexOf(targetAppId);
-    if (fromIdx === -1 || toIdx === -1) return;
-    order.splice(fromIdx, 1);
-    order.splice(toIdx, 0, dragAppId);
-    saveCardLayout({ order });
-    setDragAppId(null);
-    setDragOverAppId(null);
-  };
+  const handleDragEnd = useCallback((event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
 
-  const handleResizeEnd = (appId, size) => {
-    saveCardLayout({
-      sizes: { ...cardLayout.sizes, [appId]: size },
+    setCardLayout(prev => {
+      const order = [...(prev.order || getDefaultLayout().order)];
+      const oldIndex = order.indexOf(active.id);
+      const newIndex = order.indexOf(over.id);
+      if (oldIndex === -1 || newIndex === -1) return prev;
+      const newOrder = arrayMove(order, oldIndex, newIndex);
+      setDoc(doc(db, 'revenueCardLayout', LAYOUT_DOC_ID), { order: newOrder }, { merge: true });
+      return { ...prev, order: newOrder };
     });
-  };
+  }, []);
+
+  const handleResizeEnd = useCallback((appId, size) => {
+    setCardLayout(prev => {
+      const sizes = { ...prev.sizes, [appId]: size };
+      setDoc(doc(db, 'revenueCardLayout', LAYOUT_DOC_ID), { sizes }, { merge: true });
+      return { ...prev, sizes };
+    });
+  }, []);
 
   if (loading || refreshing) {
     return (
@@ -593,6 +621,12 @@ export default function RevenueDashboard() {
         onBack={() => setSelectedAppId(null)}
         onSave={updated => handleSave(selectedAppId, updated)}
         onManualSaleSaved={handleManualSaleSaved}
+        onLogoSaved={logoUrl => {
+          setRevenueData(prev => ({
+            ...prev,
+            [selectedAppId]: { ...(prev[selectedAppId] || {}), logoUrl },
+          }));
+        }}
       />
     );
   }
@@ -622,41 +656,31 @@ export default function RevenueDashboard() {
       </div>
 
       <div className="revenue-cards-canvas">
-        {displayApps.map(app => {
-          const d = revenueData[app.appId] || {};
-          const syncError = appErrors[app.appId];
-          const manualTotal = sumManualSales(manualSalesByApp[app.appId]);
-          return (
-            <RevenueDraggableCard
-              key={app.appId}
-              app={app}
-              data={d}
-              syncError={syncError}
-              manualSalesTotal={manualTotal}
-              cardSize={cardLayout.sizes?.[app.appId]}
-              isDragOver={dragOverAppId === app.appId}
-              onSelect={() => setSelectedAppId(app.appId)}
-              onDragStart={(e) => {
-                setDragAppId(app.appId);
-                e.dataTransfer.effectAllowed = 'move';
-              }}
-              onDragEnd={() => {
-                setDragAppId(null);
-                setDragOverAppId(null);
-              }}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragOverAppId(app.appId);
-              }}
-              onDragLeave={() => setDragOverAppId(null)}
-              onDrop={(e) => {
-                e.preventDefault();
-                handleReorder(app.appId);
-              }}
-              onResizeEnd={(size) => handleResizeEnd(app.appId, size)}
-            />
-          );
-        })}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext items={displayApps.map(a => a.appId)} strategy={rectSortingStrategy}>
+            {displayApps.map(app => {
+              const d = revenueData[app.appId] || {};
+              const syncError = appErrors[app.appId];
+              const manualTotal = sumManualSales(manualSalesByApp[app.appId]);
+              return (
+                <SortableRevenueCard
+                  key={app.appId}
+                  app={app}
+                  data={d}
+                  syncError={syncError}
+                  manualSalesTotal={manualTotal}
+                  cardSize={cardLayout.sizes?.[app.appId]}
+                  onSelect={() => setSelectedAppId(app.appId)}
+                  onResizeEnd={(size) => handleResizeEnd(app.appId, size)}
+                />
+              );
+            })}
+          </SortableContext>
+        </DndContext>
       </div>
     </div>
   );
