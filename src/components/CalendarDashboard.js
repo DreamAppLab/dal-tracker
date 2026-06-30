@@ -135,6 +135,8 @@ function prepareDescriptionHtml(html) {
   doc.querySelectorAll('a').forEach((anchor) => {
     anchor.setAttribute('target', '_blank');
     anchor.setAttribute('rel', 'noopener noreferrer');
+    anchor.style.setProperty('color', '#00FF66', 'important');
+    anchor.style.textDecoration = 'underline';
   });
   return doc.body.innerHTML;
 }

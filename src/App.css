@@ -1132,8 +1132,8 @@ option { background: var(--bg-card); }
 .calendar-day.today .calendar-day-num { color: var(--teal); }
 .calendar-day-events { display: flex; flex-direction: column; gap: 2px; }
 .calendar-event-pill {
-  font-size: 10px;
-  padding: 2px 5px;
+  font-size: 14px;
+  padding: 3px 6px;
   border-radius: 3px;
   white-space: nowrap;
   overflow: hidden;
@@ -1182,6 +1182,13 @@ option { background: var(--bg-card); }
   white-space: pre-wrap;
   line-height: 1.5;
   color: var(--text-secondary);
+}
+.event-detail-description a {
+  color: #00FF66;
+  text-decoration: underline;
+}
+.event-detail-description a:hover {
+  color: #33FF88;
 }
 .event-detail-source {
   display: inline-flex;
