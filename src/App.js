@@ -10,6 +10,7 @@ import CalendarDashboard from './components/CalendarDashboard';
 import ProjectDetail from './components/ProjectDetail';
 import Sidebar from './components/Sidebar';
 import AddProjectModal from './components/AddProjectModal';
+import { GoogleCalendarProvider } from './contexts/GoogleCalendarContext';
 import './App.css';
 
 function App() {
@@ -64,6 +65,7 @@ function App() {
   }
 
   return (
+    <GoogleCalendarProvider>
     <div className="app-shell">
       <Sidebar
         projects={projects}
@@ -112,6 +114,7 @@ function App() {
         />
       )}
     </div>
+    </GoogleCalendarProvider>
   );
 }
 

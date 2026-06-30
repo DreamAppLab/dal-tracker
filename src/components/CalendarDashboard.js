@@ -13,7 +13,7 @@ import {
   parseISO,
   isWithinInterval,
 } from 'date-fns';
-import { db, auth } from '../firebase';
+import { db } from '../firebase';
 import {
   collection,
   onSnapshot,
@@ -21,13 +21,7 @@ import {
   setDoc,
   deleteDoc,
 } from 'firebase/firestore';
-import {
-  signInWithPopup,
-  GoogleAuthProvider,
-  onAuthStateChanged,
-} from 'firebase/auth';
-
-const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
+import { useGoogleCalendar } from '../contexts/GoogleCalendarContext';
 
 function EventForm({ onSave, onCancel, initial = null }) {
   const [form, setForm] = useState(
@@ -115,7 +109,11 @@ async function fetchGoogleEvents(accessToken, timeMin, timeMax) {
     `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
-  if (!res.ok) throw new Error('Failed to fetch calendar events');
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const message = body?.error?.message || `Calendar API error (${res.status})`;
+    throw new Error(message);
+  }
   const json = await res.json();
   return (json.items || []).map(ev => ({
     id: ev.id,
@@ -129,14 +127,21 @@ async function fetchGoogleEvents(accessToken, timeMin, timeMax) {
 }
 
 export default function CalendarDashboard() {
+  const {
+    accessToken,
+    googleUser,
+    connecting,
+    error: googleError,
+    setError: setGoogleError,
+    connectGoogle,
+    disconnectGoogle,
+    isConnected,
+  } = useGoogleCalendar();
+
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [dalEvents, setDalEvents] = useState([]);
   const [googleEvents, setGoogleEvents] = useState([]);
-  const [googleUser, setGoogleUser] = useState(null);
-  const [accessToken, setAccessToken] = useState(null);
-  const [connecting, setConnecting] = useState(false);
   const [loadingGoogle, setLoadingGoogle] = useState(false);
-  const [googleError, setGoogleError] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
 
@@ -148,16 +153,11 @@ export default function CalendarDashboard() {
   }, []);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
-      setGoogleUser(user);
-      const stored = sessionStorage.getItem('dal-google-calendar-token');
-      if (stored) setAccessToken(stored);
-    });
-    return () => unsub();
-  }, []);
+    if (!accessToken) {
+      setGoogleEvents([]);
+      return;
+    }
 
-  useEffect(() => {
-    if (!accessToken) return;
     const load = async () => {
       setLoadingGoogle(true);
       setGoogleError(null);
@@ -169,43 +169,12 @@ export default function CalendarDashboard() {
       } catch (err) {
         setGoogleError(err.message);
         setGoogleEvents([]);
-        sessionStorage.removeItem('dal-google-calendar-token');
-        setAccessToken(null);
       } finally {
         setLoadingGoogle(false);
       }
     };
     load();
-  }, [accessToken, currentMonth]);
-
-  const connectGoogle = async () => {
-    setConnecting(true);
-    setGoogleError(null);
-    try {
-      const provider = new GoogleAuthProvider();
-      provider.addScope(GOOGLE_CALENDAR_SCOPE);
-      provider.setCustomParameters({ prompt: 'consent' });
-      const result = await signInWithPopup(auth, provider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      const token = credential?.accessToken;
-      if (token) {
-        sessionStorage.setItem('dal-google-calendar-token', token);
-        setAccessToken(token);
-      }
-      setGoogleUser(result.user);
-    } catch (err) {
-      setGoogleError(err.message || 'Failed to connect Google Calendar');
-    } finally {
-      setConnecting(false);
-    }
-  };
-
-  const disconnectGoogle = () => {
-    sessionStorage.removeItem('dal-google-calendar-token');
-    setAccessToken(null);
-    setGoogleEvents([]);
-    setGoogleUser(null);
-  };
+  }, [accessToken, currentMonth, setGoogleError]);
 
   const saveDalEvent = async (form) => {
     const id = `evt${Date.now()}`;
@@ -253,7 +222,7 @@ export default function CalendarDashboard() {
           <p className="page-subtitle">Gmail calendar sync + DAL reminders and deadlines</p>
         </div>
         <div className="page-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {!accessToken ? (
+          {!isConnected ? (
             <button className="btn btn-primary" onClick={connectGoogle} disabled={connecting}>
               {connecting ? 'Connecting...' : '📅 Connect Google Calendar'}
             </button>
@@ -263,7 +232,7 @@ export default function CalendarDashboard() {
               {googleUser?.email || 'Google Calendar connected'}
             </div>
           )}
-          {accessToken && (
+          {isConnected && (
             <button className="btn btn-ghost btn-sm" onClick={disconnectGoogle}>Disconnect</button>
           )}
           <button className="btn btn-secondary" onClick={() => setShowAddForm(true)}>
