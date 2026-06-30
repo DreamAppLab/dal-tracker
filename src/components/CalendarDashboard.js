@@ -129,6 +129,16 @@ function EventForm({ onSave, onCancel, initial = null }) {
   );
 }
 
+function prepareDescriptionHtml(html) {
+  if (!html) return '';
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('a').forEach((anchor) => {
+    anchor.setAttribute('target', '_blank');
+    anchor.setAttribute('rel', 'noopener noreferrer');
+  });
+  return doc.body.innerHTML;
+}
+
 function EventDetailsModal({ event, editing, onClose, onEdit, onDelete, onSaveEdit }) {
   if (!event) return null;
 
@@ -197,7 +207,10 @@ function EventDetailsModal({ event, editing, onClose, onEdit, onDelete, onSaveEd
           {event.description && (
             <div className="event-detail-row event-detail-row-block">
               <span className="event-detail-label">Description</span>
-              <span className="event-detail-value event-detail-description">{event.description}</span>
+              <div
+                className="event-detail-value event-detail-description"
+                dangerouslySetInnerHTML={{ __html: prepareDescriptionHtml(event.description) }}
+              />
             </div>
           )}
         </div>
