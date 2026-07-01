@@ -12,6 +12,7 @@ export default function AppLogo({ logoUrl, fallback, color, size = 48, className
   if (logoUrl) {
     return (
       <img
+        key={logoUrl}
         src={logoUrl}
         alt=""
         className={`app-logo-img ${className}`}

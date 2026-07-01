@@ -103,7 +103,11 @@ function App() {
           <ASODashboard projects={projects} />
         )}
         {activeView === 'revenue' && (
-          <RevenueDashboard />
+          <RevenueDashboard
+            onLogoUpdated={(appId, logoUrl) => {
+              setRevenueLogos(prev => ({ ...prev, [appId]: logoUrl }));
+            }}
+          />
         )}
         {activeView === 'subscriptions' && (
           <SubscriptionsDashboard />

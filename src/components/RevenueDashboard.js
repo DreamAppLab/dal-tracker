@@ -152,6 +152,7 @@ function RevenueAppDetail({
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <button className="btn btn-ghost btn-sm" onClick={onBack}>← Back</button>
           <AppLogo
+            key={form.logoUrl || 'fallback'}
             logoUrl={form.logoUrl}
             fallback={appMeta.logo}
             color={appMeta.color}
@@ -414,6 +415,7 @@ function SortableRevenueCard({
           <div className="project-card-top">
             <div className="project-logo-wrap">
               <AppLogo
+                key={data.logoUrl || app.appId}
                 logoUrl={data.logoUrl}
                 fallback={app.logo}
                 color={app.color}
@@ -452,7 +454,7 @@ function SortableRevenueCard({
   );
 }
 
-export default function RevenueDashboard() {
+export default function RevenueDashboard({ onLogoUpdated }) {
   const [revenueData, setRevenueData] = useState({});
   const [manualSalesByApp, setManualSalesByApp] = useState({});
   const [cardLayout, setCardLayout] = useState(getDefaultLayout());
@@ -612,6 +614,14 @@ export default function RevenueDashboard() {
 
   if (selectedAppId) {
     const appMeta = REVENUE_APPS.find(a => a.appId === selectedAppId);
+    if (!appMeta) {
+      return (
+        <div className="page">
+          <button className="btn btn-ghost btn-sm" onClick={() => setSelectedAppId(null)}>← Back</button>
+          <p style={{ color: 'var(--text-secondary)', marginTop: 16 }}>Unknown app.</p>
+        </div>
+      );
+    }
     const data = revenueData[selectedAppId] || getDefaultRevenueDoc(selectedAppId);
     return (
       <RevenueAppDetail
@@ -626,6 +636,7 @@ export default function RevenueDashboard() {
             ...prev,
             [selectedAppId]: { ...(prev[selectedAppId] || {}), logoUrl },
           }));
+          onLogoUpdated?.(selectedAppId, logoUrl);
         }}
       />
     );
