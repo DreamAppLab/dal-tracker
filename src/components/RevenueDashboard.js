@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -24,7 +24,7 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { REVENUE_APPS, getDefaultRevenueDoc } from '../data/revenueAppsData';
+import { getRevenueEntries, REVENUE_MOBILE_APPS, getDefaultRevenueDoc } from '../data/revenueAppsData';
 import { syncRevenueCatToFirestore } from '../utils/revenueCatApi';
 import {
   getCombinedTotalRevenue,
@@ -46,9 +46,9 @@ function todayISO() {
   return new Date().toISOString().split('T')[0];
 }
 
-function getDefaultLayout() {
+function getDefaultLayout(revenueEntries) {
   return {
-    order: REVENUE_APPS.map(a => a.appId),
+    order: revenueEntries.map(a => a.appId),
     sizes: {},
   };
 }
@@ -160,7 +160,11 @@ function RevenueAppDetail({
           />
           <div>
             <h1 className="page-title" style={{ marginBottom: 0 }}>{appMeta.name}</h1>
-            <p className="page-subtitle">Revenue metrics — edit values manually until RevenueCat sync is live</p>
+            <p className="page-subtitle">
+              {appMeta.isWeb
+                ? 'Website revenue — log Stripe payments and metrics manually'
+                : 'Revenue metrics — edit values manually until RevenueCat sync is live'}
+            </p>
           </div>
         </div>
         <div className="page-actions">
@@ -454,15 +458,17 @@ function SortableRevenueCard({
   );
 }
 
-export default function RevenueDashboard({ onLogoUpdated }) {
+export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
+  const revenueEntries = useMemo(() => getRevenueEntries(projects), [projects]);
+  const revenueAppIds = useMemo(() => revenueEntries.map(e => e.appId), [revenueEntries]);
+
   const [revenueData, setRevenueData] = useState({});
   const [manualSalesByApp, setManualSalesByApp] = useState({});
-  const [cardLayout, setCardLayout] = useState(getDefaultLayout());
+  const [cardLayout, setCardLayout] = useState(() => getDefaultLayout(revenueEntries));
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [appErrors, setAppErrors] = useState({});
   const [selectedAppId, setSelectedAppId] = useState(null);
-  const [seeded, setSeeded] = useState(false);
   const autoSyncStarted = useRef(false);
 
   const sensors = useSensors(
@@ -471,11 +477,11 @@ export default function RevenueDashboard({ onLogoUpdated }) {
 
   const refreshDashboardTotals = useCallback(async () => {
     try {
-      await syncDashboardRevenueTotals(db);
+      await syncDashboardRevenueTotals(db, revenueAppIds);
     } catch (err) {
       console.error('Dashboard revenue sync failed:', err);
     }
-  }, []);
+  }, [revenueAppIds]);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'revenue'), async (snapshot) => {
@@ -484,9 +490,8 @@ export default function RevenueDashboard({ onLogoUpdated }) {
         data[d.id] = { ...d.data(), appId: d.id };
       });
 
-      const missing = REVENUE_APPS.filter(a => !data[a.appId]);
-      if (missing.length > 0 && !seeded) {
-        setSeeded(true);
+      const missing = revenueEntries.filter(a => !data[a.appId]);
+      if (missing.length > 0) {
         await Promise.all(
           missing.map(a => setDoc(doc(db, 'revenue', a.appId), getDefaultRevenueDoc(a.appId), { merge: true }))
         );
@@ -497,30 +502,33 @@ export default function RevenueDashboard({ onLogoUpdated }) {
       setLoading(false);
     });
     return () => unsub();
-  }, [seeded]);
+  }, [revenueEntries]);
 
   useEffect(() => {
-    const unsubs = REVENUE_APPS.map(({ appId }) =>
+    if (!revenueAppIds.length) return;
+    const unsubs = revenueAppIds.map(appId =>
       onSnapshot(collection(db, 'revenue', appId, 'manualSales'), (snapshot) => {
         const entries = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
         setManualSalesByApp(prev => ({ ...prev, [appId]: entries }));
       })
     );
     return () => unsubs.forEach(u => u());
-  }, []);
+  }, [revenueAppIds]);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'revenueCardLayout', LAYOUT_DOC_ID), (snapshot) => {
       if (snapshot.exists()) {
         const saved = snapshot.data();
         setCardLayout({
-          order: saved.order?.length ? saved.order : getDefaultLayout().order,
+          order: saved.order?.length ? saved.order : getDefaultLayout(revenueEntries).order,
           sizes: saved.sizes || {},
         });
+      } else {
+        setCardLayout(getDefaultLayout(revenueEntries));
       }
     });
     return () => unsub();
-  }, []);
+  }, [revenueEntries]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -536,7 +544,7 @@ export default function RevenueDashboard({ onLogoUpdated }) {
     } catch (error) {
       console.error('RevenueCat sync failed:', error);
       const fallback = {};
-      REVENUE_APPS.forEach(a => {
+      REVENUE_MOBILE_APPS.forEach(a => {
         fallback[a.appId] = error.message || 'RevenueCat sync failed';
       });
       setAppErrors(fallback);
@@ -559,12 +567,12 @@ export default function RevenueDashboard({ onLogoUpdated }) {
   }, [loading, manualSalesByApp, refreshDashboardTotals]);
 
   const orderedApps = (cardLayout.order || [])
-    .map(appId => REVENUE_APPS.find(a => a.appId === appId))
+    .map(appId => revenueEntries.find(a => a.appId === appId))
     .filter(Boolean);
-  const missingApps = REVENUE_APPS.filter(a => !cardLayout.order?.includes(a.appId));
+  const missingApps = revenueEntries.filter(a => !cardLayout.order?.includes(a.appId));
   const displayApps = [...orderedApps, ...missingApps];
 
-  const totalRevenue = REVENUE_APPS.reduce((sum, a) => {
+  const totalRevenue = revenueEntries.reduce((sum, a) => {
     const d = revenueData[a.appId] || {};
     const manual = sumManualSales(manualSalesByApp[a.appId]);
     return sum + getCombinedTotalRevenue(d, manual);
@@ -584,7 +592,7 @@ export default function RevenueDashboard({ onLogoUpdated }) {
     if (!over || active.id === over.id) return;
 
     setCardLayout(prev => {
-      const order = [...(prev.order || getDefaultLayout().order)];
+      const order = [...(prev.order || getDefaultLayout(revenueEntries).order)];
       const oldIndex = order.indexOf(active.id);
       const newIndex = order.indexOf(over.id);
       if (oldIndex === -1 || newIndex === -1) return prev;
@@ -592,7 +600,7 @@ export default function RevenueDashboard({ onLogoUpdated }) {
       setDoc(doc(db, 'revenueCardLayout', LAYOUT_DOC_ID), { order: newOrder }, { merge: true });
       return { ...prev, order: newOrder };
     });
-  }, []);
+  }, [revenueEntries]);
 
   const handleResizeEnd = useCallback((appId, size) => {
     setCardLayout(prev => {
@@ -613,7 +621,7 @@ export default function RevenueDashboard({ onLogoUpdated }) {
   }
 
   if (selectedAppId) {
-    const appMeta = REVENUE_APPS.find(a => a.appId === selectedAppId);
+    const appMeta = revenueEntries.find(a => a.appId === selectedAppId);
     if (!appMeta) {
       return (
         <div className="page">
@@ -647,7 +655,7 @@ export default function RevenueDashboard({ onLogoUpdated }) {
       <div className="page-header">
         <div>
           <h1 className="page-title">Revenue</h1>
-          <p className="page-subtitle">Sales & subscription revenue across all DAL apps</p>
+          <p className="page-subtitle">Sales & subscription revenue across all DAL apps and websites</p>
         </div>
         <div className="page-actions">
           <button
@@ -662,7 +670,7 @@ export default function RevenueDashboard({ onLogoUpdated }) {
       </div>
 
       <div className="revenue-total-banner">
-        <div className="revenue-total-label">Total Revenue — All Apps</div>
+        <div className="revenue-total-label">Total Revenue — All Apps & Websites</div>
         <div className="revenue-total-value">{formatMoney(totalRevenue)}</div>
       </div>
 

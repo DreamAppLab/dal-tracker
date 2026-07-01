@@ -1,5 +1,4 @@
 import { collection, doc, getDocs, getDoc, setDoc } from 'firebase/firestore';
-import { REVENUE_APPS } from '../data/revenueAppsData';
 
 export function sumManualSales(entries) {
   return (entries || []).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
@@ -10,10 +9,17 @@ export function getCombinedTotalRevenue(revenueDoc, manualSalesTotal) {
   return rcTotal + (Number(manualSalesTotal) || 0);
 }
 
-export async function fetchManualSalesTotals(db) {
+async function resolveRevenueAppIds(db, appIds) {
+  if (appIds?.length) return appIds;
+  const revenueSnap = await getDocs(collection(db, 'revenue'));
+  return revenueSnap.docs.map(d => d.id);
+}
+
+export async function fetchManualSalesTotals(db, appIds) {
+  const ids = await resolveRevenueAppIds(db, appIds);
   const totals = {};
   await Promise.all(
-    REVENUE_APPS.map(async ({ appId }) => {
+    ids.map(async (appId) => {
       const snap = await getDocs(collection(db, 'revenue', appId, 'manualSales'));
       totals[appId] = snap.docs.reduce((sum, d) => sum + (Number(d.data().amount) || 0), 0);
     })
@@ -21,14 +27,15 @@ export async function fetchManualSalesTotals(db) {
   return totals;
 }
 
-export async function syncDashboardRevenueTotals(db) {
-  const totals = await fetchManualSalesTotals(db);
+export async function syncDashboardRevenueTotals(db, appIds) {
+  const ids = await resolveRevenueAppIds(db, appIds);
+  const totals = await fetchManualSalesTotals(db, ids);
 
   let totalRcRevenue = 0;
   let totalManualSales = 0;
 
   await Promise.all(
-    REVENUE_APPS.map(async ({ appId }) => {
+    ids.map(async (appId) => {
       const revSnap = await getDoc(doc(db, 'revenue', appId));
       const rcTotal = Number(revSnap.data()?.totalRevenue) || 0;
       totalRcRevenue += rcTotal;

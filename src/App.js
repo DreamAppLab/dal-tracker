@@ -104,6 +104,7 @@ function App() {
         )}
         {activeView === 'revenue' && (
           <RevenueDashboard
+            projects={projects}
             onLogoUpdated={(appId, logoUrl) => {
               setRevenueLogos(prev => ({ ...prev, [appId]: logoUrl }));
             }}
