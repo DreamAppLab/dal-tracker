@@ -1,7 +1,7 @@
 // src/data/subscriptionsData.js
 
 export const SUBSCRIPTION_APPS = [
-  { id: 'familywatch', name: 'FamilyWatch' },
+  { id: 'familywatch', name: 'FamilyLens' },
   { id: 'flarepad', name: 'Flarepad' },
   { id: 'logabode', name: 'Logabode' },
   { id: 'myclasslog', name: 'MyClassLog' },

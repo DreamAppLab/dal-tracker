@@ -4,7 +4,7 @@ export const REVENUE_APPS = [
   { appId: 'tenmilesahead', name: 'Ten Miles Ahead', logo: '✈️', color: '#00D4B8' },
   { appId: 'rvvault', name: 'RV Vault', logo: '🚐', color: '#F59E0B' },
   { appId: 'flarepad', name: 'FlarePad', logo: '🩺', color: '#FF5B5B' },
-  { appId: 'familywatch', name: 'FamilyWatch', logo: '👨‍👩‍👧', color: '#3B82F6' },
+  { appId: 'familywatch', name: 'FamilyLens', logo: '👨‍👩‍👧', color: '#3B82F6' },
 ];
 
 export function getDefaultRevenueDoc(appId) {
