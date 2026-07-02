@@ -6,20 +6,58 @@ import {
   signOut,
 } from 'firebase/auth';
 
+const AUTH_TIMEOUT_MS = 8000;
+
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState(null);
+  const [authTimedOut, setAuthTimedOut] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const credentialsRef = useRef(null);
 
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
-      setAuthLoading(false);
-    });
-    return () => unsub();
+  const retryAuth = useCallback(() => {
+    setAuthError(null);
+    setAuthTimedOut(false);
+    setAuthLoading(true);
+    setRetryCount((c) => c + 1);
   }, []);
+
+  useEffect(() => {
+    let resolved = false;
+
+    const timeoutId = setTimeout(() => {
+      if (!resolved) {
+        setAuthTimedOut(true);
+        setAuthLoading(false);
+      }
+    }, AUTH_TIMEOUT_MS);
+
+    const unsub = onAuthStateChanged(
+      auth,
+      (firebaseUser) => {
+        resolved = true;
+        clearTimeout(timeoutId);
+        setUser(firebaseUser);
+        setAuthLoading(false);
+        setAuthError(null);
+        setAuthTimedOut(false);
+      },
+      (error) => {
+        resolved = true;
+        clearTimeout(timeoutId);
+        setAuthError(error);
+        setAuthLoading(false);
+      }
+    );
+
+    return () => {
+      clearTimeout(timeoutId);
+      unsub();
+    };
+  }, [retryCount]);
 
   const login = useCallback(async (email, password) => {
     const result = await signInWithEmailAndPassword(auth, email, password);
@@ -39,7 +77,9 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, authLoading, login, logout, relogin }}>
+    <AuthContext.Provider
+      value={{ user, authLoading, authError, authTimedOut, retryAuth, login, logout, relogin }}
+    >
       {children}
     </AuthContext.Provider>
   );

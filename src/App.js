@@ -11,6 +11,7 @@ import ProjectDetail from './components/ProjectDetail';
 import Sidebar from './components/Sidebar';
 import AddProjectModal from './components/AddProjectModal';
 import LoginScreen from './components/LoginScreen';
+import AuthLoadingScreen from './components/AuthLoadingScreen';
 import { useAuth } from './contexts/AuthContext';
 import { GoogleCalendarProvider } from './contexts/GoogleCalendarContext';
 import './App.css';
@@ -19,11 +20,7 @@ function App() {
   const { user, authLoading } = useAuth();
 
   if (authLoading) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0a0f1e', color: '#fff', fontSize: 18 }}>
-        Loading...
-      </div>
-    );
+    return <AuthLoadingScreen />;
   }
 
   if (!user) {
@@ -45,12 +42,26 @@ function DashboardApp() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'projects'), (snapshot) => {
-      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      setProjects(data);
-      setLoading(false);
-    });
-    return () => unsub();
+    const timeoutId = setTimeout(() => setLoading(false), 8000);
+
+    const unsub = onSnapshot(
+      collection(db, 'projects'),
+      (snapshot) => {
+        clearTimeout(timeoutId);
+        const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        setProjects(data);
+        setLoading(false);
+      },
+      () => {
+        clearTimeout(timeoutId);
+        setLoading(false);
+      }
+    );
+
+    return () => {
+      clearTimeout(timeoutId);
+      unsub();
+    };
   }, []);
 
   useEffect(() => {
