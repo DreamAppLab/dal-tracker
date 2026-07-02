@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { auth, db } from '../firebase';
+import { useAuth } from './AuthContext';
 import {
   GoogleAuthProvider,
   signInWithPopup,
@@ -29,6 +30,7 @@ function extractOAuthAccessToken(result) {
 }
 
 export function GoogleCalendarProvider({ children }) {
+  const { relogin } = useAuth();
   const [connectedAccounts, setConnectedAccounts] = useState([]);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState(null);
@@ -77,12 +79,13 @@ export function GoogleCalendarProvider({ children }) {
       });
 
       await signOut(auth);
+      await relogin();
     } catch (err) {
       setError(err.message || 'Failed to connect Google Calendar');
     } finally {
       setConnecting(false);
     }
-  }, [connectedAccounts]);
+  }, [connectedAccounts, relogin]);
 
   const disconnectAccount = useCallback(async (email) => {
     setError(null);

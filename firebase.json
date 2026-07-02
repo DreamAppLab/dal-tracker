@@ -1,5 +1,17 @@
 {
+  "firestore": {
+    "rules": "firestore.rules"
+  },
   "storage": {
     "rules": "storage.rules"
+  },
+  "auth": {
+    "providers": {
+      "emailPassword": true,
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "DAL Mission Control",
+        "supportEmail": "eddieskehan@gmail.com"
+      }
+    }
   }
 }

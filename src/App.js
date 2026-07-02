@@ -10,10 +10,31 @@ import CalendarDashboard from './components/CalendarDashboard';
 import ProjectDetail from './components/ProjectDetail';
 import Sidebar from './components/Sidebar';
 import AddProjectModal from './components/AddProjectModal';
+import LoginScreen from './components/LoginScreen';
+import { useAuth } from './contexts/AuthContext';
 import { GoogleCalendarProvider } from './contexts/GoogleCalendarContext';
 import './App.css';
 
 function App() {
+  const { user, authLoading } = useAuth();
+
+  if (authLoading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0a0f1e', color: '#fff', fontSize: 18 }}>
+        Loading...
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginScreen />;
+  }
+
+  return <DashboardApp />;
+}
+
+function DashboardApp() {
+  const { logout } = useAuth();
   const [projects, setProjects] = useState([]);
   const [revenueLogos, setRevenueLogos] = useState({});
   const [loading, setLoading] = useState(true);
@@ -87,6 +108,7 @@ function App() {
         onNavigate={setActiveView}
         onSelectProject={handleSelectProject}
         onAddProject={() => setShowAddModal(true)}
+        onLogout={logout}
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
       />

@@ -1,9 +1,16 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    function isAuthorizedUser() {
+      return request.auth != null && request.auth.uid == 'aEbUJSYaP7aXnYtnSk3A5I4iLp72';
+    }
+
     match /appLogos/{appId}/{fileName} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if isAuthorizedUser();
+    }
+
+    match /vault/{projectId}/{fileName} {
+      allow read, write: if isAuthorizedUser();
     }
   }
 }

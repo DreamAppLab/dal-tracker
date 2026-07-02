@@ -8,7 +8,7 @@ const NAV_ICON = {
   project: '◈'
 };
 
-export default function Sidebar({ projects, revenueLogos = {}, activeView, selectedProjectId, onNavigate, onSelectProject, onAddProject, sidebarOpen, setSidebarOpen }) {
+export default function Sidebar({ projects, revenueLogos = {}, activeView, selectedProjectId, onNavigate, onSelectProject, onAddProject, onLogout, sidebarOpen, setSidebarOpen }) {
   return (
     <aside className={`sidebar ${sidebarOpen ? '' : 'collapsed'}`}>
       <div className="sidebar-logo">
@@ -103,6 +103,9 @@ export default function Sidebar({ projects, revenueLogos = {}, activeView, selec
 
       <button className="sidebar-add-btn" onClick={onAddProject}>
         {sidebarOpen ? '+ Add Project' : '+'}
+      </button>
+      <button className="sidebar-logout-btn" onClick={onLogout} title="Sign out">
+        {sidebarOpen ? 'Sign Out' : '⎋'}
       </button>
     </aside>
   );
