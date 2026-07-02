@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function LoginScreen() {
@@ -8,6 +8,10 @@ export default function LoginScreen() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  useEffect(() => {
+    document.body.classList.add('login-page-active');
+    return () => document.body.classList.remove('login-page-active');
+  }, []);
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');

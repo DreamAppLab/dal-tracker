@@ -1,9 +1,13 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function AuthLoadingScreen() {
   const { authError, authTimedOut, retryAuth } = useAuth();
 
+  useEffect(() => {
+    document.body.classList.add('login-page-active');
+    return () => document.body.classList.remove('login-page-active');
+  }, []);
   if (authError || authTimedOut) {
     return (
       <div className="auth-status-screen">
