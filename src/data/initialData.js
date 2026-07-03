@@ -209,12 +209,7 @@ export const INITIAL_PROJECTS = [
 ];
 
 export const PIPELINE_APPS = [
-  { id: "plantcare", name: "Plant Care Journal", logo: "🌿", color: "#22C55E", status: "ideation" },
-  { id: "petsymptom", name: "Pet Symptom Journal", logo: "🐾", color: "#8B5CF6", status: "ideation" },
-  { id: "yarnstash", name: "Yarn & Fabric Stash Tracker", logo: "🧶", color: "#EC4899", status: "ideation" },
-  { id: "medsideeffect", name: "Medication Side Effect Journal", logo: "💊", color: "#06B6D4", status: "ideation" },
-  { id: "migrainelogger", name: "Migraine Pattern Logger", logo: "🧠", color: "#7C3AED", status: "ideation" },
-  { id: "parentcare", name: "Aging Parent Care Journal", logo: "❤️", color: "#F43F5E", status: "ideation" }
+  { id: "yarnstash", name: "Yarn & Fabric Stash Tracker", logo: "🧶", color: "#EC4899", status: "ideation" }
 ];
 
 export const STATUS_CONFIG = {

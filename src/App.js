@@ -35,7 +35,8 @@ function DashboardApp() {
   const [projects, setProjects] = useState([]);
   const [revenueLogos, setRevenueLogos] = useState({});
   const [loading, setLoading] = useState(true);
-  const [pipeline] = useState(PIPELINE_APPS);
+  const [pipelineItems, setPipelineItems] = useState([]);
+  const [pipelineSeeded, setPipelineSeeded] = useState(false);
   const [activeView, setActiveView] = useState('dashboard');
   const [selectedProject, setSelectedProject] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -74,6 +75,24 @@ function DashboardApp() {
     });
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'pipeline'), async (snapshot) => {
+      if (snapshot.empty && !pipelineSeeded) {
+        setPipelineSeeded(true);
+        await Promise.all(
+          PIPELINE_APPS.map(item =>
+            setDoc(doc(db, 'pipeline', item.id), item, { merge: true })
+          )
+        );
+        return;
+      }
+
+      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setPipelineItems(data);
+    });
+    return () => unsub();
+  }, [pipelineSeeded]);
 
   const handleSelectProject = (project) => {
     setSelectedProject(project);
@@ -127,7 +146,7 @@ function DashboardApp() {
         {activeView === 'dashboard' && (
           <Dashboard
             projects={projects}
-            pipeline={pipeline}
+            pipelineItems={pipelineItems}
             onSelectProject={handleSelectProject}
             onAddProject={() => setShowAddModal(true)}
           />

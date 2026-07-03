@@ -1,8 +1,9 @@
 // src/components/Dashboard.js
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { STATUS_CONFIG, PIPELINE_APPS } from '../data/initialData';
+import { doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
+import { STATUS_CONFIG } from '../data/initialData';
+import AddPipelineModal from './AddPipelineModal';
 
 function getProgress(project) {
   const allTasks = [
@@ -101,8 +102,11 @@ function ProjectCard({ project, onClick }) {
   );
 }
 
-export default function Dashboard({ projects, pipeline, onSelectProject, onAddProject, onShowRevenue }) {
+export default function Dashboard({ projects, pipelineItems, onSelectProject, onAddProject, onShowRevenue }) {
   const [dashboardSummary, setDashboardSummary] = useState(null);
+  const [showAddPipelineModal, setShowAddPipelineModal] = useState(false);
+  const [hoveredPipelineId, setHoveredPipelineId] = useState(null);
+  const [movingPipelineId, setMovingPipelineId] = useState(null);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'dashboard', 'summary'), (snapshot) => {
@@ -132,6 +136,34 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
 
   const ownApps = projects.filter(p => p.type === 'own-app');
   const clientProjects = projects.filter(p => p.type !== 'own-app');
+
+  const handleMoveToProject = async (item) => {
+    setMovingPipelineId(item.id);
+    try {
+      const newProject = {
+        id: item.id,
+        name: item.name,
+        logo: item.logo,
+        color: item.color,
+        type: 'own-app',
+        platform: 'mobile',
+        status: 'ideation',
+        tagline: '',
+        bundleId: '',
+        launchDate: null,
+        pricing: '',
+        revenue: { monthly: 0, total: 0, model: 'paid' },
+        expenses: [],
+        techStack: [],
+        milestones: [],
+        edits: [],
+      };
+      await setDoc(doc(db, 'projects', item.id), newProject, { merge: true });
+      await deleteDoc(doc(db, 'pipeline', item.id));
+    } finally {
+      setMovingPipelineId(null);
+    }
+  };
 
   return (
     <div className="page">
@@ -242,17 +274,49 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
       <div className="section-header">
         <h2 className="section-title">
           <span>🚀</span> App Pipeline
-          <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--text-secondary)' }}>({(pipeline || []).length} ideas)</span>
+          <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--text-secondary)' }}>({(pipelineItems || []).length} ideas)</span>
         </h2>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowAddPipelineModal(true)}>
+          + Add Idea
+        </button>
       </div>
       <div className="pipeline-grid">
-        {(pipeline || []).map(app => (
-          <div key={app.id} className="pipeline-chip" style={{ borderColor: `${app.color}40` }}>
+        {(pipelineItems || []).map(app => (
+          <div
+            key={app.id}
+            className="pipeline-chip"
+            style={{ borderColor: `${app.color}40`, position: 'relative' }}
+            onMouseEnter={() => setHoveredPipelineId(app.id)}
+            onMouseLeave={() => setHoveredPipelineId(null)}
+          >
             <span>{app.logo}</span>
             <span style={{ color: app.color }}>{app.name}</span>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              title="Move to Projects"
+              disabled={movingPipelineId === app.id}
+              onClick={() => handleMoveToProject(app)}
+              style={{
+                position: 'absolute',
+                right: 8,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                fontSize: 11,
+                padding: '4px 8px',
+                opacity: hoveredPipelineId === app.id || movingPipelineId === app.id ? 1 : 0,
+                transition: 'opacity 0.15s',
+              }}
+            >
+              {movingPipelineId === app.id ? 'Moving...' : '→ Move to Projects'}
+            </button>
           </div>
         ))}
       </div>
+
+      {showAddPipelineModal && (
+        <AddPipelineModal onClose={() => setShowAddPipelineModal(false)} />
+      )}
     </div>
   );
 }
