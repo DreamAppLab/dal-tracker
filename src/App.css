@@ -1375,6 +1375,123 @@ option { background: var(--bg-card); }
   gap: 10px 16px;
 }
 
+.subscriptions-row-suspended {
+  opacity: 0.55;
+}
+.subscriptions-row-suspended .subscriptions-name,
+.subscriptions-row-suspended .subscriptions-cost,
+.subscriptions-row-suspended .subscriptions-share {
+  color: var(--text-muted);
+}
+.subscriptions-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.subscriptions-status-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.subscriptions-status-active {
+  color: var(--teal);
+  background: rgba(0, 212, 184, 0.12);
+}
+.subscriptions-status-suspended {
+  color: var(--text-muted);
+  background: rgba(148, 163, 184, 0.15);
+}
+.subscriptions-checkbox-label.disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ── REVIEW REQUESTS ── */
+.review-requests-error {
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+  font-size: 13px;
+}
+.review-requests-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-surface);
+}
+.review-requests-table {
+  min-width: 720px;
+}
+.review-requests-table th,
+.review-requests-table td {
+  text-align: center;
+  vertical-align: middle;
+}
+.review-requests-table th {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #FFFFFF;
+  text-transform: uppercase;
+  padding: 12px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.review-requests-sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  text-align: left !important;
+  min-width: 160px;
+  background: var(--bg-surface);
+  box-shadow: 4px 0 12px rgba(0, 0, 0, 0.15);
+}
+.review-requests-app-col {
+  min-width: 110px;
+}
+.review-requests-contact-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.review-requests-contact-phone {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.review-requests-cell {
+  padding: 12px 8px !important;
+}
+.review-requests-checkbox-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.review-requests-checkbox-label.pending {
+  opacity: 0.5;
+  cursor: wait;
+}
+.review-requests-checkbox {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--teal);
+  cursor: pointer;
+}
+.review-requests-sent-date {
+  font-size: 9px;
+  color: var(--text-muted);
+  max-width: 90px;
+  line-height: 1.3;
+}
+
 /* ── CALENDAR ── */
 .calendar-nav {
   display: flex;

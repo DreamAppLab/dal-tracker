@@ -34,10 +34,11 @@ export default function AddSubscriptionModal({ onAdd, onClose }) {
     onAdd({
       id,
       name: form.name.trim(),
-      amount: parseFloat(form.amount) || 0,
+      amount: form.amount === '' ? 0 : parseFloat(form.amount) || 0,
       period: 'monthly',
       category: form.category,
       apps: form.apps,
+      status: 'active',
     });
   };
 
@@ -70,7 +71,7 @@ export default function AddSubscriptionModal({ onAdd, onClose }) {
                   min="0"
                   value={form.amount}
                   onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
-                  required
+                  placeholder="Leave blank if unknown"
                 />
               </div>
               <div className="form-group">

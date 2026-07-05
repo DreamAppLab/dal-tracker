@@ -24,7 +24,16 @@ export const SUBSCRIPTIONS = [
   { id: 'aso-dev', name: 'ASO.dev', amount: 25, period: 'monthly' }
 ];
 
+export function getSubscriptionStatus(subscription) {
+  return subscription.status || 'active';
+}
+
+export function isSubscriptionSuspended(subscription) {
+  return getSubscriptionStatus(subscription) === 'suspended';
+}
+
 export function getMonthlyCost(subscription) {
+  if (isSubscriptionSuspended(subscription)) return 0;
   if (!subscription.amount) return 0;
   return subscription.period === 'yearly' ? subscription.amount / 12 : subscription.amount;
 }
@@ -43,6 +52,7 @@ export function getAppMonthlyTotals(subscriptions, allocations, apps) {
   const totals = Object.fromEntries(apps.map(app => [app.id, 0]));
 
   subscriptions.forEach(sub => {
+    if (isSubscriptionSuspended(sub)) return;
     const monthly = getMonthlyCost(sub);
     const checked = getCheckedApps(allocations, sub.id, apps);
     if (!checked.length) return;
