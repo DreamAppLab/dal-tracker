@@ -175,6 +175,7 @@ function DashboardApp() {
         {activeView === 'project' && currentProject && (
           <ProjectDetail
             project={currentProject}
+            revenueLogos={revenueLogos}
             onUpdate={handleUpdateProject}
             onDelete={handleDeleteProject}
             onBack={() => setActiveView('dashboard')}

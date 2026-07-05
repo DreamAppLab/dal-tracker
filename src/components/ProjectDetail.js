@@ -7,6 +7,7 @@ import ExpenseModal from './ExpenseModal';
 import TechStackModal from './TechStackModal';
 import PaymentModal from './PaymentModal';
 import AppChecklist from './AppChecklist';
+import AppLogo from './AppLogo';
 import ProjectVault from '../ProjectVault';
 
 function getProgress(project) {
@@ -110,7 +111,7 @@ function isAppProject(project) {
   return project.type === 'own-app' || project.type === 'client-app';
 }
 
-export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
+export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, onDelete, onBack }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -239,7 +240,9 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
     <div>
       <div className="detail-header">
         <button className="btn btn-ghost btn-sm" onClick={onBack}>Back</button>
-        <div className="detail-logo" style={{ background: `${project.color}18`, border: `1px solid ${project.color}30` }}>{project.logo}</div>
+        <div className="detail-logo">
+          <AppLogo logoUrl={revenueLogos[project.id]} fallback={project.logo} color={project.color} size={48} />
+        </div>
         <div style={{ flex: 1 }}>
           <div className="detail-title">{project.name}</div>
           <div className="detail-meta">
