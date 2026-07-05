@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import AddContactModal from './AddContactModal';
+import EditContactModal from './EditContactModal';
 import { INTRO_SMS, getReviewRequestSms, sendSms } from '../utils/twilioApi';
 
 function todayIsoDate() {
@@ -12,6 +13,8 @@ export default function ReviewRequestsDashboard({ projects }) {
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingContact, setEditingContact] = useState(null);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [pendingCells, setPendingCells] = useState({});
   const [error, setError] = useState('');
 
@@ -33,6 +36,26 @@ export default function ReviewRequestsDashboard({ projects }) {
   const handleAddContact = async (newContact) => {
     await setDoc(doc(db, 'contacts', newContact.id), newContact, { merge: true });
     setShowAddModal(false);
+  };
+
+  const handleEditContact = async (updatedContact) => {
+    await setDoc(
+      doc(db, 'contacts', updatedContact.id),
+      { name: updatedContact.name, phone: updatedContact.phone },
+      { merge: true }
+    );
+    setShowEditModal(false);
+    setEditingContact(null);
+  };
+
+  const openEditModal = (contact) => {
+    setEditingContact(contact);
+    setShowEditModal(true);
+  };
+
+  const closeEditModal = () => {
+    setShowEditModal(false);
+    setEditingContact(null);
   };
 
   const setCellPending = (contactId, projectId, isPending) => {
@@ -155,8 +178,20 @@ export default function ReviewRequestsDashboard({ projects }) {
                 {contacts.map(contact => (
                   <tr key={contact.id}>
                     <td className="review-requests-sticky-col">
-                      <div className="review-requests-contact-name">{contact.name}</div>
-                      <div className="review-requests-contact-phone">{contact.phone}</div>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                        <div>
+                          <div className="review-requests-contact-name">{contact.name}</div>
+                          <div className="review-requests-contact-phone">{contact.phone}</div>
+                        </div>
+                        <button
+                          type="button"
+                          className="subscriptions-edit-btn"
+                          onClick={() => openEditModal(contact)}
+                          title="Edit contact"
+                        >
+                          ✏️
+                        </button>
+                      </div>
                     </td>
                     {ownApps.map(app => {
                       const appData = contact.textedApps?.[app.id] || {};
@@ -195,6 +230,14 @@ export default function ReviewRequestsDashboard({ projects }) {
         <AddContactModal
           onAdd={handleAddContact}
           onClose={() => setShowAddModal(false)}
+        />
+      )}
+
+      {showEditModal && editingContact && (
+        <EditContactModal
+          contact={editingContact}
+          onSave={handleEditContact}
+          onClose={closeEditModal}
         />
       )}
     </div>
