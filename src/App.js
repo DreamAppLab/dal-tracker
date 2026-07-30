@@ -7,6 +7,7 @@ import ASODashboard from './components/ASODashboard';
 import SubscriptionsDashboard from './components/SubscriptionsDashboard';
 import RevenueDashboard from './components/RevenueDashboard';
 import CalendarDashboard from './components/CalendarDashboard';
+import TodoDashboard from './components/TodoDashboard';
 import ReviewRequestsDashboard from './components/ReviewRequestsDashboard';
 import ProjectDetail from './components/ProjectDetail';
 import Sidebar from './components/Sidebar';
@@ -168,6 +169,9 @@ function DashboardApp() {
         )}
         {activeView === 'calendar' && (
           <CalendarDashboard />
+        )}
+        {activeView === 'todos' && (
+          <TodoDashboard />
         )}
         {activeView === 'review-requests' && (
           <ReviewRequestsDashboard projects={projects} />
