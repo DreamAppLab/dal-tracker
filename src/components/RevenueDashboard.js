@@ -197,11 +197,11 @@ function RevenueAppDetail({
 
       <div className="stats-grid" style={{ marginBottom: 24 }}>
         {[
-          { key: 'mrr', label: 'MRR', color: 'var(--green)' },
+          { key: 'mrr', label: 'MRR', color: '#2196F3' },
           { key: 'subscribers', label: 'Active Subscribers', color: 'var(--teal)' },
           { key: 'trials', label: 'Trial Conversions', color: 'var(--amber)' },
           { key: 'churnRate', label: 'Churn Rate (%)', color: 'var(--coral)' },
-          { key: 'totalRevenue', label: 'RevenueCat Total', color: 'var(--indigo)' },
+          { key: 'totalRevenue', label: 'RevenueCat Total', color: '#4CAF50' },
         ].map(({ key, label, color }) => (
           <div key={key} className="stat-card">
             <div className="stat-label">{label}</div>
@@ -217,7 +217,7 @@ function RevenueAppDetail({
         ))}
         <div className="stat-card">
           <div className="stat-label">Combined Total Revenue</div>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 700, color: 'var(--amber)', marginTop: 8 }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 700, color: '#4CAF50', marginTop: 8 }}>
             {formatMoney(combinedTotal)}
           </div>
           <div className="stat-sub" style={{ marginTop: 4 }}>RevenueCat + Manual Sales</div>
@@ -435,7 +435,7 @@ function SortableRevenueCard({
           </div>
           <div className="card-mini-stats">
             <div className="card-mini-stat">
-              <div className="card-mini-stat-value" style={{ color: 'var(--green)' }}>{formatMoney(data.mrr)}</div>
+              <div className="card-mini-stat-value" style={{ color: '#2196F3' }}>{formatMoney(data.mrr)}</div>
               <div className="card-mini-stat-label">MRR</div>
             </div>
             <div className="card-mini-stat">
@@ -443,7 +443,7 @@ function SortableRevenueCard({
               <div className="card-mini-stat-label">Subscribers</div>
             </div>
             <div className="card-mini-stat">
-              <div className="card-mini-stat-value" style={{ color: 'var(--indigo)' }}>{formatMoney(combinedTotal)}</div>
+              <div className="card-mini-stat-value" style={{ color: '#4CAF50' }}>{formatMoney(combinedTotal)}</div>
               <div className="card-mini-stat-label">Total Revenue</div>
             </div>
           </div>
