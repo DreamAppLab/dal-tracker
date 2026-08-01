@@ -1,6 +1,8 @@
 // src/components/ProjectDetail.js
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { STATUS_CONFIG, PRIORITY_CONFIG } from '../data/initialData';
+import { storage } from '../firebase';
+import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import MilestoneModal from './MilestoneModal';
 import EditModal from './EditModal';
 import ExpenseModal from './ExpenseModal';
@@ -121,6 +123,10 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
   const [paymentType, setPaymentType] = useState('out');
   const [editingItem, setEditingItem] = useState(null);
   const [editsFilter, setEditsFilter] = useState('all');
+  const [uploadingEditId, setUploadingEditId] = useState(null);
+  const [editUploadError, setEditUploadError] = useState(null);
+  const editImageInputRef = useRef(null);
+  const pendingEditIdRef = useRef(null);
 
   const isApp = isAppProject(project);
   const TABS = isApp
@@ -220,6 +226,49 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
 
   const handleUpdateRevenue = (field, value) => {
     onUpdate({ ...project, revenue: { ...project.revenue, [field]: value } });
+  };
+
+  const handleEditImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    const editId = pendingEditIdRef.current;
+    if (!editId) return;
+    const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
+    if (!allowed.includes(file.type) && !file.name.match(/\.(png|jpe?g|gif|webp)$/i)) {
+      setEditUploadError('Unsupported type. Allowed: PNG, JPG, GIF, WEBP');
+      return;
+    }
+    setUploadingEditId(editId);
+    setEditUploadError(null);
+    try {
+      const fileId = `img${Date.now()}`;
+      const path = `projects/${project.id}/edits/${editId}/${fileId}_${file.name}`;
+      const sRef = storageRef(storage, path);
+      await uploadBytes(sRef, file);
+      const downloadUrl = await getDownloadURL(sRef);
+      const newImage = { id: fileId, name: file.name, storagePath: path, downloadUrl, uploadedAt: new Date().toISOString() };
+      const updatedEdits = project.edits.map(ed =>
+        ed.id === editId ? { ...ed, images: [...(ed.images || []), newImage] } : ed
+      );
+      onUpdate({ ...project, edits: updatedEdits });
+    } catch (err) {
+      setEditUploadError(err.message || 'Upload failed');
+    } finally {
+      setUploadingEditId(null);
+      pendingEditIdRef.current = null;
+    }
+  };
+
+  const deleteEditImage = async (editId, img) => {
+    if (!window.confirm(`Delete screenshot "${img.name}"?`)) return;
+    try {
+      await deleteObject(storageRef(storage, img.storagePath));
+    } catch {}
+    const updatedEdits = project.edits.map(ed =>
+      ed.id === editId ? { ...ed, images: (ed.images || []).filter(i => i.id !== img.id) } : ed
+    );
+    onUpdate({ ...project, edits: updatedEdits });
   };
 
   const filteredEdits = getFilteredEdits(project.edits || [], editsFilter);
@@ -396,6 +445,12 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
               <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--amber)', fontSize: 18, fontWeight: 700 }}>${outstandingEditCosts.toFixed(2)}</span>
             </div>
           )}
+          <input ref={editImageInputRef} type="file" accept=".png,.jpg,.jpeg,.gif,.webp" style={{ display: 'none' }} onChange={handleEditImageUpload} />
+          {editUploadError && (
+            <div style={{ color: 'var(--coral)', fontSize: 12, marginBottom: 8, padding: '6px 10px', background: 'rgba(239,68,68,0.1)', borderRadius: 6, border: '1px solid rgba(239,68,68,0.2)' }}>
+              {editUploadError}
+            </div>
+          )}
           {sortedEdits.length === 0 ? (
             <div className="empty-state"><div className="empty-state-icon"></div><div className="empty-state-text">No edits in this filter.</div></div>
           ) : (
@@ -419,9 +474,52 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
                         {e.sentToDevAt && <span style={{ fontSize: 10, color: 'var(--green)', marginLeft: 4 }}>Sent {formatDate(e.sentToDevAt)}</span>}
                       </div>
                       {e.notes && <div className="item-desc" style={{ marginTop: 6 }}>Note: {e.notes}</div>}
+                      {(e.images || []).length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                          {(e.images || []).map(img => (
+                            <div key={img.id} style={{ position: 'relative', display: 'inline-block' }}>
+                              <img
+                                src={img.downloadUrl}
+                                alt={img.name}
+                                style={{
+                                  maxWidth: 150,
+                                  maxHeight: 100,
+                                  borderRadius: 6,
+                                  border: '1px solid var(--border)',
+                                  objectFit: 'cover',
+                                  display: 'block',
+                                }}
+                              />
+                              <button
+                                onClick={() => deleteEditImage(e.id, img)}
+                                title={`Delete ${img.name}`}
+                                style={{
+                                  position: 'absolute',
+                                  top: 3,
+                                  right: 3,
+                                  background: 'rgba(0,0,0,0.65)',
+                                  color: '#fff',
+                                  border: 'none',
+                                  borderRadius: 4,
+                                  cursor: 'pointer',
+                                  fontSize: 10,
+                                  padding: '2px 5px',
+                                  lineHeight: 1.3,
+                                }}
+                              >✕</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className="item-actions">
                       <button className="icon-btn" title={e.sentToDev ? 'Unmark sent' : 'Mark sent to dev'} onClick={() => toggleSentToDev(e.id)} style={e.sentToDev ? { color: 'var(--green)', borderColor: 'var(--green)' } : {}}>{e.sentToDev ? 'Sent' : 'Send'}</button>
+                      <button
+                        className="icon-btn"
+                        title="Add screenshot"
+                        disabled={uploadingEditId === e.id}
+                        onClick={() => { pendingEditIdRef.current = e.id; editImageInputRef.current?.click(); }}
+                      >{uploadingEditId === e.id ? '...' : '📷'}</button>
                       <button className="icon-btn" onClick={() => { setEditingItem(e); setShowEditModal(true); }}>Edit</button>
                       <button className="icon-btn danger" onClick={() => deleteEdit(e.id)}>Del</button>
                     </div>
