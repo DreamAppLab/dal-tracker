@@ -29,6 +29,7 @@ export default function LoginScreen() {
       }).catch(e => console.warn('Login event failed:', e));
 
       const brevoKey = process.env.REACT_APP_BREVO_API_KEY;
+      console.log('Brevo key present:', !!brevoKey, 'Length:', brevoKey?.length);
       if (brevoKey) {
         fetch('https://api.brevo.com/v3/smtp/email', {
           method: 'POST',
