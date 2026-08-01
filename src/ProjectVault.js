@@ -1,7 +1,17 @@
 // src/ProjectVault.js
 import React, { useState, useRef, useEffect } from 'react';
-import { storage } from './firebase';
+import { storage, db } from './firebase';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { doc, getDoc } from 'firebase/firestore';
+
+const BLACKBOX_ID_MAP = {
+  'Flarepad': 'flarepad',
+  'Logabode': 'logabode',
+  'FamilyLens': 'familylens',
+  'MyClassLog': 'myclasslog',
+  'RV Vault': 'rvvault',
+  'Ten Miles Ahead': 'tenmilesahead',
+};
 
 const ENTRY_TYPES = [
   { value: 'api_key', label: '🔑 API Key' },
@@ -139,6 +149,22 @@ export default function ProjectVault({ project, onUpdate }) {
   const imageInputRef = useRef(null);
 
   const [blackBox, setBlackBox] = useState(project.blackBox || {});
+  const [blackboxDocs, setBlackboxDocs] = useState([]);
+
+  useEffect(() => {
+    const blackboxId = BLACKBOX_ID_MAP[project.name];
+    if (!blackboxId) {
+      setBlackboxDocs([]);
+      return;
+    }
+    getDoc(doc(db, 'blackbox', blackboxId)).then(snap => {
+      if (snap.exists()) {
+        setBlackboxDocs(snap.data().documents || []);
+      } else {
+        setBlackboxDocs([]);
+      }
+    }).catch(() => setBlackboxDocs([]));
+  }, [project.id, project.name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const current = project.blackBox || {};
@@ -509,6 +535,46 @@ export default function ProjectVault({ project, onUpdate }) {
                     <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--coral)' }} onClick={() => deleteFile(file)}>
                       Delete
                     </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Blackbox Collection Documents ── */}
+      {blackboxDocs.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 8 }}>
+            📂 Documents — {project.name}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {blackboxDocs.map((bdoc, idx) => {
+              const ext = bdoc.filename?.split('.').pop()?.toLowerCase();
+              const typeInfo = getFileTypeInfo(undefined, bdoc.filename || bdoc.name || '');
+              return (
+                <div key={bdoc.filename || idx} className="vault-file-row">
+                  <div className="vault-file-icon">{typeInfo.icon}</div>
+                  <div className="vault-file-info">
+                    <div className="vault-file-name">{bdoc.name || bdoc.filename}</div>
+                    <div className="vault-file-meta">
+                      {ext?.toUpperCase() || 'FILE'}
+                      {bdoc.uploadedAt ? ` · ${new Date(bdoc.uploadedAt?.toDate ? bdoc.uploadedAt.toDate() : bdoc.uploadedAt).toLocaleDateString()}` : ''}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    {bdoc.url && (
+                      <a
+                        href={bdoc.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-ghost btn-sm"
+                        style={{ fontSize: 11, textDecoration: 'none' }}
+                      >
+                        ⬇ Download
+                      </a>
+                    )}
                   </div>
                 </div>
               );
