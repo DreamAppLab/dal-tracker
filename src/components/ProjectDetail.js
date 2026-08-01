@@ -60,8 +60,6 @@ async function generateEditsPDF(project, filter) {
   const pageH = doc.internal.pageSize.getHeight();
   const margin = 20;
   const contentW = pageW - margin * 2;
-  const maxImgW = 160;
-  const maxImgH = 120;
   let y = margin;
 
   const addPageIfNeeded = (needed) => {
@@ -70,28 +68,6 @@ async function generateEditsPDF(project, filter) {
       y = margin;
     }
   };
-
-  const fetchImageBase64 = async (url) => {
-    try {
-      const res = await fetch(url);
-      const blob = await res.blob();
-      return await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-    } catch {
-      return null;
-    }
-  };
-
-  const getImageDimensions = (dataUrl) => new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
-    img.onerror = () => resolve({ w: 160, h: 90 });
-    img.src = dataUrl;
-  });
 
   // Title
   doc.setFontSize(18);
@@ -195,7 +171,8 @@ async function generateEditsPDF(project, filter) {
     // Images
     for (let n = 0; n < images.length; n++) {
       const img = images[n];
-      if (!img.downloadUrl) continue;
+      const url = typeof img === 'string' ? img : img.downloadUrl;
+      if (!url) continue;
 
       addPageIfNeeded(12);
 
@@ -206,26 +183,28 @@ async function generateEditsPDF(project, filter) {
       doc.text(`Screenshot ${n + 1}:`, margin + 10, y + 1);
       y += 6;
 
-      const dataUrl = await fetchImageBase64(img.downloadUrl);
-      if (dataUrl) {
-        const dims = await getImageDimensions(dataUrl);
-        const aspect = dims.w / dims.h;
-        let imgW = Math.min(maxImgW, dims.w * (25.4 / 96));
-        let imgH = imgW / aspect;
-        if (imgH > maxImgH) {
-          imgH = maxImgH;
-          imgW = imgH * aspect;
+      try {
+        const response = await fetch(url);
+        const blob = await response.blob();
+        const base64 = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        });
+
+        const imgProps = doc.getImageProperties(base64);
+        const pdfWidth = doc.internal.pageSize.getWidth() - 30;
+        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+
+        if (y + pdfHeight > doc.internal.pageSize.getHeight() - 20) {
+          doc.addPage();
+          y = 20;
         }
 
-        addPageIfNeeded(imgH + 5);
-
-        const fmt = dataUrl.startsWith('data:image/png') ? 'PNG'
-          : dataUrl.startsWith('data:image/gif') ? 'GIF'
-          : dataUrl.startsWith('data:image/webp') ? 'WEBP'
-          : 'JPEG';
-
-        doc.addImage(dataUrl, fmt, margin + 10, y, imgW, imgH);
-        y += imgH + 5;
+        doc.addImage(base64, 'JPEG', 15, y, pdfWidth, pdfHeight);
+        y += pdfHeight + 5;
+      } catch {
+        // image fetch or render failed — skip silently
       }
     }
 
