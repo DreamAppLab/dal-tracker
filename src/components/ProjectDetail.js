@@ -184,13 +184,19 @@ async function generateEditsPDF(project, filter) {
       y += 6;
 
       try {
-        const response = await fetch(url);
-        const blob = await response.blob();
-        const base64 = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.readAsDataURL(blob);
-        });
+        const imgUrl = url.includes('alt=media') ? url : (url.includes('?') ? url + '&alt=media' : url + '?alt=media');
+
+        const imgEl = new Image();
+        imgEl.crossOrigin = 'anonymous';
+        imgEl.src = imgUrl;
+        await new Promise((resolve, reject) => { imgEl.onload = resolve; imgEl.onerror = reject; });
+
+        const canvas = document.createElement('canvas');
+        canvas.width = imgEl.naturalWidth;
+        canvas.height = imgEl.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(imgEl, 0, 0);
+        const base64 = canvas.toDataURL('image/jpeg');
 
         const imgProps = doc.getImageProperties(base64);
         const pdfWidth = doc.internal.pageSize.getWidth() - 30;
@@ -204,7 +210,7 @@ async function generateEditsPDF(project, filter) {
         doc.addImage(base64, 'JPEG', 15, y, pdfWidth, pdfHeight);
         y += pdfHeight + 5;
       } catch {
-        // image fetch or render failed — skip silently
+        // image load or canvas render failed — skip silently
       }
     }
 
