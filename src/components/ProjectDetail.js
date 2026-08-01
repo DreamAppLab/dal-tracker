@@ -1,5 +1,6 @@
 // src/components/ProjectDetail.js
 import React, { useState, useRef } from 'react';
+import { jsPDF } from 'jspdf';
 import { STATUS_CONFIG, PRIORITY_CONFIG } from '../data/initialData';
 import { storage } from '../firebase';
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -48,44 +49,205 @@ function formatDate(iso) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function generateEditsPDF(project, filter) {
+async function generateEditsPDF(project, filter) {
   const edits = getFilteredEdits(project.edits || [], filter);
   const priorityOrder = { high: 0, medium: 1, low: 2 };
   const sorted = [...edits].sort((a, b) => (priorityOrder[a.priority] ?? 1) - (priorityOrder[b.priority] ?? 1));
   const totalCost = sorted.filter(e => e.amount > 0).reduce((s, e) => s + e.amount, 0);
 
-  const rows = sorted.map((e, i) => `
-    <tr style="background:${i % 2 === 0 ? '#f8f9fa' : '#ffffff'}">
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px">${e.page}</td>
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px">${e.location}</td>
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px;font-weight:600">${e.item}</td>
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px">
-        <span style="background:${e.priority === 'high' ? '#fee2e2' : e.priority === 'medium' ? '#fef9c3' : '#dbeafe'};
-          color:${e.priority === 'high' ? '#dc2626' : e.priority === 'medium' ? '#d97706' : '#2563eb'};
-          padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">${e.priority.toUpperCase()}</span>
-      </td>
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px">${e.notes || '—'}</td>
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px;text-align:center;color:${e.amount > 0 ? '#d97706' : '#666'};font-weight:${e.amount > 0 ? '700' : '400'}">${e.amount > 0 ? '$' + e.amount.toFixed(2) : '—'}</td>
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px">${formatDate(e.createdAt)}</td>
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px;text-align:center">${e.sentToDev ? 'Yes' + (e.sentToDevAt ? ' (' + formatDate(e.sentToDevAt) + ')' : '') : 'No'}</td>
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px;text-align:center">${e.completed ? 'Done' : 'Open'}</td>
-    </tr>
-  `).join('');
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const margin = 20;
+  const contentW = pageW - margin * 2;
+  const maxImgW = 160;
+  const maxImgH = 120;
+  let y = margin;
 
-  const html = `<!DOCTYPE html><html><head><title>${project.name} - Edits Needed</title>
-    <style>body{font-family:Arial,sans-serif;margin:40px;color:#1a1a1a}h1{font-size:22px;margin-bottom:4px}.meta{color:#666;font-size:13px;margin-bottom:24px}.total{margin-top:16px;padding:12px 16px;background:#fef9c3;border-radius:8px;font-weight:700;font-size:14px;color:#d97706}table{width:100%;border-collapse:collapse}th{background:#1a2234;color:white;padding:10px;text-align:left;font-size:12px;border:1px solid #dee2e6}</style>
-    </head><body>
-    <h1>${project.name} — Edits Needed</h1>
-    <div class="meta">Generated: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} | Filter: ${filter} | ${sorted.length} item(s)</div>
-    <table><thead><tr><th>Page</th><th>Location</th><th>Item</th><th>Priority</th><th>Notes</th><th>Cost</th><th>Date Added</th><th>Sent to Dev</th><th>Status</th></tr></thead>
-    <tbody>${rows}</tbody></table>
-    ${totalCost > 0 ? `<div class="total">Total Outstanding Dev Costs: $${totalCost.toFixed(2)}</div>` : ''}
-    </body></html>`;
+  const addPageIfNeeded = (needed) => {
+    if (y + needed > pageH - margin) {
+      doc.addPage();
+      y = margin;
+    }
+  };
 
-  const win = window.open('', '_blank');
-  win.document.write(html);
-  win.document.close();
-  win.print();
+  const fetchImageBase64 = async (url) => {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return null;
+    }
+  };
+
+  const getImageDimensions = (dataUrl) => new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => resolve({ w: 160, h: 90 });
+    img.src = dataUrl;
+  });
+
+  // Title
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(26, 34, 52);
+  doc.text(`${project.name} \u2014 Edits Needed`, margin, y);
+  y += 8;
+
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 100, 100);
+  const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  doc.text(`Generated: ${dateStr} | Filter: ${filter} | ${sorted.length} item(s)`, margin, y);
+  y += 6;
+
+  doc.setDrawColor(200, 200, 200);
+  doc.setLineWidth(0.3);
+  doc.line(margin, y, pageW - margin, y);
+  y += 6;
+
+  const priorityColor = { high: [220, 38, 38], medium: [217, 119, 6], low: [37, 99, 235] };
+
+  for (let i = 0; i < sorted.length; i++) {
+    const e = sorted[i];
+    const images = e.images || [];
+
+    // Estimate block height to check for page break (text only portion)
+    addPageIfNeeded(30);
+
+    // Alternating row background
+    if (i % 2 === 0) {
+      doc.setFillColor(248, 249, 250);
+      doc.rect(margin, y - 2, contentW, 24, 'F');
+    }
+
+    // Row number
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(160, 160, 160);
+    doc.text(`#${i + 1}`, margin + 1, y + 4);
+
+    // Item name (bold)
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(26, 34, 52);
+    const itemLines = doc.splitTextToSize(e.item || '', 95);
+    doc.text(itemLines, margin + 10, y + 4);
+
+    // Priority label
+    const [pr, pg, pb] = priorityColor[e.priority] || [100, 100, 100];
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(pr, pg, pb);
+    doc.text((e.priority || '').toUpperCase(), margin + 120, y + 4);
+
+    // Cost
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    if (e.amount > 0) {
+      doc.setTextColor(180, 83, 9);
+      doc.text(`$${e.amount.toFixed(2)}`, margin + 148, y + 4);
+    } else {
+      doc.setTextColor(160, 160, 160);
+      doc.text('\u2014', margin + 148, y + 4);
+    }
+
+    y += Math.max(itemLines.length * 5, 7);
+
+    // Page / Location / Date
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(80, 80, 80);
+    doc.text(`Page: ${e.page || '\u2014'}  |  Location: ${e.location || '\u2014'}`, margin + 10, y + 1);
+    if (e.createdAt) {
+      doc.setTextColor(140, 140, 140);
+      doc.text(formatDate(e.createdAt), margin + 148, y + 1);
+    }
+    y += 6;
+
+    // Sent to Dev / Status
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 100, 100);
+    const sentText = e.sentToDev
+      ? `Sent to Dev: Yes${e.sentToDevAt ? ' (' + formatDate(e.sentToDevAt) + ')' : ''}`
+      : 'Sent to Dev: No';
+    doc.text(`${sentText}  |  Status: ${e.completed ? 'Done' : 'Open'}`, margin + 10, y + 1);
+    y += 6;
+
+    // Notes
+    if (e.notes) {
+      const noteLines = doc.splitTextToSize(`Note: ${e.notes}`, contentW - 10);
+      addPageIfNeeded(noteLines.length * 4.5 + 3);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'italic');
+      doc.setTextColor(80, 80, 80);
+      doc.text(noteLines, margin + 10, y + 1);
+      y += noteLines.length * 4.5 + 3;
+    }
+
+    // Images
+    for (let n = 0; n < images.length; n++) {
+      const img = images[n];
+      if (!img.downloadUrl) continue;
+
+      addPageIfNeeded(12);
+
+      // Screenshot label
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(80, 80, 80);
+      doc.text(`Screenshot ${n + 1}:`, margin + 10, y + 1);
+      y += 6;
+
+      const dataUrl = await fetchImageBase64(img.downloadUrl);
+      if (dataUrl) {
+        const dims = await getImageDimensions(dataUrl);
+        const aspect = dims.w / dims.h;
+        let imgW = Math.min(maxImgW, dims.w * (25.4 / 96));
+        let imgH = imgW / aspect;
+        if (imgH > maxImgH) {
+          imgH = maxImgH;
+          imgW = imgH * aspect;
+        }
+
+        addPageIfNeeded(imgH + 5);
+
+        const fmt = dataUrl.startsWith('data:image/png') ? 'PNG'
+          : dataUrl.startsWith('data:image/gif') ? 'GIF'
+          : dataUrl.startsWith('data:image/webp') ? 'WEBP'
+          : 'JPEG';
+
+        doc.addImage(dataUrl, fmt, margin + 10, y, imgW, imgH);
+        y += imgH + 5;
+      }
+    }
+
+    // Divider
+    doc.setDrawColor(220, 220, 220);
+    doc.setLineWidth(0.2);
+    doc.line(margin, y + 1, pageW - margin, y + 1);
+    y += 6;
+  }
+
+  // Total cost footer
+  if (totalCost > 0) {
+    addPageIfNeeded(16);
+    doc.setFillColor(254, 249, 195);
+    doc.rect(margin, y, contentW, 12, 'F');
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(180, 83, 9);
+    doc.text(`Total Outstanding Dev Costs: $${totalCost.toFixed(2)}`, margin + 4, y + 8);
+  }
+
+  doc.save(`${project.name.replace(/[^a-z0-9]/gi, '_')}_edits.pdf`);
 }
 
 function getFilteredEdits(edits, filter) {
