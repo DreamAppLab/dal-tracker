@@ -103,7 +103,7 @@ const BASE_TABS = [
   { key: "edits", label: "Edits Needed" },
   { key: "stack", label: "Tech Stack" },
   { key: "financials", label: "Financials" },
-  { key: "vault", label: "🔑 Vault" }
+  { key: "vault", label: "🔒 Black Box" }
 ];
 
 function isAppProject(project) {

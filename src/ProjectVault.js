@@ -1,5 +1,5 @@
 // src/ProjectVault.js
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { storage } from './firebase';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 
@@ -19,7 +19,39 @@ const ALLOWED_TYPES = {
   'image/jpeg': { ext: 'jpg', icon: '🖼️', label: 'JPG' },
 };
 
+const IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
 const ACCEPT = '.pdf,.docx,.xlsx,.png,.jpg,.jpeg';
+const IMAGE_ACCEPT = '.png,.jpg,.jpeg,.gif,.webp';
+
+const PREPOPULATE = {
+  'Flarepad': {
+    appStoreId: '6781827211',
+    bundleId: 'com.dreamapplab.flarepad',
+    revenueCatIosKey: 'appl_hqrITWHNSUZFVabiFXYSainMADe',
+    revenueCatAndroidKey: 'goog_VnERWdjWQMYTUWBuDrUPbiOKQSK',
+    distributionCertId: 'FQ78WWT9V3',
+    iapKeyId: '59AT49658X',
+    issuerId: '1f65c000-4aff-4152-a635-65121626d216',
+    currentSubtitle: 'Symptom & Flare Tracker',
+    currentKeywords: 'migraine,headache,allergy,pain,ibs,chronic,illness,journal,log,health,nausea,fatigue,anxiety,crohn',
+    privacyPolicyUrl: 'https://flarepad.click/privacy',
+    termsUrl: 'https://flarepad.click/terms',
+  },
+  'Logabode': {
+    appStoreId: '6783202619',
+    bundleId: 'com.dreamapplab.logabode',
+    easProjectId: '14288b8a-7b6b-42bc-80ea-ac5376a36998',
+    revenueCatIosKey: 'appl_mnAjJSIQNfrTQFeLjFImIiXRbda',
+    iapKeyId: '59AT49658X',
+    issuerId: '1f65c000-4aff-4152-a635-65121626d216',
+    distributionCertId: 'FQ78WWT9V3',
+    currentKeywords: 'landlord,realtor,roof,hvac,appliance,remodel,home inventory,homeowner,electrician,drywall,plumber',
+    privacyPolicyUrl: 'https://logabode.click/privacy',
+    termsUrl: 'https://logabode.click/terms',
+    androidKeystoreLocation: 'C:\\dev\\_keystores\\logabode\\@dreamapplab__logabode.jks',
+    keystoreAlias: 'c18558f198acbcb311d10b27aa19d609',
+  },
+};
 
 function formatFileSize(bytes) {
   if (!bytes) return '0 B';
@@ -38,16 +70,62 @@ function getFileTypeInfo(mimeType, name) {
 function EmptyVault() {
   return (
     <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-muted)' }}>
-      <div style={{ fontSize: 36, marginBottom: 12 }}>🔑</div>
-      <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 6 }}>No vault entries yet</div>
+      <div style={{ fontSize: 36, marginBottom: 12 }}>🔒</div>
+      <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 6 }}>No black box entries yet</div>
       <div style={{ fontSize: 12 }}>Store API keys, credentials, URLs, notes, and files for this project</div>
     </div>
   );
 }
 
+function SectionField({ label, value, onChange, onBlur, type = 'text', isTextarea = false }) {
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 4, fontWeight: 600, letterSpacing: '0.04em' }}>
+        {label}
+      </label>
+      {isTextarea ? (
+        <textarea
+          className="form-input"
+          style={{ resize: 'vertical', minHeight: 72, width: '100%', boxSizing: 'border-box' }}
+          value={value || ''}
+          onChange={onChange}
+          onBlur={onBlur}
+        />
+      ) : (
+        <input
+          className="form-input"
+          type={type}
+          value={value || ''}
+          onChange={onChange}
+          onBlur={onBlur}
+        />
+      )}
+    </div>
+  );
+}
+
+const SECTION_HEADER_STYLE = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: 'var(--text-muted)',
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  marginBottom: 12,
+  borderBottom: '1px solid var(--border)',
+  paddingBottom: 6,
+};
+
+const TWO_COL_GRID = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+  gap: '0 16px',
+};
+
 export default function ProjectVault({ project, onUpdate }) {
   const entries = project.vault || [];
   const files = project.vaultFiles || [];
+  const blackBoxImages = project.blackBoxImages || [];
+
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [revealed, setRevealed] = useState({});
@@ -55,7 +133,39 @@ export default function ProjectVault({ project, onUpdate }) {
   const [form, setForm] = useState({ type: 'api_key', label: '', value: '', notes: '' });
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
+  const [imageUploading, setImageUploading] = useState(false);
+  const [imageUploadError, setImageUploadError] = useState(null);
   const fileInputRef = useRef(null);
+  const imageInputRef = useRef(null);
+
+  const [blackBox, setBlackBox] = useState(project.blackBox || {});
+
+  useEffect(() => {
+    const current = project.blackBox || {};
+    const preData = PREPOPULATE[project.name];
+    let merged = { ...current };
+
+    if (preData) {
+      const updates = {};
+      Object.entries(preData).forEach(([key, val]) => {
+        if (!current[key]) updates[key] = val;
+      });
+      if (Object.keys(updates).length > 0) {
+        merged = { ...merged, ...updates };
+        onUpdate({ ...project, blackBox: merged });
+      }
+    }
+
+    setBlackBox(merged);
+  }, [project.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleBlackBoxChange = (field, value) => {
+    setBlackBox(bb => ({ ...bb, [field]: value }));
+  };
+
+  const handleBlackBoxBlur = (field) => {
+    onUpdate({ ...project, blackBox: { ...(project.blackBox || {}), [field]: blackBox[field] } });
+  };
 
   const resetForm = () => {
     setForm({ type: 'api_key', label: '', value: '', notes: '' });
@@ -135,6 +245,49 @@ export default function ProjectVault({ project, onUpdate }) {
     }
   };
 
+  const handleImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+
+    if (!IMAGE_MIME_TYPES.includes(file.type) && !file.name.match(/\.(png|jpe?g|gif|webp)$/i)) {
+      setImageUploadError('Unsupported image type. Allowed: PNG, JPG, GIF, WEBP');
+      return;
+    }
+
+    setImageUploading(true);
+    setImageUploadError(null);
+    try {
+      const fileId = `img${Date.now()}`;
+      const storagePath = `blackbox/${project.id}/images/${fileId}_${file.name}`;
+      const storageRef = ref(storage, storagePath);
+      await uploadBytes(storageRef, file);
+      const downloadUrl = await getDownloadURL(storageRef);
+      const newImage = {
+        id: fileId,
+        name: file.name,
+        storagePath,
+        downloadUrl,
+        uploadedAt: new Date().toISOString(),
+      };
+      onUpdate({ ...project, blackBoxImages: [...blackBoxImages, newImage] });
+    } catch (err) {
+      setImageUploadError(err.message || 'Image upload failed');
+    } finally {
+      setImageUploading(false);
+    }
+  };
+
+  const deleteImage = async (img) => {
+    if (!window.confirm(`Delete image "${img.name}"?`)) return;
+    try {
+      await deleteObject(ref(storage, img.storagePath));
+    } catch {
+      // may already be removed from storage
+    }
+    onUpdate({ ...project, blackBoxImages: blackBoxImages.filter(i => i.id !== img.id) });
+  };
+
   const downloadFile = (file) => {
     const a = document.createElement('a');
     a.href = file.downloadUrl;
@@ -163,28 +316,24 @@ export default function ProjectVault({ project, onUpdate }) {
 
   return (
     <div className="data-section">
+
+      {/* ── Header ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 2 }}>
-            Project Vault
+            🔒 Black Box
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
             API keys, credentials, URLs, notes, and files — {entries.length} {entries.length === 1 ? 'entry' : 'entries'}, {files.length} {files.length === 1 ? 'file' : 'files'}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={ACCEPT}
-            style={{ display: 'none' }}
-            onChange={handleFileUpload}
-          />
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-          >
+          <input ref={fileInputRef} type="file" accept={ACCEPT} style={{ display: 'none' }} onChange={handleFileUpload} />
+          <input ref={imageInputRef} type="file" accept={IMAGE_ACCEPT} style={{ display: 'none' }} onChange={handleImageUpload} />
+          <button className="btn btn-secondary btn-sm" onClick={() => imageInputRef.current?.click()} disabled={imageUploading}>
+            {imageUploading ? 'Uploading...' : '🖼 Upload Image'}
+          </button>
+          <button className="btn btn-secondary btn-sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
             {uploading ? 'Uploading...' : '📎 Upload File'}
           </button>
           <button className="btn btn-primary btn-sm" onClick={() => { resetForm(); setShowForm(true); }}>
@@ -193,10 +342,149 @@ export default function ProjectVault({ project, onUpdate }) {
         </div>
       </div>
 
+      {/* ── IDENTIFIERS ── */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={SECTION_HEADER_STYLE}>🪪 Identifiers</div>
+        <div style={TWO_COL_GRID}>
+          {[
+            { field: 'appStoreId', label: 'App Store ID' },
+            { field: 'bundleId', label: 'Bundle ID' },
+            { field: 'playPackage', label: 'Play Package' },
+            { field: 'easProjectId', label: 'EAS Project ID' },
+            { field: 'revenueCatIosKey', label: 'RevenueCat iOS Key' },
+            { field: 'revenueCatAndroidKey', label: 'RevenueCat Android Key' },
+            { field: 'privacyPolicyUrl', label: 'Privacy Policy URL' },
+            { field: 'termsUrl', label: 'Terms URL' },
+          ].map(({ field, label }) => (
+            <SectionField
+              key={field}
+              label={label}
+              value={blackBox[field]}
+              onChange={e => handleBlackBoxChange(field, e.target.value)}
+              onBlur={() => handleBlackBoxBlur(field)}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* ── CREDENTIALS ── */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={SECTION_HEADER_STYLE}>🔐 Credentials</div>
+        <div style={TWO_COL_GRID}>
+          {[
+            { field: 'distributionCertId', label: 'Distribution Cert ID' },
+            { field: 'iapKeyId', label: 'IAP Key ID' },
+            { field: 'issuerId', label: 'Issuer ID' },
+            { field: 'androidKeystoreLocation', label: 'Android Keystore Location' },
+            { field: 'keystoreAlias', label: 'Keystore Alias' },
+            { field: 'keystoreSha1', label: 'Keystore SHA1' },
+          ].map(({ field, label }) => (
+            <SectionField
+              key={field}
+              label={label}
+              value={blackBox[field]}
+              onChange={e => handleBlackBoxChange(field, e.target.value)}
+              onBlur={() => handleBlackBoxBlur(field)}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* ── ASO ── */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={SECTION_HEADER_STYLE}>📈 ASO</div>
+        <div style={TWO_COL_GRID}>
+          <SectionField
+            label="Current Subtitle"
+            value={blackBox.currentSubtitle}
+            onChange={e => handleBlackBoxChange('currentSubtitle', e.target.value)}
+            onBlur={() => handleBlackBoxBlur('currentSubtitle')}
+          />
+          <SectionField
+            label="Last Changed Date"
+            value={blackBox.lastChangedDate}
+            onChange={e => handleBlackBoxChange('lastChangedDate', e.target.value)}
+            onBlur={() => handleBlackBoxBlur('lastChangedDate')}
+            type="date"
+          />
+        </div>
+        <SectionField
+          label="Current Keywords"
+          value={blackBox.currentKeywords}
+          onChange={e => handleBlackBoxChange('currentKeywords', e.target.value)}
+          onBlur={() => handleBlackBoxBlur('currentKeywords')}
+          isTextarea
+        />
+        <SectionField
+          label="ASO Notes"
+          value={blackBox.asoNotes}
+          onChange={e => handleBlackBoxChange('asoNotes', e.target.value)}
+          onBlur={() => handleBlackBoxBlur('asoNotes')}
+          isTextarea
+        />
+      </div>
+
+      {/* ── IMAGE UPLOADS ── */}
+      {(blackBoxImages.length > 0 || imageUploadError) && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={SECTION_HEADER_STYLE}>🖼 Images — {project.name}</div>
+          {imageUploadError && (
+            <div className="calendar-error-banner" style={{ marginBottom: 12 }}>{imageUploadError}</div>
+          )}
+          {blackBoxImages.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+              {blackBoxImages.map(img => (
+                <div key={img.id} style={{ position: 'relative', display: 'inline-block' }}>
+                  <img
+                    src={img.downloadUrl}
+                    alt={img.name}
+                    style={{
+                      maxWidth: 120,
+                      maxHeight: 120,
+                      borderRadius: 8,
+                      border: '1px solid var(--border)',
+                      objectFit: 'cover',
+                      display: 'block',
+                    }}
+                  />
+                  <button
+                    onClick={() => deleteImage(img)}
+                    title={`Delete ${img.name}`}
+                    style={{
+                      position: 'absolute',
+                      top: 4,
+                      right: 4,
+                      background: 'rgba(0,0,0,0.65)',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      fontSize: 10,
+                      padding: '2px 5px',
+                      lineHeight: 1.3,
+                    }}
+                  >✕</button>
+                  <div style={{
+                    fontSize: 10,
+                    color: 'var(--text-muted)',
+                    marginTop: 4,
+                    maxWidth: 120,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}>{img.name}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {uploadError && (
         <div className="calendar-error-banner" style={{ marginBottom: 12 }}>{uploadError}</div>
       )}
 
+      {/* ── Existing Files ── */}
       {files.length > 0 && (
         <div style={{ marginBottom: 24 }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 8 }}>
@@ -229,13 +517,14 @@ export default function ProjectVault({ project, onUpdate }) {
         </div>
       )}
 
+      {/* ── Add Entry Form ── */}
       {showForm && (
         <div style={{
           background: 'var(--bg-elevated)',
           border: '1px solid var(--border)',
           borderRadius: 10,
           padding: '1rem',
-          marginBottom: 16
+          marginBottom: 16,
         }}>
           <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)', marginBottom: 12 }}>
             {editingId ? 'Edit Entry' : 'New Entry'}
@@ -288,6 +577,7 @@ export default function ProjectVault({ project, onUpdate }) {
         </div>
       )}
 
+      {/* ── Existing Entries ── */}
       {entries.length === 0 && files.length === 0 && !showForm ? (
         <EmptyVault />
       ) : (
@@ -317,7 +607,7 @@ export default function ProjectVault({ project, onUpdate }) {
                         padding: '4px 8px',
                         borderRadius: 6,
                         wordBreak: 'break-all',
-                        marginBottom: entry.notes ? 6 : 0
+                        marginBottom: entry.notes ? 6 : 0,
                       }}>
                         {isSensitive(entry.type) && !revealed[entry.id]
                           ? '••••••••••••••••••••••••'
