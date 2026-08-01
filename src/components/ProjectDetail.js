@@ -1,6 +1,5 @@
 // src/components/ProjectDetail.js
 import React, { useState, useRef } from 'react';
-import { jsPDF } from 'jspdf';
 import { STATUS_CONFIG, PRIORITY_CONFIG } from '../data/initialData';
 import { storage } from '../firebase';
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -49,190 +48,97 @@ function formatDate(iso) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-async function generateEditsPDF(project, filter) {
+function generateEditsPDF(project, filter) {
   const edits = getFilteredEdits(project.edits || [], filter);
   const priorityOrder = { high: 0, medium: 1, low: 2 };
   const sorted = [...edits].sort((a, b) => (priorityOrder[a.priority] ?? 1) - (priorityOrder[b.priority] ?? 1));
   const totalCost = sorted.filter(e => e.amount > 0).reduce((s, e) => s + e.amount, 0);
+  const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  const pageW = doc.internal.pageSize.getWidth();
-  const pageH = doc.internal.pageSize.getHeight();
-  const margin = 20;
-  const contentW = pageW - margin * 2;
-  let y = margin;
-
-  const addPageIfNeeded = (needed) => {
-    if (y + needed > pageH - margin) {
-      doc.addPage();
-      y = margin;
-    }
+  const priorityColors = {
+    high: { bg: '#fee2e2', text: '#dc2626', label: 'HIGH' },
+    medium: { bg: '#fef3c7', text: '#d97706', label: 'MEDIUM' },
+    low: { bg: '#dbeafe', text: '#2563eb', label: 'LOW' },
   };
 
-  // Title
-  doc.setFontSize(18);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(26, 34, 52);
-  doc.text(`${project.name} \u2014 Edits Needed`, margin, y);
-  y += 8;
-
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(100, 100, 100);
-  const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-  doc.text(`Generated: ${dateStr} | Filter: ${filter} | ${sorted.length} item(s)`, margin, y);
-  y += 6;
-
-  doc.setDrawColor(200, 200, 200);
-  doc.setLineWidth(0.3);
-  doc.line(margin, y, pageW - margin, y);
-  y += 6;
-
-  const priorityColor = { high: [220, 38, 38], medium: [217, 119, 6], low: [37, 99, 235] };
-
-  for (let i = 0; i < sorted.length; i++) {
-    const e = sorted[i];
+  const rowsHtml = sorted.map((e, i) => {
     const images = e.images || [];
-
-    // Estimate block height to check for page break (text only portion)
-    addPageIfNeeded(30);
-
-    // Alternating row background
-    if (i % 2 === 0) {
-      doc.setFillColor(248, 249, 250);
-      doc.rect(margin, y - 2, contentW, 24, 'F');
-    }
-
-    // Row number
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(160, 160, 160);
-    doc.text(`#${i + 1}`, margin + 1, y + 4);
-
-    // Item name (bold)
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(26, 34, 52);
-    const itemLines = doc.splitTextToSize(e.item || '', 95);
-    doc.text(itemLines, margin + 10, y + 4);
-
-    // Priority label
-    const [pr, pg, pb] = priorityColor[e.priority] || [100, 100, 100];
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(pr, pg, pb);
-    doc.text((e.priority || '').toUpperCase(), margin + 120, y + 4);
-
-    // Cost
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    if (e.amount > 0) {
-      doc.setTextColor(180, 83, 9);
-      doc.text(`$${e.amount.toFixed(2)}`, margin + 148, y + 4);
-    } else {
-      doc.setTextColor(160, 160, 160);
-      doc.text('\u2014', margin + 148, y + 4);
-    }
-
-    y += Math.max(itemLines.length * 5, 7);
-
-    // Page / Location / Date
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(80, 80, 80);
-    doc.text(`Page: ${e.page || '\u2014'}  |  Location: ${e.location || '\u2014'}`, margin + 10, y + 1);
-    if (e.createdAt) {
-      doc.setTextColor(140, 140, 140);
-      doc.text(formatDate(e.createdAt), margin + 148, y + 1);
-    }
-    y += 6;
-
-    // Sent to Dev / Status
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 100, 100);
+    const pc = priorityColors[e.priority] || { bg: '#f3f4f6', text: '#6b7280', label: (e.priority || '').toUpperCase() };
     const sentText = e.sentToDev
       ? `Sent to Dev: Yes${e.sentToDevAt ? ' (' + formatDate(e.sentToDevAt) + ')' : ''}`
       : 'Sent to Dev: No';
-    doc.text(`${sentText}  |  Status: ${e.completed ? 'Done' : 'Open'}`, margin + 10, y + 1);
-    y += 6;
 
-    // Notes
-    if (e.notes) {
-      const noteLines = doc.splitTextToSize(`Note: ${e.notes}`, contentW - 10);
-      addPageIfNeeded(noteLines.length * 4.5 + 3);
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'italic');
-      doc.setTextColor(80, 80, 80);
-      doc.text(noteLines, margin + 10, y + 1);
-      y += noteLines.length * 4.5 + 3;
+    const imagesHtml = images.map((img) => {
+      const rawUrl = typeof img === 'string' ? img : img.downloadUrl;
+      if (!rawUrl) return '';
+      const url = rawUrl.includes('alt=media') ? rawUrl : (rawUrl.includes('?') ? rawUrl + '&alt=media' : rawUrl + '?alt=media');
+      return `<img src="${url}" style="max-width:100%;margin:8px 0;display:block;border-radius:6px;border:1px solid #e5e7eb;" />`;
+    }).join('');
+
+    return `
+      <div style="background:${i % 2 === 0 ? '#f8f9fa' : '#ffffff'};border-radius:8px;padding:14px 16px;margin-bottom:10px;border:1px solid #e5e7eb;page-break-inside:avoid;">
+        <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:6px;">
+          <span style="color:#9ca3af;font-size:12px;min-width:24px;margin-top:2px;">#${i + 1}</span>
+          <div style="flex:1;">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <span style="font-weight:700;font-size:14px;color:#1a2234;">${e.item || ''}</span>
+              <span style="background:${pc.bg};color:${pc.text};font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;">${pc.label}</span>
+              ${e.amount > 0 ? `<span style="color:#b45309;font-weight:700;font-size:13px;">$${e.amount.toFixed(2)}</span>` : ''}
+            </div>
+            <div style="color:#6b7280;font-size:12px;margin-top:4px;">
+              Page: ${e.page || '—'} &nbsp;|&nbsp; Location: ${e.location || '—'}
+              ${e.createdAt ? `&nbsp;|&nbsp; ${formatDate(e.createdAt)}` : ''}
+            </div>
+            <div style="color:#6b7280;font-size:11px;margin-top:3px;">
+              ${sentText} &nbsp;|&nbsp; Status: ${e.completed ? 'Done' : 'Open'}
+            </div>
+            ${e.notes ? `<div style="color:#4b5563;font-size:12px;font-style:italic;margin-top:6px;padding:8px;background:#f0f4ff;border-radius:4px;">Note: ${e.notes}</div>` : ''}
+            ${imagesHtml ? `<div style="margin-top:10px;">${imagesHtml}</div>` : ''}
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  const totalFooter = totalCost > 0
+    ? `<div style="background:#fef9c3;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;margin-top:16px;">
+        <span style="font-weight:700;font-size:15px;color:#b45309;">Total Outstanding Dev Costs: $${totalCost.toFixed(2)}</span>
+       </div>`
+    : '';
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${project.name} — Edits Needed</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #fff; color: #1a2234; padding: 32px; }
+    @media print {
+      body { padding: 16px; }
+      @page { margin: 16mm; }
     }
+  </style>
+</head>
+<body>
+  <div style="margin-bottom:6px;">
+    <span style="font-size:11px;font-weight:700;color:#6b7280;letter-spacing:0.08em;text-transform:uppercase;">DAL Mission Control</span>
+  </div>
+  <h1 style="font-size:22px;font-weight:800;color:#1a2234;margin-bottom:6px;">${project.name} — Edits Needed</h1>
+  <p style="font-size:12px;color:#6b7280;margin-bottom:16px;">Generated: ${dateStr} &nbsp;|&nbsp; Filter: ${filter} &nbsp;|&nbsp; ${sorted.length} item(s)</p>
+  <hr style="border:none;border-top:1px solid #e5e7eb;margin-bottom:20px;" />
+  ${rowsHtml}
+  ${totalFooter}
+</body>
+</html>`;
 
-    // Images
-    for (let n = 0; n < images.length; n++) {
-      const img = images[n];
-      const url = typeof img === 'string' ? img : img.downloadUrl;
-      if (!url) continue;
-
-      addPageIfNeeded(12);
-
-      // Screenshot label
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(80, 80, 80);
-      doc.text(`Screenshot ${n + 1}:`, margin + 10, y + 1);
-      y += 6;
-
-      try {
-        const imgUrl = url.includes('alt=media') ? url : (url.includes('?') ? url + '&alt=media' : url + '?alt=media');
-
-        const imgEl = new Image();
-        imgEl.crossOrigin = 'anonymous';
-        imgEl.src = imgUrl;
-        await new Promise((resolve, reject) => { imgEl.onload = resolve; imgEl.onerror = reject; });
-
-        const canvas = document.createElement('canvas');
-        canvas.width = imgEl.naturalWidth;
-        canvas.height = imgEl.naturalHeight;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(imgEl, 0, 0);
-        const base64 = canvas.toDataURL('image/jpeg');
-
-        const imgProps = doc.getImageProperties(base64);
-        const pdfWidth = doc.internal.pageSize.getWidth() - 30;
-        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-
-        if (y + pdfHeight > doc.internal.pageSize.getHeight() - 20) {
-          doc.addPage();
-          y = 20;
-        }
-
-        doc.addImage(base64, 'JPEG', 15, y, pdfWidth, pdfHeight);
-        y += pdfHeight + 5;
-      } catch {
-        // image load or canvas render failed — skip silently
-      }
-    }
-
-    // Divider
-    doc.setDrawColor(220, 220, 220);
-    doc.setLineWidth(0.2);
-    doc.line(margin, y + 1, pageW - margin, y + 1);
-    y += 6;
-  }
-
-  // Total cost footer
-  if (totalCost > 0) {
-    addPageIfNeeded(16);
-    doc.setFillColor(254, 249, 195);
-    doc.rect(margin, y, contentW, 12, 'F');
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(180, 83, 9);
-    doc.text(`Total Outstanding Dev Costs: $${totalCost.toFixed(2)}`, margin + 4, y + 8);
-  }
-
-  doc.save(`${project.name.replace(/[^a-z0-9]/gi, '_')}_edits.pdf`);
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) return;
+  printWindow.document.write(html);
+  printWindow.document.close();
+  printWindow.onload = () => {
+    printWindow.focus();
+    printWindow.print();
+  };
 }
 
 function getFilteredEdits(edits, filter) {
