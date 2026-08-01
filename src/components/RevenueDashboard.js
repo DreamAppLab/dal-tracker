@@ -46,6 +46,16 @@ function todayISO() {
   return new Date().toISOString().split('T')[0];
 }
 
+function currentYearStartISO() {
+  return `${new Date().getFullYear()}-01-01`;
+}
+
+function formatDateLabel(iso) {
+  const [y, m, d] = iso.split('-');
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${months[parseInt(m, 10) - 1]} ${parseInt(d, 10)}, ${y}`;
+}
+
 function getDefaultLayout(revenueEntries) {
   return {
     order: revenueEntries.map(a => a.appId),
@@ -471,6 +481,20 @@ export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
   const [selectedAppId, setSelectedAppId] = useState(null);
   const autoSyncStarted = useRef(false);
 
+  const [filterFrom, setFilterFrom] = useState(currentYearStartISO());
+  const [filterTo, setFilterTo] = useState(todayISO());
+  const [isAllTime, setIsAllTime] = useState(false);
+
+  const filteredManualSalesByApp = useMemo(() => {
+    if (isAllTime) return manualSalesByApp;
+    return Object.fromEntries(
+      Object.entries(manualSalesByApp).map(([appId, sales]) => [
+        appId,
+        (sales || []).filter(s => s.date && s.date >= filterFrom && s.date <= filterTo),
+      ])
+    );
+  }, [manualSalesByApp, filterFrom, filterTo, isAllTime]);
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
@@ -574,7 +598,7 @@ export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
 
   const totalRevenue = revenueEntries.reduce((sum, a) => {
     const d = revenueData[a.appId] || {};
-    const manual = sumManualSales(manualSalesByApp[a.appId]);
+    const manual = sumManualSales(filteredManualSalesByApp[a.appId]);
     return sum + getCombinedTotalRevenue(d, manual);
   }, 0);
 
@@ -669,6 +693,40 @@ export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
         </div>
       </div>
 
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16, padding: '12px 16px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label style={{ color: 'var(--text-secondary)', fontSize: 13 }}>From</label>
+          <input
+            type="date"
+            className="form-input"
+            value={filterFrom}
+            onChange={e => { setFilterFrom(e.target.value); setIsAllTime(false); }}
+            style={{ fontSize: 13, padding: '6px 10px' }}
+          />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label style={{ color: 'var(--text-secondary)', fontSize: 13 }}>To</label>
+          <input
+            type="date"
+            className="form-input"
+            value={filterTo}
+            onChange={e => { setFilterTo(e.target.value); setIsAllTime(false); }}
+            style={{ fontSize: 13, padding: '6px 10px' }}
+          />
+        </div>
+        <button
+          type="button"
+          className={`btn ${isAllTime ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setIsAllTime(true)}
+          style={{ fontSize: 13 }}
+        >
+          All Time
+        </button>
+        <span style={{ color: 'var(--text-muted)', fontSize: 13, marginLeft: 4 }}>
+          Showing: {isAllTime ? 'All Time' : `${formatDateLabel(filterFrom)} — ${formatDateLabel(filterTo)}`}
+        </span>
+      </div>
+
       <div className="revenue-total-banner">
         <div className="revenue-total-label">Total Revenue — All Apps & Websites</div>
         <div className="revenue-total-value">{formatMoney(totalRevenue)}</div>
@@ -684,7 +742,7 @@ export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
             {displayApps.map(app => {
               const d = revenueData[app.appId] || {};
               const syncError = appErrors[app.appId];
-              const manualTotal = sumManualSales(manualSalesByApp[app.appId]);
+              const manualTotal = sumManualSales(filteredManualSalesByApp[app.appId]);
               return (
                 <SortableRevenueCard
                   key={app.appId}

@@ -9,6 +9,7 @@ import RevenueDashboard from './components/RevenueDashboard';
 import CalendarDashboard from './components/CalendarDashboard';
 import TodoDashboard from './components/TodoDashboard';
 import ReviewRequestsDashboard from './components/ReviewRequestsDashboard';
+import DALHeadquarters from './components/DALHeadquarters';
 import ProjectDetail from './components/ProjectDetail';
 import Sidebar from './components/Sidebar';
 import AddProjectModal from './components/AddProjectModal';
@@ -176,6 +177,7 @@ function DashboardApp() {
         {activeView === 'review-requests' && (
           <ReviewRequestsDashboard projects={projects} />
         )}
+        {activeView === 'hq' && <DALHeadquarters />}
         {activeView === 'project' && currentProject && (
           <ProjectDetail
             project={currentProject}
