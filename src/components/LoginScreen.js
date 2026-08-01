@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
+import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 
 export default function LoginScreen() {
   const { login } = useAuth();
@@ -93,6 +94,15 @@ export default function LoginScreen() {
               {submitting ? 'Signing in…' : 'Sign In'}
             </button>
           </form>
+          <button
+            className="login-btn"
+            onClick={() => {
+              const provider = new GoogleAuthProvider();
+              signInWithPopup(auth, provider).then(() => window.location.reload());
+            }}
+          >
+            Sign in with Google
+          </button>
         </div>
       </div>
     </div>
