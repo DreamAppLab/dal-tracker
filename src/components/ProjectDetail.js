@@ -72,7 +72,7 @@ function generateEditsPDF(project, filter) {
       const rawUrl = typeof img === 'string' ? img : img.downloadUrl;
       if (!rawUrl) return '';
       const url = rawUrl.includes('alt=media') ? rawUrl : (rawUrl.includes('?') ? rawUrl + '&alt=media' : rawUrl + '?alt=media');
-      return `<img src="${url}" style="max-width:100%;margin:8px 0;display:block;border-radius:6px;border:1px solid #e5e7eb;" />`;
+      return `<img src="${url}" style="max-width:280px;max-height:500px;width:auto;height:auto;object-fit:contain;margin:4px 8px 4px 0;display:inline-block;vertical-align:top;border-radius:6px;border:1px solid #e5e7eb;" />`;
     }).join('');
 
     return `
@@ -116,6 +116,7 @@ function generateEditsPDF(project, filter) {
     @media print {
       body { padding: 16px; }
       @page { margin: 16mm; }
+      img { max-width: 280px !important; max-height: 500px !important; }
     }
   </style>
 </head>
