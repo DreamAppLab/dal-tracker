@@ -134,6 +134,82 @@ const SEED = {
     },
   },
 
+  ed1785710747979: {
+    enabledServices: [
+      'app_store_connect', 'expo_eas', 'firebase', 'google_oauth',
+      'revenuecat', 'mailgun', 'brevo', 'twilio', 'github', 'legal', 'google_cloud_ai',
+    ],
+    services: {
+      app_store_connect: {
+        'App ID': '6797315166',
+        'Bundle ID': 'com.dreamapplab.familythread',
+        'Apple Team ID': 'CAT6U7K4K5',
+        'Account': 'DAL org (CAT6U7K4K5) — lab@dreamapplab.com',
+        'Distribution Cert ID': '72C6BDC7C73D54B3C149C1AEDD2E9D69',
+        'Cert Expiry': 'July 2027',
+        'ASC API Key ID': 'CW6SNUM9L2',
+        'Issuer ID': '1f65c000-4aff-4152-a635-65121626d216',
+        'p8 Key File Location': 'C:\\dev\\keys\\AuthKey_CW6SNUM9L2.p8',
+      },
+      expo_eas: {
+        'EAS Project ID': 'd0da4178-3d09-4149-8db3-30f7f96b40a2',
+        'EAS Project Slug': 'familythread',
+        'Expo Account': 'dreamapplab',
+        'Branch': 'main',
+      },
+      firebase: {
+        'Project ID': 'familythread-prod',
+        'Auth Domain': 'familythread-prod.firebaseapp.com',
+        'Storage Bucket': 'familythread-prod.appspot.com',
+        'App Check Status': 'not started — required before public launch',
+        'PITR Enabled': 'yes',
+        'Scheduled Backups': 'yes',
+      },
+      google_oauth: {
+        'Web Client ID': '405396466649-k7s0eq40galb058rlk4hbvt2etm43j4k.apps.googleusercontent.com',
+      },
+      revenuecat: {
+        'iOS API Key': 'appl_FVBzJZnrqoDNuKatMuwnAstjjGB',
+        'V2 Secret API Key': 'stored as REACT_APP_REVENUECAT_SECRET_FAMILYTHREAD in Vercel',
+        'Entitlement IDs': 'thread_access, tapestry_access',
+      },
+      mailgun: {
+        'Sending Domain': 'dreamapplab.com',
+        'Inbound Domain': 'inbound.dreamapplab.com',
+        'Region': 'US',
+        'MX Records Verified': 'yes',
+        'DKIM Verified': 'yes',
+      },
+      brevo: {
+        'Migration Status': 'in progress — migrating outbound to Mailgun',
+        'Sender Email': 'lab@dreamapplab.com',
+      },
+      twilio: {
+        'Toll-Free Number': '+18447136818',
+        'A2P Registration Status': 'pending carrier approval',
+      },
+      github: {
+        'Repo Name': 'familythread',
+        'Org': 'DreamAppLab',
+        'Default Branch': 'main',
+        'Repo URL': 'https://github.com/DreamAppLab/familythread',
+      },
+      legal: {
+        'Attorney': 'Allen',
+        'Legal Version String': '2026-07-29',
+        'App Check Status': 'not started — required before public launch',
+      },
+      google_cloud_ai: {
+        'Google Cloud Project ID': 'familythread-prod',
+        'Gemini Model In Use': 'gemini-2.5-flash-lite — prompt generation only',
+        'Billing Enabled': 'no — PENDING: enable paid tier to resolve data training concern',
+        'Monthly Budget Alert Set': 'no — PENDING',
+        'Google Cloud Translation': 'enabled — translates lore entries once at write time',
+        'Translation Billing': 'per-character, billed separately from Gemini',
+      },
+    },
+  },
+
   familylens: {
     enabledServices: [
       'app_store_connect', 'expo_eas', 'firebase', 'google_oauth',
