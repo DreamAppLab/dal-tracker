@@ -10,8 +10,8 @@
   --border: rgba(255,255,255,0.07);
   --border-active: rgba(255,255,255,0.15);
 
-  --teal: #00D4B8;
-  --teal-dim: rgba(0,212,184,0.15);
+  --teal: #4cc1f3;
+  --teal-dim: rgba(76,193,243,0.15);
   --teal-glow: 0 0 20px rgba(0,212,184,0.25);
   --amber: #F59E0B;
   --amber-dim: rgba(245,158,11,0.15);
@@ -25,7 +25,7 @@
   --text-primary: #F1F5F9;
   --text-secondary: #94A3B8;
   --text-muted: #4B5563;
-  --text-accent: #00D4B8;
+  --text-accent: #4cc1f3;
 
   --font-display: 'Space Grotesk', sans-serif;
   --font-body: 'Inter', sans-serif;
@@ -620,7 +620,7 @@ body.login-page-active {
   color: var(--bg-base);
   border-color: var(--teal);
 }
-.btn-primary:hover { background: #00bba3; box-shadow: var(--teal-glow); }
+.btn-primary:hover { background: #3aaedf; box-shadow: var(--teal-glow); }
 .btn-secondary {
   background: var(--bg-card);
   color: var(--text-secondary);
