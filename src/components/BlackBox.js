@@ -132,6 +132,7 @@ function ServiceCard({
                 value={fields[f.fieldName] ?? ''}
                 placeholder={f.fieldDescription}
                 onChange={(e) => onFieldChange(f.fieldName, e.target.value)}
+                onBlur={onSave}
               />
             </div>
           ))}
@@ -154,6 +155,7 @@ function ServiceCard({
                 value={cf.value ?? ''}
                 placeholder={cf.fieldDescription || ''}
                 onChange={(e) => onFieldChange(`__custom__:${idx}`, e.target.value, true)}
+                onBlur={onSave}
               />
             </div>
           ))}
@@ -229,6 +231,7 @@ function ServiceCard({
               value={notes}
               placeholder="Additional notes for this service..."
               onChange={(e) => onNotesChange(e.target.value)}
+              onBlur={onSave}
             />
           </div>
 
