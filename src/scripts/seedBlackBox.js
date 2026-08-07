@@ -10,6 +10,7 @@ import {
 /** Map app IDs used in Mission Control to Black Box Firestore project paths. */
 export const BLACKBOX_PROJECT_ID_MAP = {
   familywatch: 'familylens',
+  familythread: 'ed1785710747979',
 };
 
 export function resolveBlackBoxProjectId(projectId) {
