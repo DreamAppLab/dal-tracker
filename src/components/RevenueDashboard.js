@@ -634,11 +634,11 @@ export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
     });
   }, []);
 
-  if (loading || refreshing) {
+  if (loading) {
     return (
       <div className="page" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 300 }}>
         <span style={{ color: 'var(--text-muted)' }}>
-          {refreshing ? 'Syncing from RevenueCat...' : 'Loading revenue data...'}
+          Loading revenue data...
         </span>
       </div>
     );
@@ -684,11 +684,22 @@ export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
         <div className="page-actions">
           <button
             type="button"
-            className={`btn ${refreshing ? 'btn-disabled' : 'btn-secondary'}`}
             onClick={handleRefresh}
             disabled={refreshing}
+            style={{
+              background: 'transparent',
+              border: '1px solid #4cc1f3',
+              color: '#4cc1f3',
+              borderRadius: 8,
+              padding: '6px 14px',
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: refreshing ? 'wait' : 'pointer',
+              opacity: refreshing ? 0.7 : 1,
+              fontFamily: 'inherit',
+            }}
           >
-            ↻ Refresh from RevenueCat
+            {refreshing ? '↻ Refreshing...' : '↻ Refresh'}
           </button>
         </div>
       </div>
