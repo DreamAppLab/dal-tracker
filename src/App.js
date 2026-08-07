@@ -166,7 +166,7 @@ function DashboardApp() {
           />
         )}
         {activeView === 'subscriptions' && (
-          <SubscriptionsDashboard />
+          <SubscriptionsDashboard projects={projects} />
         )}
         {activeView === 'calendar' && (
           <CalendarDashboard />
