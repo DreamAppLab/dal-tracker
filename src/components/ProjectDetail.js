@@ -10,7 +10,7 @@ import TechStackModal from './TechStackModal';
 import PaymentModal from './PaymentModal';
 import AppChecklist from './AppChecklist';
 import AppLogo from './AppLogo';
-import ProjectVault from '../ProjectVault';
+import BlackBox from './BlackBox';
 
 function getProgress(project) {
   const allTasks = [...(project.milestones || []), ...(project.edits || [])];
@@ -820,7 +820,7 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
       )}
 
       {activeTab === 'vault' && (
-        <ProjectVault project={project} onUpdate={onUpdate} />
+        <BlackBox project={project} />
       )}
 
       {showMilestoneModal && <MilestoneModal milestone={editingItem} onSave={handleSaveMilestone} onClose={() => { setShowMilestoneModal(false); setEditingItem(null); }} />}
