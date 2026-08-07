@@ -35,13 +35,20 @@ export function isSubscriptionSuspended(subscription) {
 export function getMonthlyCost(subscription) {
   if (isSubscriptionSuspended(subscription)) return 0;
   if (!subscription.amount) return 0;
-  return subscription.period === 'yearly' ? subscription.amount / 12 : subscription.amount;
+  if (subscription.period === 'one-time') return 0;
+  if (subscription.period === 'yearly' || subscription.period === 'annual') {
+    return subscription.amount / 12;
+  }
+  return subscription.amount;
 }
 
 export function formatSubscriptionCost(subscription) {
   if (!subscription.amount) return 'free';
-  const suffix = subscription.period === 'yearly' ? '/yr' : '/mo';
-  return `$${subscription.amount}${suffix}`;
+  if (subscription.period === 'one-time') return `$${subscription.amount} one-time`;
+  if (subscription.period === 'yearly' || subscription.period === 'annual') {
+    return `$${subscription.amount}/yr`;
+  }
+  return `$${subscription.amount}/mo`;
 }
 
 export function getCheckedApps(allocations, subscriptionId, apps) {
