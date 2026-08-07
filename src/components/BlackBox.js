@@ -253,7 +253,7 @@ function ServiceCard({
 export default function BlackBox({ project }) {
   const PROJECT_ID_MAP = {
     familywatch: 'familylens',
-    familythread: 'ed1785710747979',
+    familythread: 'familythread-1785694508315',
   };
   const rawId = project?.id || '';
   const projectId = PROJECT_ID_MAP[rawId] || rawId;
