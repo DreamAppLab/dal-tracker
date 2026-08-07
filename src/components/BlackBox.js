@@ -257,6 +257,7 @@ export default function BlackBox({ project }) {
   };
   const rawId = project?.id || '';
   const projectId = PROJECT_ID_MAP[rawId] || rawId;
+  console.log('BlackBox projectId:', rawId, '->', projectId);
 
   const [loading, setLoading] = useState(true);
   const [allServices, setAllServices] = useState(BLACK_BOX_SERVICES);
