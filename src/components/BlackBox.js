@@ -251,7 +251,12 @@ function ServiceCard({
 }
 
 export default function BlackBox({ project }) {
-  const projectId = resolveBlackBoxProjectId(project?.id);
+  const PROJECT_ID_MAP = {
+    familywatch: 'familylens',
+    familythread: 'ed1785710747979',
+  };
+  const rawId = project?.id || '';
+  const projectId = PROJECT_ID_MAP[rawId] || rawId;
 
   const [loading, setLoading] = useState(true);
   const [allServices, setAllServices] = useState(BLACK_BOX_SERVICES);
