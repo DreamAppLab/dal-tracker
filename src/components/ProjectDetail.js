@@ -184,7 +184,7 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
 
   const isApp = isAppProject(project);
   const TABS = isApp
-    ? [...BASE_TABS, { key: 'checklist', label: '📋 Pub Checklist' }]
+    ? [...BASE_TABS, { key: 'checklist', label: 'Checklists' }]
     : BASE_TABS;
   const prog = getProgress(project);
   const monthlyExp = getMonthlyExpenses(project);

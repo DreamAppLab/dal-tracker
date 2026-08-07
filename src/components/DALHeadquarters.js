@@ -1,9 +1,39 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { db } from '../firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
+import {
+  ChecklistFilterBar,
+  ChecklistProgress,
+  ChecklistItemRow,
+} from './AppChecklist';
 
 const COLLECTION = 'blackbox';
 const DOCUMENT = 'dal_wide';
+
+const DAL_OPS_ITEMS = [
+  { key: 'brevo_mailgun', label: 'Migrate Brevo → Mailgun', description: 'dal-site (3 intake forms), Mission Control login notification, Shady Duck Cloud Functions' },
+  { key: 'google_consolidation', label: 'Consolidate Google/Firebase accounts', description: 'Move all projects from eddieskehan@gmail.com to lab@dreamapplab.com. Order: FamilyThread → Shady Duck → dal-mission-control → dal-website → FamilyLens → Flarepad → Logabode' },
+  { key: 'budget_alerts', label: 'Set $10 budget alerts on all Google Cloud projects', description: 'familywatch-8b302, the-shady-duck, dal-mission-control, dal-website-c9dd8 — follow same steps as FamilyThread' },
+  { key: 'twilio_approval', label: 'Twilio toll-free approval', description: 'Toll-free +18447136818 pending A2P carrier approval. Once approved: update TWILIO_PHONE_NUMBER secret in Shady Duck and FamilyThread Cloud Functions, redeploy, test SMS.' },
+  { key: 'android_builds', label: 'Android builds — all iOS apps first', description: 'Hold Android builds until iOS versions are at or near App Store submission for each app' },
+  { key: 'aso_dev_google_play', label: 'ASO.dev Google Play integration', description: 'Requires service account setup in Google Play Console' },
+  { key: 'revenuecat_dev_apps', label: 'RevenueCat for developer apps', description: 'MyClassLog, Ten Miles Ahead, RV Vault — blocked on developer providing bundle IDs' },
+  { key: 'dal_website_blog', label: 'DAL website blog admin page', description: 'Build /admin/blog.html with Quill editor, Firestore posts collection, MassBlogger webhook at /api/receive-post' },
+  { key: 'mission_control_subscriptions', label: 'Mission Control Subscriptions tab', description: 'Add/edit/delete UI for Subscriptions tab' },
+  { key: 'mission_control_revenue', label: 'Mission Control revenue net sales', description: 'Add net sales calculation showing post-store-cut revenue (Apple 15-30%, Google 15-30%)' },
+  { key: 'mission_control_mobile', label: 'Mission Control mobile revenue refresh', description: 'Add pull-to-refresh or visible refresh button on Revenue tab for mobile browsers' },
+  { key: 'bugbot', label: 'Enable Cursor Bugbot', description: 'When enabled on DreamAppLab GitHub org, save GitHub App installation details to Black Box in Mission Control' },
+];
+
+function isOpsDone(items, key) {
+  return !!(items?.[key]?.completed);
+}
+
+function filterOpsItems(list, items, filter) {
+  if (filter === 'open') return list.filter((i) => !isOpsDone(items, i.key));
+  if (filter === 'completed') return list.filter((i) => isOpsDone(items, i.key));
+  return list;
+}
 
 const DEFAULTS = {
   teamId: 'CAT6U7K4K5',
@@ -307,6 +337,122 @@ export default function DALHeadquarters() {
           style={{ resize: 'vertical', fontFamily: 'inherit', width: '100%' }}
         />
       </div>
+
+      <DalOpsChecklist />
+    </div>
+  );
+}
+
+function DalOpsChecklist() {
+  const [filter, setFilter] = useState('all');
+  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState({});
+  const [toggling, setToggling] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const snap = await getDoc(doc(db, 'blackbox', 'dal_wide_checklist'));
+      setItems(snap.exists() ? snap.data().items || {} : {});
+    } catch (err) {
+      console.error('DAL Ops checklist load failed:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const toggleItem = async (itemKey) => {
+    if (toggling) return;
+    const prev = items[itemKey] || {};
+    const nextCompleted = !prev.completed;
+    const nextState = {
+      completed: nextCompleted,
+      completedAt: nextCompleted ? Timestamp.now() : null,
+    };
+
+    setToggling(itemKey);
+    setItems((curr) => ({ ...curr, [itemKey]: nextState }));
+
+    try {
+      const ref = doc(db, 'blackbox', 'dal_wide_checklist');
+      const snap = await getDoc(ref);
+      const existing = snap.exists() ? (snap.data().items || {}) : {};
+      await setDoc(ref, { items: { ...existing, [itemKey]: nextState } }, { merge: true });
+    } catch (err) {
+      console.error('DAL Ops checklist save failed:', err);
+      setItems((curr) => ({ ...curr, [itemKey]: prev }));
+    } finally {
+      setToggling(null);
+    }
+  };
+
+  const visible = filterOpsItems(DAL_OPS_ITEMS, items, filter);
+  const done = DAL_OPS_ITEMS.filter((i) => isOpsDone(items, i.key)).length;
+
+  return (
+    <div className="data-section">
+      <div
+        style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 16,
+          fontWeight: 700,
+          color: 'var(--text-primary)',
+          marginBottom: 2,
+        }}
+      >
+        🗂 DAL Ops Checklist
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
+        Organisation-wide ops — saved to Firestore, shared across devices
+      </div>
+
+      <ChecklistFilterBar filter={filter} onChange={setFilter} />
+
+      {loading ? (
+        <div style={{ color: 'var(--text-muted)', fontSize: 13, padding: '1.5rem 0' }}>
+          Loading checklist…
+        </div>
+      ) : (
+        <>
+          <ChecklistProgress done={done} total={DAL_OPS_ITEMS.length} />
+          {visible.length === 0 ? (
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '1.5rem 1rem',
+                color: 'var(--text-muted)',
+                fontSize: 13,
+                border: '1px dashed var(--border)',
+                borderRadius: 12,
+              }}
+            >
+              No checklist items match this filter
+            </div>
+          ) : (
+            <div
+              style={{
+                border: '1px solid var(--border)',
+                borderRadius: 10,
+                overflow: 'hidden',
+                background: 'var(--bg-card)',
+              }}
+            >
+              {visible.map((item) => (
+                <ChecklistItemRow
+                  key={item.key}
+                  item={item}
+                  state={items[item.key]}
+                  onToggle={() => toggleItem(item.key)}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
