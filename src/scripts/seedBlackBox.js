@@ -11,7 +11,7 @@ import {
 export const BLACKBOX_PROJECT_ID_MAP = {
   familywatch: 'familylens',
   familythread: 'familythread-1785694508315',
-  
+  'the-shady-duck': 'the-shady-duck-1786096352922',
 };
 
 export function resolveBlackBoxProjectId(projectId) {
@@ -354,6 +354,53 @@ const SEED = {
       legal: {
         'Attorney': 'Allen',
         'App Check Status': 'not started — required before public launch',
+      },
+    },
+  },
+
+  'the-shady-duck-1786096352922': {
+    enabledServices: [
+      'firebase', 'github', 'vercel', 'domain',
+      'mailgun', 'twilio', 'legal',
+    ],
+    services: {
+      firebase: {
+        'Project ID': 'the-shady-duck',
+        'App Check Status': 'not started — required before public launch',
+        'PITR Enabled': 'no — PENDING security checklist step 1',
+        'Scheduled Backups': 'no — PENDING security checklist step 1',
+      },
+      github: {
+        'Repo Name': 'theshadyduck-site',
+        'Org': 'DreamAppLab',
+        'Default Branch': 'main',
+        'Repo URL': 'https://github.com/DreamAppLab/theshadyduck-site',
+      },
+      vercel: {
+        'Production URL': 'https://theshadyduck.com',
+        'Team': 'dream-app-lab',
+        'Branch': 'main',
+      },
+      domain: {
+        'Primary Domain': 'theshadyduck.com',
+        'Universal Links Domain': 'theshadyduck.com',
+      },
+      mailgun: {
+        'Sending Domain': 'inbound.dreamapplab.com',
+        'Inbound Domain': 'inbound.dreamapplab.com',
+        'Region': 'US',
+        'MX Records Verified': 'yes',
+        'DKIM Verified': 'yes',
+        'Private API Key Env Var': 'MAILGUN_API_KEY',
+      },
+      twilio: {
+        'Toll-Free Number': '+18447136818',
+        'A2P Registration Status': 'pending carrier approval',
+      },
+      legal: {
+        'Privacy Policy URL': 'https://theshadyduck.com/privacy-policy',
+        'Terms of Service URL': 'https://theshadyduck.com/terms-of-service',
+        'Attorney': 'Allen',
       },
     },
   },
