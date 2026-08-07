@@ -37,6 +37,8 @@ import AppLogo from './AppLogo';
 const LAYOUT_DOC_ID = 'layout';
 const DEFAULT_CARD_WIDTH = 300;
 const DEFAULT_CARD_HEIGHT = 200;
+const STORE_FEE_RATE = 0.15;
+const NET_KEEP_RATE = 0.85;
 
 function formatMoney(amount) {
   return `$${(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -602,6 +604,29 @@ export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
     return sum + getCombinedTotalRevenue(d, manual);
   }, 0);
 
+  const netSalesRows = displayApps
+    .map((app) => {
+      const d = revenueData[app.appId] || {};
+      const gross = Number(d.totalRevenue) || 0;
+      return {
+        app,
+        data: d,
+        gross,
+        storeFee: gross * STORE_FEE_RATE,
+        net: gross * NET_KEEP_RATE,
+      };
+    })
+    .filter((row) => row.gross > 0);
+
+  const netSalesTotals = netSalesRows.reduce(
+    (acc, row) => ({
+      gross: acc.gross + row.gross,
+      fees: acc.fees + row.storeFee,
+      net: acc.net + row.net,
+    }),
+    { gross: 0, fees: 0, net: 0 }
+  );
+
   const handleSave = async (appId, updated) => {
     await setDoc(doc(db, 'revenue', appId), updated, { merge: true });
     setRevenueData(prev => ({ ...prev, [appId]: updated }));
@@ -770,6 +795,165 @@ export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
           </SortableContext>
         </DndContext>
       </div>
+
+      {netSalesRows.length > 0 && (
+        <div className="data-section" style={{ marginTop: 32 }}>
+          <div
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 18,
+              fontWeight: 700,
+              color: 'var(--text-primary)',
+              marginBottom: 4,
+            }}
+          >
+            Net Sales (After Store Fees)
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 18 }}>
+            Estimated take-home after Apple (15%) and Google (15%) platform fees
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {netSalesRows.map(({ app, data, gross, storeFee, net }) => (
+              <div
+                key={app.appId}
+                style={{
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 12,
+                  padding: '14px 16px',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    marginBottom: 12,
+                  }}
+                >
+                  <AppLogo
+                    logoUrl={data.logoUrl}
+                    fallback={app.logo}
+                    color={app.color}
+                    size={36}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontWeight: 650,
+                        fontSize: 14,
+                        color: 'var(--text-primary)',
+                      }}
+                    >
+                      {app.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                      Apple 15% · Google 15% · Small Business Program
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                    gap: 12,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+                      Gross Revenue
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {formatMoney(gross)}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+                      Store Fee (15%)
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                      {formatMoney(storeFee)}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+                      Net Revenue
+                    </div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: '#4cc1f3' }}>
+                      {formatMoney(net)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div
+            style={{
+              marginTop: 16,
+              padding: '18px 20px',
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border-active, var(--border))',
+              borderRadius: 12,
+            }}
+          >
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                gap: 16,
+                alignItems: 'end',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+                  Total Gross Revenue
+                </div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>
+                  {formatMoney(netSalesTotals.gross)}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+                  Total Store Fees
+                </div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                  {formatMoney(netSalesTotals.fees)}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+                  Estimated total take-home this period
+                </div>
+                <div
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: 22,
+                    fontWeight: 700,
+                    color: '#4cc1f3',
+                  }}
+                >
+                  {formatMoney(netSalesTotals.net)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <p
+            style={{
+              marginTop: 12,
+              fontSize: 11,
+              color: 'var(--text-muted)',
+              lineHeight: 1.45,
+            }}
+          >
+            Estimates based on 15% store fee. Actual fees may vary by transaction type and
+            territory.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
