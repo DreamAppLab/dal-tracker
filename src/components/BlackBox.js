@@ -198,6 +198,7 @@ function ServiceCard({
                 <button
                   type="button"
                   className="btn btn-primary btn-sm"
+                  style={{ background: '#4F8EF7', borderColor: '#4F8EF7', color: '#fff' }}
                   disabled={!newFieldDraft.fieldName.trim()}
                   onClick={onConfirmAddField}
                 >
@@ -235,13 +236,14 @@ function ServiceCard({
             <button
               type="button"
               className="btn btn-primary btn-sm"
+              style={{ background: '#4F8EF7', borderColor: '#4F8EF7', color: '#fff' }}
               disabled={saving}
               onClick={onSave}
             >
               {saving ? 'Saving…' : 'Save'}
             </button>
             {saved && (
-              <span style={{ color: 'var(--green)', fontSize: 13, fontWeight: 600 }}>✓ Saved</span>
+              <span style={{ color: '#4F8EF7', fontSize: 13, fontWeight: 600 }}>✓ Saved</span>
             )}
           </div>
         </div>
@@ -257,7 +259,6 @@ export default function BlackBox({ project }) {
   };
   const rawId = project?.id || '';
   const projectId = PROJECT_ID_MAP[rawId] || rawId;
-  console.log('BlackBox projectId:', rawId, '->', projectId);
 
   const [loading, setLoading] = useState(true);
   const [allServices, setAllServices] = useState(BLACK_BOX_SERVICES);
@@ -278,6 +279,7 @@ export default function BlackBox({ project }) {
   const [seeding, setSeeding] = useState(false);
   const [seedJustDone, setSeedJustDone] = useState(false);
   const [toggleBusy, setToggleBusy] = useState(null);
+  const [servicesExpanded, setServicesExpanded] = useState(false);
 
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -552,7 +554,7 @@ export default function BlackBox({ project }) {
             width: 28,
             height: 28,
             border: '3px solid var(--border)',
-            borderTopColor: 'var(--teal)',
+            borderTopColor: '#4F8EF7',
             borderRadius: '50%',
             margin: '0 auto 12px',
             animation: 'bb-spin 0.8s linear infinite',
@@ -569,67 +571,106 @@ export default function BlackBox({ project }) {
       {/* ── Section A: Services selector ── */}
       <div style={{ marginBottom: 28 }}>
         <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setServicesExpanded((v) => !v)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setServicesExpanded((v) => !v);
+            }
+          }}
           style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: 16,
-            fontWeight: 700,
-            color: 'var(--text-primary)',
-            marginBottom: 4,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            cursor: 'pointer',
+            userSelect: 'none',
+            marginBottom: servicesExpanded ? 4 : 0,
           }}
         >
-          Services & Platforms
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 18 }}>
-          Toggle a service to show or hide it. Your data is always saved.
-        </div>
-
-        {categories.map(({ category, services }) => (
-          <div key={category} style={{ marginBottom: 14 }}>
-            <div
+          <div
+            style={{
+              flex: 1,
+              fontFamily: 'var(--font-display)',
+              fontSize: 16,
+              fontWeight: 700,
+              color: 'var(--text-primary)',
+            }}
+          >
+            Services & Platforms
+            <span
               style={{
-                fontSize: 10,
-                fontWeight: 700,
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
+                fontFamily: 'var(--font-body)',
+                fontSize: 12,
+                fontWeight: 500,
                 color: 'var(--text-muted)',
-                marginBottom: 8,
+                marginLeft: 8,
               }}
             >
-              {category}
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {services.map((svc) => {
-                const on = enabledServices.includes(svc.key);
-                return (
-                  <button
-                    key={svc.key}
-                    type="button"
-                    disabled={toggleBusy === svc.key}
-                    onClick={() => toggleService(svc.key)}
-                    style={{
-                      ...pillBase,
-                      background: on ? 'var(--teal)' : 'transparent',
-                      color: on ? 'var(--bg-base)' : 'var(--text-secondary)',
-                      borderColor: on ? 'var(--teal)' : 'var(--border)',
-                      opacity: toggleBusy === svc.key ? 0.6 : 1,
-                    }}
-                  >
-                    {svc.label}
-                  </button>
-                );
-              })}
-            </div>
+              ({enabledServices.length} enabled)
+            </span>
           </div>
-        ))}
+          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+            {servicesExpanded ? '▲' : '▼'}
+          </span>
+        </div>
 
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm"
-          style={{ marginTop: 8 }}
-          onClick={() => setShowCustomModal(true)}
-        >
-          + Add Custom Service
-        </button>
+        {servicesExpanded && (
+          <>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 18 }}>
+              Toggle a service to show or hide it. Your data is always saved.
+            </div>
+
+            {categories.map(({ category, services }) => (
+              <div key={category} style={{ marginBottom: 14 }}>
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color: 'var(--text-muted)',
+                    marginBottom: 8,
+                  }}
+                >
+                  {category}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {services.map((svc) => {
+                    const on = enabledServices.includes(svc.key);
+                    return (
+                      <button
+                        key={svc.key}
+                        type="button"
+                        disabled={toggleBusy === svc.key}
+                        onClick={() => toggleService(svc.key)}
+                        style={{
+                          ...pillBase,
+                          background: on ? '#4F8EF7' : 'transparent',
+                          color: on ? '#fff' : 'var(--text-secondary)',
+                          borderColor: on ? '#4F8EF7' : 'var(--border)',
+                          opacity: toggleBusy === svc.key ? 0.6 : 1,
+                        }}
+                      >
+                        {svc.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              style={{ marginTop: 8 }}
+              onClick={() => setShowCustomModal(true)}
+            >
+              + Add Custom Service
+            </button>
+          </>
+        )}
       </div>
 
       {/* ── Section B: Service cards ── */}
@@ -710,7 +751,7 @@ export default function BlackBox({ project }) {
             {seeding ? 'Seeding…' : 'Pre-populate known DAL credentials'}
           </button>
         ) : seedJustDone ? (
-          <div style={{ color: 'var(--green)', fontSize: 12 }}>✓ Data pre-populated</div>
+          <div style={{ color: '#4F8EF7', fontSize: 12 }}>✓ Data pre-populated</div>
         ) : null}
       </div>
 
@@ -817,6 +858,7 @@ export default function BlackBox({ project }) {
               <button
                 type="button"
                 className="btn btn-primary btn-sm"
+                style={{ background: '#4F8EF7', borderColor: '#4F8EF7', color: '#fff' }}
                 disabled={!customServiceName.trim()}
                 onClick={saveCustomService}
               >
