@@ -28,23 +28,9 @@ export default function LoginScreen() {
         userAgent: navigator.userAgent,
       }).catch(e => console.warn('Login event failed:', e));
 
-      const brevoKey = process.env.REACT_APP_BREVO_API_KEY;
-      if (brevoKey) {
-        fetch('https://api.brevo.com/v3/smtp/email', {
-          method: 'POST',
-          headers: {
-            'accept': 'application/json',
-            'api-key': brevoKey,
-            'content-type': 'application/json',
-          },
-          body: JSON.stringify({
-            sender: { name: 'DAL Mission Control', email: 'lab@dreamapplab.com' },
-            to: [{ email: 'lab@dreamapplab.com', name: 'Eddie Skehan' }],
-            subject: `Mission Control Login — ${new Date().toLocaleString()}`,
-            htmlContent: `<p>Mission Control was accessed at ${new Date().toLocaleString()}.</p><p>If this was not you, change your password immediately at <a href="https://dal-tracker.vercel.app">dal-tracker.vercel.app</a></p>`,
-          }),
-        }).catch(e => console.warn('Brevo notification failed:', e));
-      }
+      fetch('/api/send-notification', { method: 'POST' }).catch((e) =>
+        console.warn('Login notification failed:', e)
+      );
     } catch (err) {
       setError(err.message || 'Login failed. Check your email and password.');
     } finally {
