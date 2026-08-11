@@ -79,6 +79,15 @@ export default function Sidebar({ projects, revenueLogos = {}, activeView, selec
           {sidebarOpen && <span className="sidebar-item-text">DAL HQ</span>}
         </button>
 
+        {sidebarOpen && <div className="sidebar-section-label" style={{ marginTop: 12 }}>FamilyThread</div>}
+        <button
+          className={`sidebar-item ${activeView === 'familythread-admin' ? 'active' : ''}`}
+          onClick={() => onNavigate('familythread-admin')}
+        >
+          <span className="sidebar-item-icon">🧵</span>
+          {sidebarOpen && <span className="sidebar-item-text">Admin Panel</span>}
+        </button>
+
         {sidebarOpen && (
           <>
             <div className="sidebar-section-label" style={{ marginTop: 12 }}>Your Apps</div>
