@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
-import { familyThreadDb, familyThreadConfigError } from '../firebaseFamilyThread';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+
+const ADMIN_DATA_URL =
+  'https://us-central1-familythread-prod.cloudfunctions.net/getAdminData';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -632,49 +633,68 @@ function AttritionTab({ users, families }) {
   );
 }
 
+async function fetchAdminData() {
+  const secret = process.env.REACT_APP_FT_ADMIN_SECRET;
+  if (!secret) {
+    throw new Error(
+      'Missing REACT_APP_FT_ADMIN_SECRET. Add it to your env and restart the dev server.'
+    );
+  }
+
+  const response = await fetch(ADMIN_DATA_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-admin-secret': secret,
+    },
+  });
+
+  if (!response.ok) {
+    let detail = '';
+    try {
+      detail = await response.text();
+    } catch {
+      detail = '';
+    }
+    throw new Error(
+      detail
+        ? `Admin data request failed (${response.status}): ${detail}`
+        : `Admin data request failed (${response.status})`
+    );
+  }
+
+  return response.json();
+}
+
 export default function FamilyThreadAdmin() {
   const [tab, setTab] = useState('overview');
   const [users, setUsers] = useState([]);
   const [families, setFamilies] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(familyThreadConfigError || '');
+  const [error, setError] = useState('');
+  const [fetchedAt, setFetchedAt] = useState(null);
+
+  const loadAdminData = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await fetchAdminData();
+      setUsers(Array.isArray(data?.users) ? data.users : []);
+      setFamilies(Array.isArray(data?.families) ? data.families : []);
+      setFetchedAt(data?.timestamp || new Date().toISOString());
+    } catch (err) {
+      setError(err?.message || 'Failed to load FamilyThread admin data.');
+      setUsers([]);
+      setFamilies([]);
+      setFetchedAt(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      if (familyThreadConfigError || !familyThreadDb) {
-        setLoading(false);
-        setError(familyThreadConfigError || 'FamilyThread Firestore unavailable.');
-        return;
-      }
-
-      setLoading(true);
-      setError('');
-      try {
-        const [usersSnap, familiesSnap] = await Promise.all([
-          getDocs(collection(familyThreadDb, 'users')),
-          getDocs(collection(familyThreadDb, 'families')),
-        ]);
-
-        if (cancelled) return;
-
-        setUsers(usersSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-        setFamilies(familiesSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      } catch (err) {
-        if (!cancelled) {
-          setError(err?.message || 'Failed to load FamilyThread data.');
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    loadAdminData();
+  }, [loadAdminData]);
 
   return (
     <div className="page ft-admin-page">
@@ -683,11 +703,22 @@ export default function FamilyThreadAdmin() {
           <h1 className="page-title">FamilyThread Admin</h1>
           <p className="page-subtitle">
             Read-only view of familythread-prod users, families, and attrition risk
+            {fetchedAt ? ` · Updated ${formatDate(fetchedAt)}` : ''}
           </p>
         </div>
-        <div className="live-indicator">
-          <span className="live-dot" />
-          Read-only
+        <div className="page-actions" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={loadAdminData}
+            disabled={loading}
+          >
+            {loading ? 'Refreshing…' : 'Refresh'}
+          </button>
+          <div className="live-indicator">
+            <span className="live-dot" />
+            Read-only
+          </div>
         </div>
       </div>
 
