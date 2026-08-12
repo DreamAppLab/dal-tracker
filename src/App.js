@@ -15,6 +15,7 @@ import Sidebar from './components/Sidebar';
 import AddProjectModal from './components/AddProjectModal';
 import LoginScreen from './components/LoginScreen';
 import AuthLoadingScreen from './components/AuthLoadingScreen';
+import FamilyThreadAdmin from './pages/FamilyThreadAdmin';
 import { useAuth } from './contexts/AuthContext';
 import { GoogleCalendarProvider } from './contexts/GoogleCalendarContext';
 import './App.css';
@@ -178,6 +179,7 @@ function DashboardApp() {
           <ReviewRequestsDashboard projects={projects} />
         )}
         {activeView === 'hq' && <DALHeadquarters />}
+        {activeView === 'familythread-admin' && <FamilyThreadAdmin />}
         {activeView === 'project' && currentProject && (
           <ProjectDetail
             project={currentProject}
