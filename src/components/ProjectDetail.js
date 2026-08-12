@@ -12,6 +12,7 @@ import AppChecklist from './AppChecklist';
 import AppLogo from './AppLogo';
 import BlackBox from './BlackBox';
 import { FamilyThreadAdminTab } from '../pages/FamilyThreadAdmin';
+import QuotesTab from '../tabs/QuotesTab';
 
 function getProgress(project) {
   const allTasks = [...(project.milestones || []), ...(project.edits || [])];
@@ -156,6 +157,7 @@ function getFilteredEdits(edits, filter) {
 
 const BASE_TABS = [
   { key: "overview", label: "Overview" },
+  { key: "quotes", label: "Quotes" },
   { key: "milestones", label: "Milestones" },
   { key: "edits", label: "Edits Needed" },
   { key: "stack", label: "Tech Stack" },
@@ -464,6 +466,8 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
       )}
 
       {activeTab === 'admin' && isFamilyThread && <FamilyThreadAdminTab />}
+
+      {activeTab === 'quotes' && <QuotesTab />}
 
       {activeTab === 'milestones' && (
         <div className="data-section">
