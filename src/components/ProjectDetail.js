@@ -1,5 +1,5 @@
 // src/components/ProjectDetail.js
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { STATUS_CONFIG, PRIORITY_CONFIG } from '../data/initialData';
 import { storage } from '../firebase';
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -11,6 +11,7 @@ import PaymentModal from './PaymentModal';
 import AppChecklist from './AppChecklist';
 import AppLogo from './AppLogo';
 import BlackBox from './BlackBox';
+import { FamilyThreadAdminTab } from '../pages/FamilyThreadAdmin';
 
 function getProgress(project) {
   const allTasks = [...(project.milestones || []), ...(project.edits || [])];
@@ -167,6 +168,17 @@ function isAppProject(project) {
   return project.type === 'own-app' || project.type === 'client-app';
 }
 
+function isFamilyThreadProject(project) {
+  const bundleId = (project.bundleId || '').toLowerCase();
+  const name = (project.name || '').toLowerCase().replace(/\s+/g, '');
+  const id = (project.id || '').toLowerCase();
+  return (
+    bundleId === 'com.dreamapplab.familythread' ||
+    name === 'familythread' ||
+    id.includes('familythread')
+  );
+}
+
 export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, onDelete, onBack }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
@@ -183,9 +195,13 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
   const pendingEditIdRef = useRef(null);
 
   const isApp = isAppProject(project);
-  const TABS = isApp
-    ? [...BASE_TABS, { key: 'checklist', label: 'Checklists' }]
-    : BASE_TABS;
+  const isFamilyThread = isFamilyThreadProject(project);
+  const TABS = [
+    { key: 'overview', label: 'Overview' },
+    ...(isFamilyThread ? [{ key: 'admin', label: 'Admin Panel' }] : []),
+    ...BASE_TABS.filter((t) => t.key !== 'overview'),
+    ...(isApp ? [{ key: 'checklist', label: 'Checklists' }] : []),
+  ];
   const prog = getProgress(project);
   const monthlyExp = getMonthlyExpenses(project);
   const outstandingEditCosts = getOutstandingEditCosts(project);
@@ -194,6 +210,12 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
   const totalPaidOut = getTotalPaidOut(project);
   const totalPaidIn = getTotalPaidIn(project);
   const sc = STATUS_CONFIG[project.status] || STATUS_CONFIG.ideation;
+
+  useEffect(() => {
+    if (activeTab === 'admin' && !isFamilyThread) {
+      setActiveTab('overview');
+    }
+  }, [activeTab, isFamilyThread, project.id]);
 
   const toggleMilestone = (id) => {
     const milestone = project.milestones.find(m => m.id === id);
@@ -440,6 +462,8 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
           </div>
         </div>
       )}
+
+      {activeTab === 'admin' && isFamilyThread && <FamilyThreadAdminTab />}
 
       {activeTab === 'milestones' && (
         <div className="data-section">

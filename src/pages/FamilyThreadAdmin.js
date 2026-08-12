@@ -666,7 +666,7 @@ async function fetchAdminData() {
   return response.json();
 }
 
-export default function FamilyThreadAdmin() {
+export function FamilyThreadAdminTab() {
   const [tab, setTab] = useState('overview');
   const [users, setUsers] = useState([]);
   const [families, setFamilies] = useState([]);
@@ -697,32 +697,26 @@ export default function FamilyThreadAdmin() {
   }, [loadAdminData]);
 
   return (
-    <div className="page ft-admin-page">
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">FamilyThread Admin</h1>
-          <p className="page-subtitle">
-            Read-only view of familythread-prod users, families, and attrition risk
-            {fetchedAt ? ` · Updated ${formatDate(fetchedAt)}` : ''}
-          </p>
-        </div>
-        <div className="page-actions" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={loadAdminData}
-            disabled={loading}
-          >
-            {loading ? 'Refreshing…' : 'Refresh'}
-          </button>
-          <div className="live-indicator">
-            <span className="live-dot" />
-            Read-only
-          </div>
-        </div>
+    <div className="ft-admin-tab">
+      <div
+        className="data-section"
+        style={{ paddingBottom: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}
+      >
+        <p className="page-subtitle" style={{ margin: 0 }}>
+          Read-only familythread-prod data
+          {fetchedAt ? ` · Updated ${formatDate(fetchedAt)}` : ''}
+        </p>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={loadAdminData}
+          disabled={loading}
+        >
+          {loading ? 'Refreshing…' : 'Refresh'}
+        </button>
       </div>
 
-      <div className="tabs-bar" style={{ margin: '0 -32px 0', paddingLeft: 32, paddingRight: 32 }}>
+      <div className="tabs-bar">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -753,6 +747,26 @@ export default function FamilyThreadAdmin() {
       {!error && !loading && tab === 'attrition' && (
         <AttritionTab users={users} families={families} />
       )}
+    </div>
+  );
+}
+
+export default function FamilyThreadAdmin() {
+  return (
+    <div className="page ft-admin-page">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">FamilyThread Admin</h1>
+          <p className="page-subtitle">
+            Read-only view of familythread-prod users, families, and attrition risk
+          </p>
+        </div>
+        <div className="live-indicator">
+          <span className="live-dot" />
+          Read-only
+        </div>
+      </div>
+      <FamilyThreadAdminTab />
     </div>
   );
 }
