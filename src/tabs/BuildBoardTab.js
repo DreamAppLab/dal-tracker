@@ -338,13 +338,14 @@ function BuildBlackBox({ buildId }) {
   );
 }
 
-function BuildDetail({ build, onBack, onPatched }) {
+function BuildDetail({ build, onBack, onPatched, onMovedBack }) {
   const [notes, setNotes] = useState(build.projectNotes || '');
   const [savingNotes, setSavingNotes] = useState(false);
   const [notesSaved, setNotesSaved] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [confirmMoveBack, setConfirmMoveBack] = useState(false);
 
   const status = String(build.status || 'in_build');
   const meta = buildStatusMeta(status);
@@ -377,6 +378,39 @@ function BuildDetail({ build, onBack, onPatched }) {
       });
       if (onPatched) onPatched(build.id, { status: 'complete', completedAt });
       setNotice('Moved to Complete');
+    } catch (err) {
+      console.error(err);
+      setError(err.message || String(err));
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const handleMoveBack = async () => {
+    if (!build.quoteId) {
+      setError('This build is missing a quote id.');
+      return;
+    }
+    setBusy('move_back');
+    setError('');
+    try {
+      const res = await fetch('/api/quotes?id=' + encodeURIComponent(build.quoteId), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'accepted' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || data.detail || 'Failed to reset quote status');
+      }
+      const movedBackAt = new Date().toISOString();
+      await updateDoc(doc(db, 'builds', build.id), {
+        status: 'moved_back',
+        movedBackAt,
+      });
+      setConfirmMoveBack(false);
+      setNotice('Project moved back to Quotes.');
+      if (onMovedBack) onMovedBack(build.id);
     } catch (err) {
       console.error(err);
       setError(err.message || String(err));
@@ -485,6 +519,48 @@ function BuildDetail({ build, onBack, onPatched }) {
             {busy === 'complete' ? 'Saving…' : 'Move to Complete'}
           </button>
         )}
+
+        {confirmMoveBack && (
+          <div className="quotes-confirm-box" style={{ marginTop: 14 }}>
+            <p>
+              This will move this project back to the Quotes pipeline. Remember to issue any refund separately from your Stripe dashboard if payment was made. Continue?
+            </p>
+            <div className="quotes-action-row" style={{ marginTop: 12 }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={!!busy}
+                onClick={handleMoveBack}
+              >
+                {busy === 'move_back' ? 'Moving…' : 'Confirm'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={!!busy}
+                onClick={() => setConfirmMoveBack(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {status !== 'moved_back' && !confirmMoveBack && (
+          <div style={{ marginTop: 14 }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={!!busy}
+              onClick={() => {
+                setError('');
+                setConfirmMoveBack(true);
+              }}
+            >
+              Move Back to Quotes
+            </button>
+          </div>
+        )}
         {error && <div className="quotes-error">{error}</div>}
       </section>
     </div>
@@ -495,13 +571,16 @@ export default function BuildBoardTab() {
   const [builds, setBuilds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [listNotice, setListNotice] = useState('');
   const [selectedId, setSelectedId] = useState(null);
 
   useEffect(() => {
     const unsub = onSnapshot(
       collection(db, 'builds'),
       (snap) => {
-        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        const rows = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .filter((b) => b.status !== 'moved_back');
         rows.sort((a, b) => {
           const am = toDate(a.movedToBuildAt)?.getTime() || 0;
           const bm = toDate(b.movedToBuildAt)?.getTime() || 0;
@@ -531,6 +610,12 @@ export default function BuildBoardTab() {
           onPatched={(id, fields) => {
             setBuilds((prev) => prev.map((b) => (b.id === id ? { ...b, ...fields } : b)));
           }}
+          onMovedBack={(id) => {
+            setBuilds((prev) => prev.filter((b) => b.id !== id));
+            setSelectedId(null);
+            setError('');
+            setListNotice('Project moved back to Quotes.');
+          }}
         />
       </div>
     );
@@ -546,6 +631,7 @@ export default function BuildBoardTab() {
       </div>
 
       {error && <div className="quotes-error">{error}</div>}
+      {listNotice && <div className="quotes-success-notice">{listNotice}</div>}
 
       {loading ? (
         <div className="empty-state">Loading builds…</div>
