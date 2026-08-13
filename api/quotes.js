@@ -29,10 +29,6 @@ function getSiteDb() {
   const clientEmail = process.env.DAL_SITE_FIREBASE_CLIENT_EMAIL;
   const privateKey = (process.env.DAL_SITE_FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
 
-  console.log('DAL_SITE projectId:', projectId);
-  console.log('DAL_SITE clientEmail:', clientEmail ? 'SET' : 'MISSING');
-  console.log('DAL_SITE privateKey first 30:', (privateKey || '').slice(0, 30));
-
   if (!projectId || !clientEmail || !privateKey) {
     throw new Error('Missing DAL_SITE Firebase env vars');
   }
