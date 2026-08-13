@@ -18,6 +18,8 @@ const TIMESTAMP_FIELDS = new Set([
   'completedAt',
   'dalDiscountAppliedAt',
   'sentAt',
+  'readAt',
+  'movedToBuildAt',
 ]);
 
 let _siteDb = null;

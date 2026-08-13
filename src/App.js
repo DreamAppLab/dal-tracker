@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './firebase';
-import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc } from 'firebase/firestore';
 import { PIPELINE_APPS } from './data/initialData';
 import Dashboard from './components/Dashboard';
 import ASODashboard from './components/ASODashboard';
@@ -112,8 +112,7 @@ function DashboardApp() {
     setShowAddModal(false);
   };
 
-  const handleDeleteProject = async (projectId) => {
-    await deleteDoc(doc(db, 'projects', projectId));
+  const handleDeleteProject = async () => {
     setActiveView('dashboard');
     setSelectedProject(null);
   };
