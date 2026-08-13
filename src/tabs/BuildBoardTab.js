@@ -6,6 +6,8 @@ import {
   deleteDoc,
   doc,
   onSnapshot,
+  query,
+  setDoc,
   updateDoc,
 } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -17,6 +19,29 @@ const FORM_TYPE_LABELS = {
   app: 'Mobile App',
   'webapp-quote': 'Custom Business App',
   'pwa-quote': 'Business Web App',
+};
+
+const PROJECT_TYPES = [
+  { value: 'pwa-quote', label: 'Business Web App' },
+  { value: 'webapp-quote', label: 'Custom Business App' },
+  { value: 'app-quote', label: 'Mobile App' },
+  { value: 'instant-quote', label: 'Website' },
+];
+
+const PAYMENT_METHODS = ['Bank Transfer', 'Cash', 'Check', 'Credit Card', 'Other'];
+
+const EMPTY_BUILD_FORM = {
+  clientName: '',
+  businessName: '',
+  email: '',
+  formType: 'pwa-quote',
+  total: '',
+  deposit: '',
+  balance: '',
+  managementChoice: 'dal-managed',
+  monthlyFee: '',
+  notes: '',
+  paymentMethod: 'Bank Transfer',
 };
 
 function toDate(value) {
@@ -51,6 +76,24 @@ function money(n) {
 function formTypeLabel(formType) {
   const key = String(formType || '').toLowerCase();
   return FORM_TYPE_LABELS[key] || formType || 'Website';
+}
+
+function todayISO() {
+  return new Date().toISOString().split('T')[0];
+}
+
+async function postRevenue({ amount, type, description, buildId }) {
+  await setDoc(doc(db, 'revenue', 'dal-website'), { appId: 'dal-website' }, { merge: true });
+  await addDoc(collection(db, 'revenue', 'dal-website', 'manualSales'), {
+    appId: 'dal-website',
+    amount,
+    type,
+    description,
+    note: description,
+    date: todayISO(),
+    buildId: buildId || null,
+    createdAt: new Date().toISOString(),
+  });
 }
 
 function buildStatusMeta(status) {
@@ -338,7 +381,217 @@ function BuildBlackBox({ buildId }) {
   );
 }
 
-function BuildDetail({ build, onBack, onPatched, onMovedBack }) {
+function AddBuildModal({ onClose, onSaved }) {
+  const [form, setForm] = useState(EMPTY_BUILD_FORM);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+
+  const setMoneyField = (key, value) => {
+    setForm((prev) => {
+      const next = { ...prev, [key]: value };
+      const total = Number(key === 'total' ? value : next.total);
+      const deposit = Number(key === 'deposit' ? value : next.deposit);
+      if (Number.isFinite(total) && Number.isFinite(deposit)) {
+        next.balance = String(Math.round((total - deposit) * 100) / 100);
+      }
+      return next;
+    });
+  };
+
+  const handleSave = async () => {
+    const clientName = form.clientName.trim();
+    const businessName = form.businessName.trim();
+    const email = form.email.trim();
+    const total = Number(form.total);
+    const deposit = Number(form.deposit);
+    const balance = Number(form.balance);
+    if (!clientName || !businessName || !email) {
+      setError('Client name, business name, and email are required.');
+      return;
+    }
+    if (!Number.isFinite(total) || total <= 0) {
+      setError('Project total is required.');
+      return;
+    }
+    if (!Number.isFinite(deposit) || deposit < 0) {
+      setError('Deposit amount is required.');
+      return;
+    }
+    if (!Number.isFinite(balance)) {
+      setError('Balance amount is required.');
+      return;
+    }
+    if (form.managementChoice === 'dal-managed' && form.monthlyFee !== '' && !Number.isFinite(Number(form.monthlyFee))) {
+      setError('Monthly fee must be a number.');
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+    const now = new Date().toISOString();
+    try {
+      await addDoc(collection(db, 'builds'), {
+        clientName,
+        businessName,
+        email,
+        formType: form.formType,
+        total,
+        deposit,
+        balance,
+        managementChoice: form.managementChoice,
+        monthlyFee:
+          form.managementChoice === 'dal-managed' && form.monthlyFee !== ''
+            ? Number(form.monthlyFee)
+            : null,
+        projectNotes: form.notes.trim(),
+        paymentMethod: form.paymentMethod,
+        source: 'manual',
+        status: 'in_build',
+        depositPostedToRevenue: false,
+        balancePostedToRevenue: false,
+        createdAt: now,
+        movedToBuildAt: now,
+      });
+      onSaved();
+    } catch (err) {
+      console.error(err);
+      setError(err.message || String(err));
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={() => !saving && onClose()}>
+      <div className="modal" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <div className="modal-title">Add Build</div>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} disabled={saving}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div className="form-group">
+            <label className="form-label">Client name *</label>
+            <input className="form-input" value={form.clientName} onChange={(e) => set('clientName', e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Business name *</label>
+            <input className="form-input" value={form.businessName} onChange={(e) => set('businessName', e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Email *</label>
+            <input className="form-input" type="email" value={form.email} onChange={(e) => set('email', e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Project type *</label>
+            <select className="form-select" value={form.formType} onChange={(e) => set('formType', e.target.value)}>
+              {PROJECT_TYPES.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Project total *</label>
+              <input
+                className="form-input"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.total}
+                onChange={(e) => setMoneyField('total', e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Deposit amount *</label>
+              <input
+                className="form-input"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.deposit}
+                onChange={(e) => setMoneyField('deposit', e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Balance amount *</label>
+            <input
+              className="form-input"
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.balance}
+              onChange={(e) => set('balance', e.target.value)}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Management choice *</label>
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 6 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input
+                  type="radio"
+                  name="managementChoice"
+                  checked={form.managementChoice === 'dal-managed'}
+                  onChange={() => set('managementChoice', 'dal-managed')}
+                />
+                DAL Managed
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input
+                  type="radio"
+                  name="managementChoice"
+                  checked={form.managementChoice === 'full-handover'}
+                  onChange={() => set('managementChoice', 'full-handover')}
+                />
+                Full Handover
+              </label>
+            </div>
+          </div>
+          {form.managementChoice === 'dal-managed' && (
+            <div className="form-group">
+              <label className="form-label">Monthly fee</label>
+              <input
+                className="form-input"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.monthlyFee}
+                onChange={(e) => set('monthlyFee', e.target.value)}
+              />
+            </div>
+          )}
+          <div className="form-group">
+            <label className="form-label">Notes</label>
+            <textarea
+              className="form-input"
+              style={{ minHeight: 90, resize: 'vertical' }}
+              value={form.notes}
+              onChange={(e) => set('notes', e.target.value)}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Payment method *</label>
+            <select className="form-select" value={form.paymentMethod} onChange={(e) => set('paymentMethod', e.target.value)}>
+              {PAYMENT_METHODS.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+          </div>
+          {error && <div className="quotes-error">{error}</div>}
+        </div>
+        <div className="modal-footer">
+          <button type="button" className="btn btn-secondary" disabled={saving} onClick={onClose}>Cancel</button>
+          <button type="button" className="btn btn-primary" disabled={saving} onClick={handleSave}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BuildDetail({ build, onBack, onPatched, onMovedBack, onDeleted }) {
   const [notes, setNotes] = useState(build.projectNotes || '');
   const [savingNotes, setSavingNotes] = useState(false);
   const [notesSaved, setNotesSaved] = useState(false);
@@ -346,6 +599,7 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack }) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [confirmMoveBack, setConfirmMoveBack] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const status = String(build.status || 'in_build');
   const meta = buildStatusMeta(status);
@@ -367,21 +621,87 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack }) {
     }
   };
 
+  const handleMarkInBuild = async () => {
+    if (build.depositPostedToRevenue) return;
+    setBusy('in_build');
+    setError('');
+    try {
+      const inBuildAt = new Date().toISOString();
+      await postRevenue({
+        amount: Number(build.deposit || 0),
+        type: 'deposit',
+        description: `Project deposit — ${build.businessName || build.clientName || 'Project'}`,
+        buildId: build.id,
+      });
+      await updateDoc(doc(db, 'builds', build.id), {
+        status: 'in_build',
+        inBuildAt,
+        depositPostedToRevenue: true,
+      });
+      if (onPatched) {
+        onPatched(build.id, { status: 'in_build', inBuildAt, depositPostedToRevenue: true });
+      }
+      setNotice('Deposit posted to Revenue');
+    } catch (err) {
+      console.error(err);
+      setError(err.message || String(err));
+    } finally {
+      setBusy('');
+    }
+  };
+
   const handleComplete = async () => {
     setBusy('complete');
     setError('');
     try {
       const completedAt = new Date().toISOString();
-      await updateDoc(doc(db, 'builds', build.id), {
-        status: 'complete',
-        completedAt,
-      });
-      if (onPatched) onPatched(build.id, { status: 'complete', completedAt });
+      const fields = { status: 'complete', completedAt };
+      if (!build.balancePostedToRevenue) {
+        await postRevenue({
+          amount: Number(build.balance || 0),
+          type: 'balance',
+          description: `Project balance — ${build.businessName || build.clientName || 'Project'}`,
+          buildId: build.id,
+        });
+        fields.balancePostedToRevenue = true;
+      }
+      await updateDoc(doc(db, 'builds', build.id), fields);
+      if (onPatched) onPatched(build.id, fields);
       setNotice('Moved to Complete');
     } catch (err) {
       console.error(err);
       setError(err.message || String(err));
     } finally {
+      setBusy('');
+    }
+  };
+
+  const handleDeleteBuild = async () => {
+    setBusy('delete');
+    setError('');
+    try {
+      const biz = build.businessName || build.clientName || 'Project';
+      if (build.depositPostedToRevenue) {
+        await postRevenue({
+          amount: -Number(build.deposit || 0),
+          type: 'reversal',
+          description: `Build deleted — deposit reversed: ${biz}`,
+          buildId: build.id,
+        });
+      }
+      if (build.balancePostedToRevenue) {
+        await postRevenue({
+          amount: -Number(build.balance || 0),
+          type: 'reversal',
+          description: `Build deleted — balance reversed: ${biz}`,
+          buildId: build.id,
+        });
+      }
+      await deleteDoc(doc(db, 'builds', build.id));
+      if (onDeleted) onDeleted(build.id);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || String(err));
       setBusy('');
     }
   };
@@ -510,14 +830,52 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack }) {
             Project complete.{build.completedAt ? ` Completed ${formatDateTime(build.completedAt)}.` : ''}
           </div>
         ) : (
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={!!busy}
-            onClick={handleComplete}
-          >
-            {busy === 'complete' ? 'Saving…' : 'Move to Complete'}
-          </button>
+          <div className="quotes-action-row">
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!!busy || !!build.depositPostedToRevenue}
+              onClick={handleMarkInBuild}
+            >
+              {build.depositPostedToRevenue
+                ? 'Marked In Build ✓'
+                : busy === 'in_build'
+                  ? 'Saving…'
+                  : 'Mark In Build'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!!busy}
+              onClick={handleComplete}
+            >
+              {busy === 'complete' ? 'Saving…' : 'Mark Complete'}
+            </button>
+          </div>
+        )}
+
+        {confirmDelete && (
+          <div className="quotes-confirm-box" style={{ marginTop: 14 }}>
+            <p>Delete this build? This cannot be undone.</p>
+            <div className="quotes-action-row" style={{ marginTop: 12 }}>
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={!!busy}
+                onClick={handleDeleteBuild}
+              >
+                {busy === 'delete' ? 'Deleting…' : 'Confirm'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={!!busy}
+                onClick={() => setConfirmDelete(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         )}
 
         {confirmMoveBack && (
@@ -546,8 +904,8 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack }) {
           </div>
         )}
 
-        {status !== 'moved_back' && !confirmMoveBack && (
-          <div style={{ marginTop: 14 }}>
+        {status !== 'moved_back' && !confirmMoveBack && !confirmDelete && (
+          <div className="quotes-action-row" style={{ marginTop: 14 }}>
             <button
               type="button"
               className="btn btn-secondary"
@@ -558,6 +916,17 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack }) {
               }}
             >
               Move Back to Quotes
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger"
+              disabled={!!busy}
+              onClick={() => {
+                setError('');
+                setConfirmDelete(true);
+              }}
+            >
+              Delete Build
             </button>
           </div>
         )}
@@ -573,6 +942,7 @@ export default function BuildBoardTab() {
   const [error, setError] = useState('');
   const [listNotice, setListNotice] = useState('');
   const [selectedId, setSelectedId] = useState(null);
+  const [showAdd, setShowAdd] = useState(false);
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -616,6 +986,12 @@ export default function BuildBoardTab() {
             setError('');
             setListNotice('Project moved back to Quotes.');
           }}
+          onDeleted={(id) => {
+            setBuilds((prev) => prev.filter((b) => b.id !== id));
+            setSelectedId(null);
+            setError('');
+            setListNotice('Build deleted and revenue adjusted');
+          }}
         />
       </div>
     );
@@ -628,7 +1004,22 @@ export default function BuildBoardTab() {
           <h1 className="page-title">Build Board</h1>
           <p className="page-subtitle">Active client builds and completed projects</p>
         </div>
+        <div className="page-actions">
+          <button type="button" className="btn btn-primary" onClick={() => setShowAdd(true)}>
+            Add Build
+          </button>
+        </div>
       </div>
+
+      {showAdd && (
+        <AddBuildModal
+          onClose={() => setShowAdd(false)}
+          onSaved={() => {
+            setShowAdd(false);
+            setListNotice('Build added');
+          }}
+        />
+      )}
 
       {error && <div className="quotes-error">{error}</div>}
       {listNotice && <div className="quotes-success-notice">{listNotice}</div>}

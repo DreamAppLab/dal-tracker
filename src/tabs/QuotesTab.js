@@ -212,6 +212,16 @@ function quotePricing(q) {
   return { original, clientDiscount, afterClient, dalDiscount, finalTotal, deposit, balance };
 }
 
+function omitUndefined(obj) {
+  const out = {};
+  Object.keys(obj || {}).forEach((key) => {
+    if (key === 'id') return;
+    const val = obj[key];
+    if (val !== undefined) out[key] = val;
+  });
+  return out;
+}
+
 function todayISO() {
   return new Date().toISOString().split('T')[0];
 }
@@ -303,7 +313,7 @@ function MessageBubble({ message, clientLabel }) {
   );
 }
 
-function QuoteDetail({ quote, onBack, onQuotePatched }) {
+function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved }) {
   const [discountOpen, setDiscountOpen] = useState(false);
   const [discountMode, setDiscountMode] = useState('dollar');
   const [discountValue, setDiscountValue] = useState('');
@@ -316,6 +326,7 @@ function QuoteDetail({ quote, onBack, onQuotePatched }) {
   const [startDate, setStartDate] = useState(dateKey(quote.estimatedStart));
   const [completionDate, setCompletionDate] = useState(dateKey(quote.estimatedCompletion));
   const [confirmDeposit, setConfirmDeposit] = useState(false);
+  const [confirmMoveBoard, setConfirmMoveBoard] = useState(false);
   const [localDone, setLocalDone] = useState({
     deposit: false,
     balance: false,
@@ -475,20 +486,6 @@ function QuoteDetail({ quote, onBack, onQuotePatched }) {
       setLocalDone((s) => ({ ...s, balance: true }));
     });
 
-  const handleMarkInBuild = () =>
-    runAction('in_build', async () => {
-      await patchQuote({
-        status: 'in_build',
-        inBuildAt: new Date().toISOString(),
-      });
-      await postRevenue({
-        amount: pricing.deposit,
-        type: 'deposit',
-        description: `Project deposit — ${biz}`,
-      });
-      setLocalDone((s) => ({ ...s, inBuild: true }));
-    });
-
   const handleMarkComplete = () =>
     runAction('complete', async () => {
       await patchQuote({
@@ -561,9 +558,11 @@ function QuoteDetail({ quote, onBack, onQuotePatched }) {
 
   const handleMoveToBuildBoard = () =>
     runAction('move_board', async () => {
+      const now = new Date().toISOString();
       const existing = await getDocs(query(collection(db, 'builds'), where('quoteId', '==', quote.id)));
       if (existing.empty) {
         await addDoc(collection(db, 'builds'), {
+          ...omitUndefined(quote),
           quoteId: quote.id,
           clientName: quote.name || '',
           email: quote.email || '',
@@ -576,16 +575,22 @@ function QuoteDetail({ quote, onBack, onQuotePatched }) {
           managedTier: quote.managedTier || quote.plan || '',
           monthlyFee: quote.monthlyFee != null ? Number(quote.monthlyFee) : null,
           status: 'in_build',
-          movedToBuildAt: new Date().toISOString(),
+          source: 'quote',
+          depositPostedToRevenue: false,
+          balancePostedToRevenue: false,
           projectNotes: '',
+          createdAt: now,
+          movedToBuildAt: now,
         });
       }
       await patchQuote({
         status: 'in_build_board',
-        movedToBuildAt: new Date().toISOString(),
+        movedToBuildAt: now,
       });
+      setConfirmMoveBoard(false);
       setLocalDone((s) => ({ ...s, movedToBoard: true }));
       setActionNotice('Moved to Build Board');
+      if (onQuoteMoved) onQuoteMoved(quote.id);
     });
 
   const handleResendEstimate = () =>
@@ -609,14 +614,12 @@ function QuoteDetail({ quote, onBack, onQuotePatched }) {
   const showDeposit =
     shownStatus !== 'no_action' &&
     (status === 'submitted' || status === 'accepted' || status === 'client_replied');
-  const showInBuild = status === 'deposit_sent';
   const showBalance = status === 'in_build' || status === 'in_build_board';
-  const showMoveToBoard = status === 'in_build' || status === 'accepted';
+  const showMoveToBoard = status === 'deposit_sent';
   const showComplete = status === 'balance_sent';
   const showNoAction = shownStatus === 'no_action';
   const depositDone = localDone.deposit || status === 'deposit_sent' || !!quote.stripeDepositUrl;
   const balanceDone = localDone.balance || status === 'balance_sent' || !!quote.stripeBalanceUrl;
-  const inBuildDone = localDone.inBuild || status === 'in_build' || status === 'in_build_board' || !!quote.inBuildAt;
   const completeDone = localDone.complete || status === 'complete' || !!quote.completedAt;
   const movedToBoard = localDone.movedToBoard || status === 'in_build_board';
   const questionsLabel =
@@ -940,6 +943,30 @@ function QuoteDetail({ quote, onBack, onQuotePatched }) {
           </div>
         )}
 
+        {showMoveToBoard && confirmMoveBoard && !movedToBoard && (
+          <div className="quotes-confirm-box">
+            <p>Move this project to the Build Board?</p>
+            <div className="quotes-action-row" style={{ marginTop: 12 }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!!busyAction}
+                onClick={handleMoveToBuildBoard}
+              >
+                {busyAction === 'move_board' ? 'Moving…' : 'Confirm'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={!!busyAction}
+                onClick={() => setConfirmMoveBoard(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="quotes-action-row">
           {showQuestions && (
             <button
@@ -986,26 +1013,15 @@ function QuoteDetail({ quote, onBack, onQuotePatched }) {
                   : 'Send Balance Link'}
             </button>
           )}
-          {showInBuild && (
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={!!busyAction || inBuildDone}
-              onClick={handleMarkInBuild}
-            >
-              {inBuildDone
-                ? 'Marked In Build ✓'
-                : busyAction === 'in_build'
-                  ? 'Saving…'
-                  : 'Mark In Build'}
-            </button>
-          )}
           {showMoveToBoard && (
             <button
               type="button"
-              className="btn btn-secondary"
+              className="btn btn-primary"
               disabled={!!busyAction || movedToBoard}
-              onClick={handleMoveToBuildBoard}
+              onClick={() => {
+                if (movedToBoard) return;
+                setConfirmMoveBoard(true);
+              }}
             >
               {movedToBoard
                 ? 'Moved to Build Board ✓'
@@ -1065,6 +1081,7 @@ export default function QuotesTab() {
   const [selectedId, setSelectedId] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [listNotice, setListNotice] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -1111,6 +1128,7 @@ export default function QuotesTab() {
           .join(' ');
         if (!hay.includes(q)) return false;
       }
+      if (rawStatus(quote) === 'in_build_board' && filters.status !== 'in_build_board') return false;
       return true;
     });
   }, [quotes, filters]);
@@ -1161,6 +1179,11 @@ export default function QuotesTab() {
           onBack={() => setSelectedId(null)}
           onQuotePatched={(id, updated) => {
             setQuotes((prev) => prev.map((q) => (q.id === id ? { ...q, ...updated, id } : q)));
+          }}
+          onQuoteMoved={(id) => {
+            setQuotes((prev) => prev.filter((q) => q.id !== id));
+            setSelectedId(null);
+            setListNotice('Moved to Build Board');
           }}
         />
       </div>
@@ -1239,6 +1262,7 @@ export default function QuotesTab() {
       </div>
 
       {error && <div className="quotes-error">{error}</div>}
+      {listNotice && <div className="quotes-success-notice">{listNotice}</div>}
 
       {loading ? (
         <div className="empty-state">Loading quotes…</div>
