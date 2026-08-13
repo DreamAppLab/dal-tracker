@@ -157,7 +157,6 @@ function getFilteredEdits(edits, filter) {
 
 const BASE_TABS = [
   { key: "overview", label: "Overview" },
-  { key: "quotes", label: "Quotes" },
   { key: "milestones", label: "Milestones" },
   { key: "edits", label: "Edits Needed" },
   { key: "stack", label: "Tech Stack" },
@@ -181,6 +180,12 @@ function isFamilyThreadProject(project) {
   );
 }
 
+function isDalWebsiteProject(project) {
+  const id = (project.id || '').toLowerCase();
+  const name = (project.name || '').toLowerCase();
+  return id === 'dal-website' || name.includes('dream app lab');
+}
+
 export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, onDelete, onBack }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
@@ -198,8 +203,10 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
 
   const isApp = isAppProject(project);
   const isFamilyThread = isFamilyThreadProject(project);
+  const isDalWebsite = isDalWebsiteProject(project);
   const TABS = [
     { key: 'overview', label: 'Overview' },
+    ...(isDalWebsite ? [{ key: 'quotes', label: 'Quotes' }] : []),
     ...(isFamilyThread ? [{ key: 'admin', label: 'Admin Panel' }] : []),
     ...BASE_TABS.filter((t) => t.key !== 'overview'),
     ...(isApp ? [{ key: 'checklist', label: 'Checklists' }] : []),
@@ -217,7 +224,10 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
     if (activeTab === 'admin' && !isFamilyThread) {
       setActiveTab('overview');
     }
-  }, [activeTab, isFamilyThread, project.id]);
+    if (activeTab === 'quotes' && !isDalWebsite) {
+      setActiveTab('overview');
+    }
+  }, [activeTab, isFamilyThread, isDalWebsite, project.id]);
 
   const toggleMilestone = (id) => {
     const milestone = project.milestones.find(m => m.id === id);
@@ -467,7 +477,7 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
 
       {activeTab === 'admin' && isFamilyThread && <FamilyThreadAdminTab />}
 
-      {activeTab === 'quotes' && <QuotesTab />}
+      {activeTab === 'quotes' && isDalWebsite && <QuotesTab />}
 
       {activeTab === 'milestones' && (
         <div className="data-section">
