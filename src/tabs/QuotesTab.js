@@ -1,15 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
-import {
-  addDoc,
-  collection,
-  doc,
-  onSnapshot,
-  serverTimestamp,
-  setDoc,
-} from 'firebase/firestore';
+import { addDoc, collection, doc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { dalSiteDb } from '../firebaseDalSite';
 
 const FORTY_EIGHT_HOURS = 48 * 60 * 60 * 1000;
 
@@ -251,7 +243,7 @@ function InfoRow({ label, children }) {
   );
 }
 
-function QuoteDetail({ quote, onBack }) {
+function QuoteDetail({ quote, onBack, onQuotePatched }) {
   const [discountOpen, setDiscountOpen] = useState(false);
   const [discountMode, setDiscountMode] = useState('dollar');
   const [discountValue, setDiscountValue] = useState('');
@@ -281,7 +273,16 @@ function QuoteDetail({ quote, onBack }) {
   ].filter((step) => toDate(step.at));
 
   async function patchQuote(fields) {
-    await setDoc(doc(dalSiteDb, 'quotes', quote.id), fields, { merge: true });
+    const res = await fetch('/api/quotes?id=' + encodeURIComponent(quote.id), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fields),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || data.detail || 'Failed to update quote');
+    }
+    if (onQuotePatched) onQuotePatched(quote.id, data.quote || { ...quote, ...fields });
   }
 
   async function postRevenue({ amount, type, description }) {
@@ -351,7 +352,7 @@ function QuoteDetail({ quote, onBack }) {
       await patchQuote({
         dalDiscount,
         dalDiscountNote: String(discountNote).trim(),
-        dalDiscountAppliedAt: serverTimestamp(),
+        dalDiscountAppliedAt: new Date().toISOString(),
       });
       setDiscountOpen(false);
     });
@@ -361,7 +362,7 @@ function QuoteDetail({ quote, onBack }) {
       const url = await sendPaymentLink('deposit');
       await patchQuote({
         status: 'deposit_sent',
-        depositSentAt: serverTimestamp(),
+        depositSentAt: new Date().toISOString(),
         stripeDepositUrl: url,
       });
       setLocalDone((s) => ({ ...s, deposit: true }));
@@ -372,7 +373,7 @@ function QuoteDetail({ quote, onBack }) {
       const url = await sendPaymentLink('balance');
       await patchQuote({
         status: 'balance_sent',
-        balanceSentAt: serverTimestamp(),
+        balanceSentAt: new Date().toISOString(),
         stripeBalanceUrl: url,
       });
       setLocalDone((s) => ({ ...s, balance: true }));
@@ -382,7 +383,7 @@ function QuoteDetail({ quote, onBack }) {
     runAction('in_build', async () => {
       await patchQuote({
         status: 'in_build',
-        inBuildAt: serverTimestamp(),
+        inBuildAt: new Date().toISOString(),
       });
       await postRevenue({
         amount: pricing.deposit,
@@ -396,7 +397,7 @@ function QuoteDetail({ quote, onBack }) {
     runAction('complete', async () => {
       await patchQuote({
         status: 'complete',
-        completedAt: serverTimestamp(),
+        completedAt: new Date().toISOString(),
       });
       await postRevenue({
         amount: pricing.balance,
@@ -691,29 +692,33 @@ export default function QuotesTab() {
   const [selectedId, setSelectedId] = useState(null);
 
   useEffect(() => {
-    const unsub = onSnapshot(
-      collection(dalSiteDb, 'quotes'),
-      (snapshot) => {
-        const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-        data.sort((a, b) => {
-          const ta = toDate(a.createdAt)?.getTime() || 0;
-          const tb = toDate(b.createdAt)?.getTime() || 0;
-          return tb - ta;
-        });
-        setQuotes(data);
-        setLoading(false);
+    let cancelled = false;
+    async function loadQuotes() {
+      setLoading(true);
+      try {
+        const res = await fetch('/api/quotes');
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || data.detail || 'Failed to load quotes');
+        }
+        if (cancelled) return;
+        setQuotes(Array.isArray(data.quotes) ? data.quotes : []);
         setError('');
-      },
-      (err) => {
+      } catch (err) {
         console.error(err);
+        if (cancelled) return;
         setError(
           err.message ||
-            'Could not load quotes from dal-website-c9dd8. Check Firestore rules and REACT_APP_DAL_SITE_FIREBASE_* env vars.'
+            'Could not load quotes. Add DAL_SITE_FIREBASE_* env vars in Vercel for dal-tracker.'
         );
-        setLoading(false);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    );
-    return () => unsub();
+    }
+    loadQuotes();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const filtered = useMemo(() => {
@@ -740,7 +745,13 @@ export default function QuotesTab() {
   if (selected) {
     return (
       <div className="page quotes-page">
-        <QuoteDetail quote={selected} onBack={() => setSelectedId(null)} />
+        <QuoteDetail
+          quote={selected}
+          onBack={() => setSelectedId(null)}
+          onQuotePatched={(id, updated) => {
+            setQuotes((prev) => prev.map((q) => (q.id === id ? { ...q, ...updated, id } : q)));
+          }}
+        />
       </div>
     );
   }
