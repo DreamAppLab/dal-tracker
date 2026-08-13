@@ -2,6 +2,8 @@
 // GET  /api/quotes          — all quotes, newest first
 // GET  /api/quotes?id=xxx   — one quote
 // POST /api/quotes?id=xxx   — merge-update one quote
+// GET  /api/quotes/messages?id=xxx — messages subcollection, oldest first (seeds from quote fields if empty)
+// POST /api/quotes/messages?id=xxx — create a message; always sets savedAt
 
 const { initializeApp, getApp, getApps, cert } = require('firebase-admin/app');
 const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
@@ -18,6 +20,7 @@ const TIMESTAMP_FIELDS = new Set([
   'completedAt',
   'dalDiscountAppliedAt',
   'sentAt',
+  'savedAt',
   'readAt',
   'movedToBuildAt',
 ]);
@@ -107,6 +110,86 @@ function prepareUpdate(body) {
   return update;
 }
 
+function isMessagesRoute(req) {
+  if (req && req._dalMessages) return true;
+  const url = String((req && req.url) || '').split('?')[0];
+  return /\/messages\/?$/.test(url);
+}
+
+function messagesCol(db, quoteId) {
+  return db.collection('quotes').doc(quoteId).collection('messages');
+}
+
+async function listMessages(db, quoteId) {
+  const snap = await messagesCol(db, quoteId).orderBy('sentAt', 'asc').get();
+  return snap.docs.map(serializeDoc);
+}
+
+async function seedMessagesFromQuote(db, quoteId, quote) {
+  const seeded = [];
+  if (quote.questionsText) {
+    seeded.push({
+      direction: 'outbound',
+      text: quote.questionsText,
+      sentAt: quote.questionsSentAt || quote.createdAt,
+      from: 'lab@dreamapplab.com',
+    });
+  }
+  if (quote.clientReplyText) {
+    seeded.push({
+      direction: 'inbound',
+      text: quote.clientReplyText,
+      sentAt: quote.clientRepliedAt || new Date().toISOString(),
+      from: quote.email,
+    });
+  }
+  if (!seeded.length) return [];
+
+  const col = messagesCol(db, quoteId);
+  const batch = db.batch();
+  seeded.forEach((msg) => {
+    const data = { ...msg };
+    if (typeof data.sentAt === 'string' && data.sentAt) {
+      const d = new Date(data.sentAt);
+      if (!Number.isNaN(d.getTime())) data.sentAt = Timestamp.fromDate(d);
+    }
+    batch.set(col.doc(), data);
+  });
+  await batch.commit();
+  return listMessages(db, quoteId);
+}
+
+async function handleMessages(req, res, db) {
+  const id = String((req.query && req.query.id) || '').trim();
+  if (!id) return res.status(400).json({ error: 'Quote id is required' });
+
+  const quoteRef = db.collection('quotes').doc(id);
+  const quoteSnap = await quoteRef.get();
+  if (!quoteSnap.exists) return res.status(404).json({ error: 'Quote not found' });
+
+  if (req.method === 'GET') {
+    let messages = await listMessages(db, id);
+    if (!messages.length) {
+      const quote = quoteSnap.data() || {};
+      if (quote.questionsText || quote.clientReplyText) {
+        messages = await seedMessagesFromQuote(db, id, quote);
+      }
+    }
+    return res.status(200).json({ ok: true, messages });
+  }
+
+  if (req.method === 'POST') {
+    const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
+    const data = prepareUpdate(body);
+    data.savedAt = FieldValue.serverTimestamp();
+    const createdRef = await messagesCol(db, id).add(data);
+    const created = await createdRef.get();
+    return res.status(200).json({ ok: true, message: serializeDoc(created) });
+  }
+
+  return res.status(405).json({ error: 'Method not allowed' });
+}
+
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
@@ -115,6 +198,10 @@ module.exports = async (req, res) => {
 
   try {
     const db = getSiteDb();
+    if (isMessagesRoute(req)) {
+      return handleMessages(req, res, db);
+    }
+
     const id = String((req.query && req.query.id) || '').trim();
 
     if (req.method === 'GET') {
