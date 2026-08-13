@@ -521,7 +521,7 @@ function QuoteDetail({ quote, onBack, onQuotePatched }) {
     (status === 'submitted' || status === 'accepted' || status === 'client_replied');
   const showInBuild = status === 'deposit_sent';
   const showBalance = status === 'in_build' || status === 'in_build_board';
-  const showMoveToBoard = status === 'in_build';
+  const showMoveToBoard = status === 'in_build' || status === 'accepted';
   const showComplete = status === 'balance_sent';
   const showNoAction = shownStatus === 'no_action';
   const depositDone = localDone.deposit || status === 'deposit_sent' || !!quote.stripeDepositUrl;
