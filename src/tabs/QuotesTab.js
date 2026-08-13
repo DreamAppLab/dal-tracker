@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
-import { addDoc, collection, doc, setDoc } from 'firebase/firestore';
+import { addDoc, collection, doc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 
 const FORTY_EIGHT_HOURS = 48 * 60 * 60 * 1000;
@@ -14,14 +14,17 @@ const FORM_TYPE_LABELS = {
   'pwa-quote': 'Business Web App',
 };
 
+const DAL_SITE_QUOTE_REPLY = 'https://www.dreamapplab.com/api/quote-reply';
+
 const STATUS_META = {
   submitted: { label: 'Submitted', color: '#94A3B8', bg: 'rgba(148,163,184,0.18)' },
-  accepted: { label: 'Accepted', color: '#3B82F6', bg: 'rgba(59,130,246,0.18)' },
+  accepted: { label: 'Ready to Review', color: '#3B82F6', bg: 'rgba(59,130,246,0.18)' },
   thinking: { label: 'Thinking', color: '#F59E0B', bg: 'rgba(245,158,11,0.18)' },
   questions_sent: { label: 'Questions Sent', color: '#F97316', bg: 'rgba(249,115,22,0.18)' },
   client_replied: { label: 'Client Replied', color: '#A855F7', bg: 'rgba(168,85,247,0.2)', pulse: true },
   deposit_sent: { label: 'Deposit Sent', color: '#14B8A6', bg: 'rgba(20,184,166,0.18)' },
   in_build: { label: 'In Build', color: '#22C55E', bg: 'rgba(34,197,94,0.18)' },
+  in_build_board: { label: 'On Build Board', color: '#22C55E', bg: 'rgba(34,197,94,0.28)' },
   balance_sent: { label: 'Balance Sent', color: '#7DD3FC', bg: 'rgba(125,211,252,0.2)' },
   complete: { label: 'Complete', color: '#166534', bg: 'rgba(22,101,52,0.4)' },
   no_action: { label: 'No Action', color: '#F87171', bg: 'rgba(248,113,113,0.14)' },
@@ -30,12 +33,13 @@ const STATUS_META = {
 const STATUS_FILTER_OPTIONS = [
   { value: '', label: 'All' },
   { value: 'submitted', label: 'Submitted' },
-  { value: 'accepted', label: 'Accepted' },
+  { value: 'accepted', label: 'Ready to Review' },
   { value: 'thinking', label: 'Thinking' },
   { value: 'questions_sent', label: 'Questions Sent' },
   { value: 'client_replied', label: 'Client Replied' },
   { value: 'deposit_sent', label: 'Deposit Sent' },
   { value: 'in_build', label: 'In Build' },
+  { value: 'in_build_board', label: 'On Build Board' },
   { value: 'balance_sent', label: 'Balance Sent' },
   { value: 'complete', label: 'Complete' },
   { value: 'no_action', label: 'No Action' },
@@ -221,6 +225,10 @@ function dateKey(value) {
   return `${y}-${m}-${day}`;
 }
 
+function isUnread(quote) {
+  return quote.readAt == null || quote.readAt === '';
+}
+
 function QuoteStatusBadge({ status }) {
   const meta = STATUS_META[status] || STATUS_META.submitted;
   return (
@@ -249,12 +257,20 @@ function QuoteDetail({ quote, onBack, onQuotePatched }) {
   const [discountValue, setDiscountValue] = useState('');
   const [discountNote, setDiscountNote] = useState(quote.dalDiscountNote || '');
   const [actionError, setActionError] = useState('');
+  const [actionNotice, setActionNotice] = useState('');
   const [busyAction, setBusyAction] = useState('');
+  const [questionsOpen, setQuestionsOpen] = useState(false);
+  const [questionsText, setQuestionsText] = useState(quote.questionsText || quote.clientQuestions || '');
+  const [startDate, setStartDate] = useState(dateKey(quote.estimatedStart));
+  const [completionDate, setCompletionDate] = useState(dateKey(quote.estimatedCompletion));
+  const [confirmDeposit, setConfirmDeposit] = useState(false);
   const [localDone, setLocalDone] = useState({
     deposit: false,
     balance: false,
     inBuild: false,
     complete: false,
+    movedToBoard: false,
+    resend: false,
   });
 
   const status = rawStatus(quote);
@@ -265,9 +281,21 @@ function QuoteDetail({ quote, onBack, onQuotePatched }) {
   const mgmt = managementInfo(quote);
   const biz = businessName(quote) || quote.name || 'Project';
 
+  useEffect(() => {
+    if (!isUnread(quote)) return undefined;
+    const readAt = new Date().toISOString();
+    if (onQuotePatched) onQuotePatched(quote.id, { readAt });
+    fetch('/api/quotes?id=' + encodeURIComponent(quote.id), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ readAt }),
+    }).catch((err) => console.error('Failed to mark quote read', err));
+    return undefined;
+  }, [quote.id]);
+
   const timeline = [
     { label: 'Submitted', at: quote.createdAt || quote.submittedAt },
-    { label: 'Accepted', at: quote.acceptedAt },
+    { label: 'Ready to Review', at: quote.acceptedAt },
     { label: 'Questions sent', at: quote.questionsSentAt },
     { label: 'Client replied', at: quote.clientRepliedAt },
   ].filter((step) => toDate(step.at));
@@ -357,17 +385,6 @@ function QuoteDetail({ quote, onBack, onQuotePatched }) {
       setDiscountOpen(false);
     });
 
-  const handleSendDeposit = () =>
-    runAction('deposit', async () => {
-      const url = await sendPaymentLink('deposit');
-      await patchQuote({
-        status: 'deposit_sent',
-        depositSentAt: new Date().toISOString(),
-        stripeDepositUrl: url,
-      });
-      setLocalDone((s) => ({ ...s, deposit: true }));
-    });
-
   const handleSendBalance = () =>
     runAction('balance', async () => {
       const url = await sendPaymentLink('balance');
@@ -407,18 +424,124 @@ function QuoteDetail({ quote, onBack, onQuotePatched }) {
       setLocalDone((s) => ({ ...s, complete: true }));
     });
 
-  const showDeposit = status === 'accepted' || status === 'client_replied';
+  const handleSendQuestions = () =>
+    runAction('questions', async () => {
+      if (!String(questionsText || '').trim()) {
+        throw new Error('Enter at least one question.');
+      }
+      const res = await fetch(DAL_SITE_QUOTE_REPLY, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: quote.id,
+          questions: questionsText,
+          startDate,
+          completionDate,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || data.detail || 'Failed to send questions');
+      }
+      if (onQuotePatched) {
+        onQuotePatched(quote.id, {
+          status: 'questions_sent',
+          questionsText,
+          estimatedStart: startDate,
+          estimatedCompletion: completionDate,
+          questionsSentAt: new Date().toISOString(),
+        });
+      }
+      setQuestionsOpen(false);
+      setConfirmDeposit(false);
+      setActionNotice('Questions sent — waiting for client reply.');
+    });
+
+  const handleSendDeposit = () =>
+    runAction('deposit', async () => {
+      const url = await sendPaymentLink('deposit');
+      await patchQuote({
+        status: 'deposit_sent',
+        depositSentAt: new Date().toISOString(),
+        stripeDepositUrl: url,
+      });
+      setConfirmDeposit(false);
+      setLocalDone((s) => ({ ...s, deposit: true }));
+    });
+
+  const handleMoveToBuildBoard = () =>
+    runAction('move_board', async () => {
+      const existing = await getDocs(query(collection(db, 'builds'), where('quoteId', '==', quote.id)));
+      if (existing.empty) {
+        await addDoc(collection(db, 'builds'), {
+          quoteId: quote.id,
+          clientName: quote.name || '',
+          email: quote.email || '',
+          businessName: biz,
+          formType: quote.formType || '',
+          total: pricing.finalTotal,
+          deposit: pricing.deposit,
+          balance: pricing.balance,
+          managementChoice: quote.managementChoice || '',
+          managedTier: quote.managedTier || quote.plan || '',
+          monthlyFee: quote.monthlyFee != null ? Number(quote.monthlyFee) : null,
+          status: 'in_build',
+          movedToBuildAt: new Date().toISOString(),
+          projectNotes: '',
+        });
+      }
+      await patchQuote({
+        status: 'in_build_board',
+        movedToBuildAt: new Date().toISOString(),
+      });
+      setLocalDone((s) => ({ ...s, movedToBoard: true }));
+      setActionNotice('Moved to Build Board');
+    });
+
+  const handleResendEstimate = () =>
+    runAction('resend', async () => {
+      const res = await fetch('/api/quotes/resend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: quote.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || data.detail || 'Failed to resend estimate');
+      }
+      setLocalDone((s) => ({ ...s, resend: true }));
+      setActionNotice('Estimate email resent.');
+    });
+
+  const showQuestions =
+    shownStatus !== 'no_action' &&
+    (status === 'submitted' || status === 'accepted' || status === 'questions_sent' || status === 'client_replied');
+  const showDeposit =
+    shownStatus !== 'no_action' &&
+    (status === 'submitted' || status === 'accepted' || status === 'client_replied');
   const showInBuild = status === 'deposit_sent';
-  const showBalance = status === 'in_build';
+  const showBalance = status === 'in_build' || status === 'in_build_board';
+  const showMoveToBoard = status === 'in_build';
   const showComplete = status === 'balance_sent';
+  const showNoAction = shownStatus === 'no_action';
   const depositDone = localDone.deposit || status === 'deposit_sent' || !!quote.stripeDepositUrl;
   const balanceDone = localDone.balance || status === 'balance_sent' || !!quote.stripeBalanceUrl;
-  const inBuildDone = localDone.inBuild || status === 'in_build' || !!quote.inBuildAt;
+  const inBuildDone = localDone.inBuild || status === 'in_build' || status === 'in_build_board' || !!quote.inBuildAt;
   const completeDone = localDone.complete || status === 'complete' || !!quote.completedAt;
+  const movedToBoard = localDone.movedToBoard || status === 'in_build_board';
+  const questionsLabel =
+    status === 'questions_sent' || status === 'client_replied' ? 'Ask More Questions' : 'Ask Questions';
 
   return (
     <div className="quotes-detail">
-      <button type="button" className="btn btn-ghost quotes-back" onClick={onBack}>
+      <button
+        type="button"
+        className="btn btn-ghost quotes-back"
+        onClick={(e) => {
+          e.preventDefault();
+          if (typeof onBack === 'function') onBack();
+        }}
+      >
         ← Back to quotes
       </button>
 
@@ -601,21 +724,135 @@ function QuoteDetail({ quote, onBack, onQuotePatched }) {
 
       <section className="quotes-section quotes-actions">
         <h2>Actions</h2>
-        {status === 'client_replied' && (
-          <div className="quotes-reply-notice">
-            Client has replied to your questions — check lab@dreamapplab.com for their response. Send the deposit link when ready.
+        {actionNotice && <div className="quotes-success-notice">{actionNotice}</div>}
+
+        {showNoAction && (
+          <div className="quotes-wait-notice">Client has not responded to their estimate.</div>
+        )}
+        {status === 'questions_sent' && (
+          <div className="quotes-wait-notice">
+            Waiting for client reply — check lab@dreamapplab.com for their response.
           </div>
         )}
-        {quote.clientReplyText && (
+        {status === 'client_replied' && (
+          <div className="quotes-reply-notice">
+            Client has replied — check lab@dreamapplab.com for their response.
+          </div>
+        )}
+        {status === 'client_replied' && quote.clientReplyText && (
           <div className="quotes-reply-preview">{quote.clientReplyText}</div>
         )}
+        {status === 'deposit_sent' && (
+          <div className="quotes-wait-notice">Deposit link sent — waiting for payment.</div>
+        )}
+        {status === 'in_build_board' && (
+          <div className="quotes-wait-notice">This project is on the Build Board.</div>
+        )}
+        {status === 'balance_sent' && (
+          <div className="quotes-wait-notice">Balance link sent — waiting for final payment.</div>
+        )}
+        {status === 'complete' && (
+          <div className="quotes-wait-notice">
+            Project complete.{quote.completedAt ? ` Completed ${formatDateTime(quote.completedAt)}.` : ''}
+          </div>
+        )}
+        {status === 'thinking' && shownStatus !== 'no_action' && (
+          <div className="quotes-wait-notice">Client is still thinking about their estimate.</div>
+        )}
+
+        {showQuestions && questionsOpen && (
+          <div className="quotes-questions-form">
+            <div className="form-group">
+              <label className="form-label">Questions for the client</label>
+              <textarea
+                className="form-input"
+                style={{ minHeight: 120, resize: 'vertical' }}
+                value={questionsText}
+                onChange={(e) => setQuestionsText(e.target.value)}
+                placeholder="One question per line"
+              />
+            </div>
+            <div className="quotes-info-grid" style={{ marginBottom: 12 }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Estimated start</label>
+                <input
+                  className="form-input"
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Estimated completion</label>
+                <input
+                  className="form-input"
+                  type="date"
+                  value={completionDate}
+                  onChange={(e) => setCompletionDate(e.target.value)}
+                />
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!!busyAction}
+              onClick={handleSendQuestions}
+            >
+              {busyAction === 'questions' ? 'Sending…' : 'Send Questions'}
+            </button>
+          </div>
+        )}
+
+        {showDeposit && confirmDeposit && !depositDone && (
+          <div className="quotes-confirm-box">
+            <p>
+              Send deposit link of <strong>{money(pricing.deposit)}</strong> to <strong>{quote.email}</strong>?
+            </p>
+            <div className="quotes-action-row" style={{ marginTop: 12 }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!!busyAction}
+                onClick={handleSendDeposit}
+              >
+                {busyAction === 'deposit' ? 'Sending…' : 'Confirm'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={!!busyAction}
+                onClick={() => setConfirmDeposit(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="quotes-action-row">
+          {showQuestions && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={!!busyAction}
+              onClick={() => {
+                setConfirmDeposit(false);
+                setQuestionsOpen((v) => !v);
+              }}
+            >
+              {questionsOpen ? 'Cancel questions' : questionsLabel}
+            </button>
+          )}
           {showDeposit && (
             <button
               type="button"
               className="btn btn-primary"
               disabled={!!busyAction || depositDone}
-              onClick={handleSendDeposit}
+              onClick={() => {
+                if (depositDone) return;
+                setQuestionsOpen(false);
+                setConfirmDeposit(true);
+              }}
             >
               {depositDone
                 ? 'Deposit Link Sent ✓'
@@ -652,6 +889,20 @@ function QuoteDetail({ quote, onBack, onQuotePatched }) {
                   : 'Mark In Build'}
             </button>
           )}
+          {showMoveToBoard && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={!!busyAction || movedToBoard}
+              onClick={handleMoveToBuildBoard}
+            >
+              {movedToBoard
+                ? 'Moved to Build Board ✓'
+                : busyAction === 'move_board'
+                  ? 'Moving…'
+                  : 'Move to Build Board'}
+            </button>
+          )}
           {showComplete && (
             <button
               type="button"
@@ -666,8 +917,19 @@ function QuoteDetail({ quote, onBack, onQuotePatched }) {
                   : 'Mark Complete'}
             </button>
           )}
-          {!showDeposit && !showBalance && !showInBuild && !showComplete && (
-            <p className="quotes-muted">No actions available for this status.</p>
+          {showNoAction && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!!busyAction || localDone.resend}
+              onClick={handleResendEstimate}
+            >
+              {localDone.resend
+                ? 'Estimate resent ✓'
+                : busyAction === 'resend'
+                  ? 'Sending…'
+                  : 'Resend estimate email'}
+            </button>
           )}
         </div>
         {actionError && <div className="quotes-error">{actionError}</div>}
@@ -743,6 +1005,19 @@ export default function QuotesTab() {
   }, [quotes, filters]);
 
   const selected = selectedId ? quotes.find((q) => q.id === selectedId) : null;
+
+  const openQuote = (quote) => {
+    if (isUnread(quote)) {
+      const readAt = new Date().toISOString();
+      setQuotes((prev) => prev.map((q) => (q.id === quote.id ? { ...q, readAt } : q)));
+      fetch('/api/quotes?id=' + encodeURIComponent(quote.id), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ readAt }),
+      }).catch((err) => console.error('Failed to mark quote read', err));
+    }
+    setSelectedId(quote.id);
+  };
 
   const handleDeleteQuote = async () => {
     if (!pendingDelete) return;
@@ -861,6 +1136,7 @@ export default function QuotesTab() {
           <table className="stack-table quotes-table">
             <thead>
               <tr>
+                <th className="quotes-unread-col" aria-label="Unread" />
                 <th>Date</th>
                 <th>Client</th>
                 <th>Business</th>
@@ -873,7 +1149,7 @@ export default function QuotesTab() {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="quotes-muted" style={{ textAlign: 'center', padding: 28 }}>
+                  <td colSpan={8} className="quotes-muted" style={{ textAlign: 'center', padding: 28 }}>
                     No quotes match the current filters.
                   </td>
                 </tr>
@@ -881,12 +1157,16 @@ export default function QuotesTab() {
                 filtered.map((quote) => {
                   const pricing = quotePricing(quote);
                   const hasDal = pricing.dalDiscount > 0;
+                  const unread = isUnread(quote);
                   return (
                     <tr
                       key={quote.id}
-                      className="quotes-row"
-                      onClick={() => setSelectedId(quote.id)}
+                      className={`quotes-row${unread ? ' quotes-row-unread' : ''}`}
+                      onClick={() => openQuote(quote)}
                     >
+                      <td className="quotes-unread-col">
+                        {unread ? <span className="quotes-unread-dot" aria-label="Unread" /> : null}
+                      </td>
                       <td>{formatDateTime(quote.createdAt)}</td>
                       <td>{quote.name || '—'}</td>
                       <td>{businessName(quote) || '—'}</td>

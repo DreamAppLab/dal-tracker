@@ -2008,6 +2008,24 @@ option { background: var(--bg-card); }
 .quotes-table { min-width: 860px; }
 .quotes-row { cursor: pointer; }
 .quotes-row:hover td { background: var(--bg-card-hover); }
+.quotes-unread-col {
+  width: 22px;
+  padding-left: 10px !important;
+  padding-right: 0 !important;
+  vertical-align: middle;
+}
+.quotes-unread-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4cc1f3;
+  box-shadow: 0 0 6px rgba(76, 193, 243, 0.55);
+}
+.quotes-row-unread td {
+  color: #F8FAFC;
+  font-weight: 500;
+}
 .quotes-strike {
   text-decoration: line-through;
   color: var(--text-secondary);
@@ -2142,6 +2160,77 @@ option { background: var(--bg-card); }
   background: var(--coral-dim);
   color: var(--coral);
   font-size: 13px;
+}
+.quotes-wait-notice {
+  background: rgba(148, 163, 184, 0.12);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+.quotes-success-notice {
+  background: rgba(34, 197, 94, 0.14);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  color: #86efac;
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+.quotes-questions-form,
+.quotes-confirm-box {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  margin-bottom: 14px;
+}
+.quotes-confirm-box p {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+.build-blackbox h2 { margin-bottom: 0; }
+.build-bb-form {
+  background: rgba(15, 22, 36, 0.72);
+  border: 1px solid rgba(76, 193, 243, 0.18);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  margin-bottom: 14px;
+}
+.build-bb-card {
+  background: rgba(15, 22, 36, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 10px;
+}
+.build-bb-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.build-bb-label {
+  font-weight: 650;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.build-bb-value {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--teal);
+  word-break: break-all;
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 @media (max-width: 980px) {
   .quotes-filters { grid-template-columns: 1fr 1fr; }

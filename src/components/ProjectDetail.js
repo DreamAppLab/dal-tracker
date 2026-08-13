@@ -13,6 +13,7 @@ import AppLogo from './AppLogo';
 import BlackBox from './BlackBox';
 import { FamilyThreadAdminTab } from '../pages/FamilyThreadAdmin';
 import QuotesTab from '../tabs/QuotesTab';
+import BuildBoardTab from '../tabs/BuildBoardTab';
 
 function getProgress(project) {
   const allTasks = [...(project.milestones || []), ...(project.edits || [])];
@@ -195,6 +196,8 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deletingProject, setDeletingProject] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const [paymentType, setPaymentType] = useState('out');
   const [editingItem, setEditingItem] = useState(null);
   const [editsFilter, setEditsFilter] = useState('all');
@@ -208,7 +211,10 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
   const isDalWebsite = isDalWebsiteProject(project);
   const TABS = [
     { key: 'overview', label: 'Overview' },
-    ...(isDalWebsite ? [{ key: 'quotes', label: 'Quotes' }] : []),
+    ...(isDalWebsite ? [
+      { key: 'quotes', label: 'Quotes' },
+      { key: 'builds', label: 'Build Board' },
+    ] : []),
     ...(isFamilyThread ? [{ key: 'admin', label: 'Admin Panel' }] : []),
     ...BASE_TABS.filter((t) => t.key !== 'overview'),
     ...(isApp ? [{ key: 'checklist', label: 'Checklists' }] : []),
@@ -227,6 +233,9 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
       setActiveTab('overview');
     }
     if (activeTab === 'quotes' && !isDalWebsite) {
+      setActiveTab('overview');
+    }
+    if (activeTab === 'builds' && !isDalWebsite) {
       setActiveTab('overview');
     }
   }, [activeTab, isFamilyThread, isDalWebsite, project.id]);
@@ -398,6 +407,7 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
             className="btn btn-danger btn-sm"
             onClick={() => {
               setDeleteConfirmText('');
+              setDeleteError('');
               setShowDeleteModal(true);
             }}
           >
@@ -488,6 +498,8 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
       {activeTab === 'admin' && isFamilyThread && <FamilyThreadAdminTab />}
 
       {activeTab === 'quotes' && isDalWebsite && <QuotesTab />}
+
+      {activeTab === 'builds' && isDalWebsite && <BuildBoardTab />}
 
       {activeTab === 'milestones' && (
         <div className="data-section">
@@ -877,11 +889,11 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
       {showStackModal && <TechStackModal onSave={handleSaveStack} onClose={() => setShowStackModal(false)} />}
       {showPaymentModal && <PaymentModal type={paymentType} onSave={handleSavePayment} onClose={() => setShowPaymentModal(false)} />}
       {showDeleteModal && (
-        <div className="modal-overlay" onClick={() => { setDeleteConfirmText(''); setShowDeleteModal(false); }}>
+        <div className="modal-overlay" onClick={() => { if (deletingProject) return; setDeleteConfirmText(''); setDeleteError(''); setShowDeleteModal(false); }}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title">Delete project</div>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setDeleteConfirmText(''); setShowDeleteModal(false); }}>✕</button>
+              <button type="button" className="btn btn-ghost btn-sm" disabled={deletingProject} onClick={() => { setDeleteConfirmText(''); setDeleteError(''); setShowDeleteModal(false); }}>✕</button>
             </div>
             <div className="modal-body">
               <p style={{ color: 'var(--coral)', marginBottom: 12, lineHeight: 1.5 }}>
@@ -899,15 +911,19 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
                   onChange={(e) => setDeleteConfirmText(e.target.value)}
                   placeholder="Type DELETE to confirm"
                   autoFocus
+                  disabled={deletingProject}
                 />
               </div>
+              {deleteError && <div className="quotes-error" style={{ marginTop: 12 }}>{deleteError}</div>}
             </div>
             <div className="modal-footer">
               <button
                 type="button"
                 className="btn btn-secondary"
+                disabled={deletingProject}
                 onClick={() => {
                   setDeleteConfirmText('');
+                  setDeleteError('');
                   setShowDeleteModal(false);
                 }}
               >
@@ -916,13 +932,30 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
               <button
                 type="button"
                 className="btn btn-danger"
-                disabled={deleteConfirmText !== 'DELETE'}
-                onClick={() => {
+                disabled={deleteConfirmText !== 'DELETE' || deletingProject}
+                onClick={async () => {
                   if (deleteConfirmText !== 'DELETE') return;
-                  onDelete(project.id);
+                  setDeletingProject(true);
+                  setDeleteError('');
+                  try {
+                    const res = await fetch('/api/delete-project', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ id: project.id }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok || !data.ok) {
+                      throw new Error(data.error || data.detail || 'Failed to delete project');
+                    }
+                    onDelete(project.id);
+                  } catch (err) {
+                    console.error(err);
+                    setDeleteError(err.message || String(err));
+                    setDeletingProject(false);
+                  }
                 }}
               >
-                Delete Project
+                {deletingProject ? 'Deleting…' : 'Delete Project'}
               </button>
             </div>
           </div>
