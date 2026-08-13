@@ -10,7 +10,6 @@ import CalendarDashboard from './components/CalendarDashboard';
 import TodoDashboard from './components/TodoDashboard';
 import ReviewRequestsDashboard from './components/ReviewRequestsDashboard';
 import DALHeadquarters from './components/DALHeadquarters';
-import QuotesTab from './tabs/QuotesTab';
 import ProjectDetail from './components/ProjectDetail';
 import Sidebar from './components/Sidebar';
 import AddProjectModal from './components/AddProjectModal';
@@ -155,7 +154,6 @@ function DashboardApp() {
             onAddProject={() => setShowAddModal(true)}
           />
         )}
-        {activeView === 'quotes' && <QuotesTab />}
         {activeView === 'aso' && (
           <ASODashboard projects={projects} />
         )}
