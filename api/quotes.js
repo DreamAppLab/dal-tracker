@@ -5,8 +5,6 @@
 
 const admin = require('firebase-admin');
 
-const APP_NAME = 'dalSiteAdmin';
-
 const TIMESTAMP_FIELDS = new Set([
   'createdAt',
   'acceptedAt',
@@ -21,26 +19,34 @@ const TIMESTAMP_FIELDS = new Set([
   'sentAt',
 ]);
 
+let _siteDb = null;
+
 function getSiteDb() {
+  if (_siteDb) return _siteDb;
+
   const projectId = process.env.DAL_SITE_FIREBASE_PROJECT_ID;
   const clientEmail = process.env.DAL_SITE_FIREBASE_CLIENT_EMAIL;
   const privateKey = (process.env.DAL_SITE_FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+
   if (!projectId || !clientEmail || !privateKey) {
     throw new Error(
       'Missing DAL_SITE_FIREBASE_PROJECT_ID, DAL_SITE_FIREBASE_CLIENT_EMAIL, or DAL_SITE_FIREBASE_PRIVATE_KEY'
     );
   }
 
-  const existing = admin.apps.find((app) => app && app.name === APP_NAME);
-  const app =
-    existing ||
-    admin.initializeApp(
-      {
-        credential: admin.credential.cert({ projectId, clientEmail, privateKey }),
-      },
-      APP_NAME
+  const appName = 'dalSiteAdmin';
+  let app;
+  try {
+    app = admin.app(appName);
+  } catch (_) {
+    app = admin.initializeApp(
+      { credential: admin.credential.cert({ projectId, clientEmail, privateKey }) },
+      appName
     );
-  return app.firestore();
+  }
+
+  _siteDb = app.firestore();
+  return _siteDb;
 }
 
 function serializeValue(value) {
