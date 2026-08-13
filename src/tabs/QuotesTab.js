@@ -690,6 +690,8 @@ export default function QuotesTab() {
   const [error, setError] = useState('');
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [selectedId, setSelectedId] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -741,6 +743,29 @@ export default function QuotesTab() {
   }, [quotes, filters]);
 
   const selected = selectedId ? quotes.find((q) => q.id === selectedId) : null;
+
+  const handleDeleteQuote = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    setError('');
+    try {
+      const res = await fetch('/api/quotes?id=' + encodeURIComponent(pendingDelete.id), {
+        method: 'DELETE',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || data.detail || 'Failed to delete quote');
+      }
+      setQuotes((prev) => prev.filter((q) => q.id !== pendingDelete.id));
+      if (selectedId === pendingDelete.id) setSelectedId(null);
+      setPendingDelete(null);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || String(err));
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   if (selected) {
     return (
@@ -842,12 +867,13 @@ export default function QuotesTab() {
                 <th>Type</th>
                 <th>Total</th>
                 <th>Status</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="quotes-muted" style={{ textAlign: 'center', padding: 28 }}>
+                  <td colSpan={7} className="quotes-muted" style={{ textAlign: 'center', padding: 28 }}>
                     No quotes match the current filters.
                   </td>
                 </tr>
@@ -879,12 +905,66 @@ export default function QuotesTab() {
                       <td>
                         <QuoteStatusBadge status={displayStatus(quote)} />
                       </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="icon-btn danger"
+                          title="Delete quote"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPendingDelete(quote);
+                          }}
+                        >
+                          🗑
+                        </button>
+                      </td>
                     </tr>
                   );
                 })
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {pendingDelete && (
+        <div className="modal-overlay" onClick={() => !deleting && setPendingDelete(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">Delete quote</div>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                disabled={deleting}
+                onClick={() => setPendingDelete(null)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <p style={{ lineHeight: 1.5 }}>
+                Delete this quote from <strong>{pendingDelete.name || 'this client'}</strong>? This cannot be undone.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={deleting}
+                onClick={() => setPendingDelete(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={deleting}
+                onClick={handleDeleteQuote}
+              >
+                {deleting ? 'Deleting…' : 'Confirm'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
