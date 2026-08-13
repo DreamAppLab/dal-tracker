@@ -28,6 +28,10 @@ function getSiteDb() {
   const clientEmail = process.env.DAL_SITE_FIREBASE_CLIENT_EMAIL;
   const privateKey = (process.env.DAL_SITE_FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
 
+  console.log('DAL_SITE projectId:', process.env.DAL_SITE_FIREBASE_PROJECT_ID);
+  console.log('DAL_SITE clientEmail:', process.env.DAL_SITE_FIREBASE_CLIENT_EMAIL ? 'SET' : 'MISSING');
+  console.log('DAL_SITE privateKey first 30:', (process.env.DAL_SITE_FIREBASE_PRIVATE_KEY || '').slice(0, 30));
+
   if (!projectId || !clientEmail || !privateKey) {
     throw new Error(
       'Missing DAL_SITE_FIREBASE_PROJECT_ID, DAL_SITE_FIREBASE_CLIENT_EMAIL, or DAL_SITE_FIREBASE_PRIVATE_KEY'
