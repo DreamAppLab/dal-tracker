@@ -3,7 +3,8 @@
 // GET  /api/quotes?id=xxx   — one quote
 // POST /api/quotes?id=xxx   — merge-update one quote
 
-const admin = require('firebase-admin');
+const { initializeApp, getApp, getApps, cert } = require('firebase-admin/app');
+const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
 
 const TIMESTAMP_FIELDS = new Set([
   'createdAt',
@@ -28,28 +29,26 @@ function getSiteDb() {
   const clientEmail = process.env.DAL_SITE_FIREBASE_CLIENT_EMAIL;
   const privateKey = (process.env.DAL_SITE_FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
 
-  console.log('DAL_SITE projectId:', process.env.DAL_SITE_FIREBASE_PROJECT_ID);
-  console.log('DAL_SITE clientEmail:', process.env.DAL_SITE_FIREBASE_CLIENT_EMAIL ? 'SET' : 'MISSING');
-  console.log('DAL_SITE privateKey first 30:', (process.env.DAL_SITE_FIREBASE_PRIVATE_KEY || '').slice(0, 30));
+  console.log('DAL_SITE projectId:', projectId);
+  console.log('DAL_SITE clientEmail:', clientEmail ? 'SET' : 'MISSING');
+  console.log('DAL_SITE privateKey first 30:', (privateKey || '').slice(0, 30));
 
   if (!projectId || !clientEmail || !privateKey) {
-    throw new Error(
-      'Missing DAL_SITE_FIREBASE_PROJECT_ID, DAL_SITE_FIREBASE_CLIENT_EMAIL, or DAL_SITE_FIREBASE_PRIVATE_KEY'
-    );
+    throw new Error('Missing DAL_SITE Firebase env vars');
   }
 
   const appName = 'dalSiteAdmin';
   let app;
   try {
-    app = admin.app(appName);
+    app = getApp(appName);
   } catch (_) {
-    app = admin.initializeApp(
-      { credential: admin.credential.cert({ projectId, clientEmail, privateKey }) },
+    app = initializeApp(
+      { credential: cert({ projectId, clientEmail, privateKey }) },
       appName
     );
   }
 
-  _siteDb = app.firestore();
+  _siteDb = getFirestore(app);
   return _siteDb;
 }
 
@@ -97,13 +96,13 @@ function prepareUpdate(body) {
     if (!TIMESTAMP_FIELDS.has(key)) return;
     const val = update[key];
     if (val === true || val === 'SERVER_TIMESTAMP') {
-      update[key] = admin.firestore.FieldValue.serverTimestamp();
+      update[key] = FieldValue.serverTimestamp();
       return;
     }
     if (typeof val === 'string' && val) {
       const d = new Date(val);
       if (!Number.isNaN(d.getTime())) {
-        update[key] = admin.firestore.Timestamp.fromDate(d);
+        update[key] = Timestamp.fromDate(d);
       }
     }
   });
