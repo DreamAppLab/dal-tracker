@@ -10,6 +10,7 @@ import CalendarDashboard from './components/CalendarDashboard';
 import TodoDashboard from './components/TodoDashboard';
 import ReviewRequestsDashboard from './components/ReviewRequestsDashboard';
 import DALHeadquarters from './components/DALHeadquarters';
+import ExpensesTab from './tabs/ExpensesTab';
 import ProjectDetail from './components/ProjectDetail';
 import Sidebar from './components/Sidebar';
 import AddProjectModal from './components/AddProjectModal';
@@ -164,6 +165,7 @@ function DashboardApp() {
             }}
           />
         )}
+        {activeView === 'expenses' && <ExpensesTab />}
         {activeView === 'subscriptions' && (
           <SubscriptionsDashboard projects={projects} />
         )}
