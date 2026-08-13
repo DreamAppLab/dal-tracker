@@ -193,6 +193,8 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [showStackModal, setShowStackModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [paymentType, setPaymentType] = useState('out');
   const [editingItem, setEditingItem] = useState(null);
   const [editsFilter, setEditsFilter] = useState('all');
@@ -392,7 +394,15 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
           </div>
         </div>
         <div className="detail-header-actions">
-          <button className="btn btn-danger btn-sm" onClick={() => { if (window.confirm('Delete this project?')) onDelete(project.id); }}>Delete</button>
+          <button
+            className="btn btn-danger btn-sm"
+            onClick={() => {
+              setDeleteConfirmText('');
+              setShowDeleteModal(true);
+            }}
+          >
+            Delete
+          </button>
         </div>
       </div>
 
@@ -866,6 +876,58 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
       {showExpenseModal && <ExpenseModal expense={editingItem} onSave={handleSaveExpense} onClose={() => { setShowExpenseModal(false); setEditingItem(null); }} />}
       {showStackModal && <TechStackModal onSave={handleSaveStack} onClose={() => setShowStackModal(false)} />}
       {showPaymentModal && <PaymentModal type={paymentType} onSave={handleSavePayment} onClose={() => setShowPaymentModal(false)} />}
+      {showDeleteModal && (
+        <div className="modal-overlay" onClick={() => { setDeleteConfirmText(''); setShowDeleteModal(false); }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">Delete project</div>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setDeleteConfirmText(''); setShowDeleteModal(false); }}>✕</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ color: 'var(--coral)', marginBottom: 12, lineHeight: 1.5 }}>
+                This will permanently delete this project and cannot be undone.
+              </p>
+              <p style={{ marginBottom: 16, lineHeight: 1.5 }}>
+                You are about to delete <strong>{project.name}</strong>.
+              </p>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Type DELETE to confirm</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder="Type DELETE to confirm"
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => {
+                  setDeleteConfirmText('');
+                  setShowDeleteModal(false);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={deleteConfirmText !== 'DELETE'}
+                onClick={() => {
+                  if (deleteConfirmText !== 'DELETE') return;
+                  onDelete(project.id);
+                }}
+              >
+                Delete Project
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
