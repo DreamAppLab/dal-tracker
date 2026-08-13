@@ -1,7 +1,7 @@
 // src/components/Dashboard.js
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
 import { STATUS_CONFIG } from '../data/initialData';
 import AddPipelineModal from './AddPipelineModal';
 
@@ -107,6 +107,7 @@ export default function Dashboard({ projects, pipelineItems, onSelectProject, on
   const [showAddPipelineModal, setShowAddPipelineModal] = useState(false);
   const [hoveredPipelineId, setHoveredPipelineId] = useState(null);
   const [movingPipelineId, setMovingPipelineId] = useState(null);
+  const [monthlyExpensesTotal, setMonthlyExpensesTotal] = useState(0);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'dashboard', 'summary'), (snapshot) => {
@@ -115,11 +116,27 @@ export default function Dashboard({ projects, pipelineItems, onSelectProject, on
     return () => unsub();
   }, []);
 
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'expenses'), (snapshot) => {
+      const now = new Date();
+      const prefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const total = snapshot.docs.reduce((sum, d) => {
+        const data = d.data() || {};
+        if (String(data.date || '').startsWith(prefix)) {
+          return sum + Number(data.amount || 0);
+        }
+        return sum;
+      }, 0);
+      setMonthlyExpensesTotal(total);
+    });
+    return () => unsub();
+  }, []);
+
   const projectsMRR = projects.reduce((s, p) => s + (p.revenue?.monthly || 0), 0);
   const projectsRevenue = projects.reduce((s, p) => s + (p.revenue?.total || 0), 0);
   const totalMRR = dashboardSummary?.monthlyRevenue ?? projectsMRR;
   const totalRevenue = dashboardSummary?.totalRevenue ?? projectsRevenue;
-  const totalMonthlyExp = projects.reduce((s, p) => s + getMonthlyExpenses(p), 0);
+  const totalMonthlyExp = monthlyExpensesTotal;
   const liveCount = projects.filter(p => p.status === 'live').length;
   const inDevCount = projects.filter(p => p.status === 'in-development').length;
   const openEdits = projects.reduce((s, p) => s + (p.edits || []).filter(e => !e.completed).length, 0);
@@ -193,7 +210,7 @@ export default function Dashboard({ projects, pipelineItems, onSelectProject, on
         <div className="stat-card coral">
           <div className="stat-label">Monthly Expenses</div>
           <div className="stat-value" style={{ color: 'var(--coral)' }}>${totalMonthlyExp.toFixed(0)}</div>
-          <div className="stat-sub">APIs, hosting, tools</div>
+          <div className="stat-sub">This calendar month</div>
         </div>
         <div className="stat-card green">
           <div className="stat-label">Net Monthly</div>

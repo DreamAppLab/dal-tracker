@@ -44,6 +44,13 @@ export default function Sidebar({ projects, revenueLogos = {}, activeView, selec
           {sidebarOpen && <span className="sidebar-item-text">Revenue</span>}
         </button>
         <button
+          className={`sidebar-item ${activeView === 'expenses' ? 'active' : ''}`}
+          onClick={() => onNavigate('expenses')}
+        >
+          <span className="sidebar-item-icon">🧾</span>
+          {sidebarOpen && <span className="sidebar-item-text">Expenses</span>}
+        </button>
+        <button
           className={`sidebar-item ${activeView === 'subscriptions' ? 'active' : ''}`}
           onClick={() => onNavigate('subscriptions')}
         >

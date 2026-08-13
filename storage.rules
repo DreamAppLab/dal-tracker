@@ -12,5 +12,9 @@ service firebase.storage {
     match /vault/{projectId}/{fileName} {
       allow read, write: if isAuthorizedUser();
     }
+
+    match /expenses/{expenseId}/{fileName} {
+      allow read, write: if isAuthorizedUser();
+    }
   }
 }
