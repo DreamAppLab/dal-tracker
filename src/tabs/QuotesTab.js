@@ -251,6 +251,58 @@ function InfoRow({ label, children }) {
   );
 }
 
+function MessageBubble({ message, clientLabel }) {
+  const outbound = String(message.direction || '').toLowerCase() === 'outbound';
+  return (
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: outbound ? 'flex-end' : 'flex-start',
+        marginBottom: 10,
+      }}
+    >
+      <div
+        style={{
+          maxWidth: '78%',
+          padding: '10px 12px',
+          borderRadius: 10,
+          background: outbound ? 'rgba(76,193,243,0.12)' : '#1A2234',
+          border: outbound
+            ? '1px solid rgba(76,193,243,0.45)'
+            : '1px solid rgba(255,255,255,0.12)',
+          textAlign: outbound ? 'right' : 'left',
+        }}
+      >
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: '0.04em',
+            textTransform: 'uppercase',
+            color: outbound ? '#4cc1f3' : '#94A3B8',
+            marginBottom: 4,
+          }}
+        >
+          {outbound ? 'Dream App Lab' : clientLabel}
+        </div>
+        <div
+          style={{
+            fontSize: 14,
+            color: '#E2E8F0',
+            whiteSpace: 'pre-wrap',
+            lineHeight: 1.5,
+          }}
+        >
+          {message.text || ''}
+        </div>
+        <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 6 }}>
+          {formatDateTime(message.sentAt)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function QuoteDetail({ quote, onBack, onQuotePatched }) {
   const [discountOpen, setDiscountOpen] = useState(false);
   const [discountMode, setDiscountMode] = useState('dollar');
@@ -272,6 +324,8 @@ function QuoteDetail({ quote, onBack, onQuotePatched }) {
     movedToBoard: false,
     resend: false,
   });
+  const [messages, setMessages] = useState([]);
+  const [messagesLoading, setMessagesLoading] = useState(true);
 
   const status = rawStatus(quote);
   const shownStatus = displayStatus(quote);
@@ -291,6 +345,31 @@ function QuoteDetail({ quote, onBack, onQuotePatched }) {
       body: JSON.stringify({ readAt }),
     }).catch((err) => console.error('Failed to mark quote read', err));
     return undefined;
+  }, [quote.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMessages() {
+      setMessagesLoading(true);
+      try {
+        const res = await fetch('/api/quotes/messages?id=' + encodeURIComponent(quote.id));
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || data.detail || 'Failed to load messages');
+        }
+        setMessages(Array.isArray(data.messages) ? data.messages : []);
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) setMessages([]);
+      } finally {
+        if (!cancelled) setMessagesLoading(false);
+      }
+    }
+    loadMessages();
+    return () => {
+      cancelled = true;
+    };
   }, [quote.id]);
 
   const timeline = [
@@ -443,15 +522,26 @@ function QuoteDetail({ quote, onBack, onQuotePatched }) {
       if (!res.ok || !data.ok) {
         throw new Error(data.error || data.detail || 'Failed to send questions');
       }
+      const sentAt = new Date().toISOString();
       if (onQuotePatched) {
         onQuotePatched(quote.id, {
           status: 'questions_sent',
           questionsText,
           estimatedStart: startDate,
           estimatedCompletion: completionDate,
-          questionsSentAt: new Date().toISOString(),
+          questionsSentAt: sentAt,
         });
       }
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: 'local-' + sentAt,
+          direction: 'outbound',
+          text: String(questionsText || '').trim(),
+          sentAt,
+          from: 'lab@dreamapplab.com',
+        },
+      ]);
       setQuestionsOpen(false);
       setConfirmDeposit(false);
       setActionNotice('Questions sent — waiting for client reply.');
@@ -570,6 +660,27 @@ function QuoteDetail({ quote, onBack, onQuotePatched }) {
                 {i > 0 ? ' | ' : ''}
                 {step.label} at {formatDateTime(step.at)}
               </span>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="quotes-section">
+        <h2>Messages</h2>
+        {messagesLoading ? (
+          <p className="quotes-muted">Loading messages…</p>
+        ) : messages.length === 0 ? (
+          <p className="quotes-muted">
+            No messages yet — use Ask Questions to start the conversation.
+          </p>
+        ) : (
+          <div>
+            {messages.map((message, i) => (
+              <MessageBubble
+                key={message.id || message.sentAt || i}
+                message={message}
+                clientLabel={String(quote.name || '').trim().split(/\s+/)[0] || 'Client'}
+              />
             ))}
           </div>
         )}
