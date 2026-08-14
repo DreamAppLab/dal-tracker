@@ -1,7 +1,32 @@
 import { collection, doc, getDocs, getDoc, setDoc } from 'firebase/firestore';
 
+export const CLIENT_REVENUE_TYPES = ['deposit', 'balance', 'reversal'];
+
+export function isClientProjectRevenueEntry(entry) {
+  return CLIENT_REVENUE_TYPES.includes(String(entry?.type || '').toLowerCase());
+}
+
 export function sumManualSales(entries) {
   return (entries || []).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+}
+
+export function sumClientProjectRevenue(entries) {
+  let deposits = 0;
+  let balances = 0;
+  let reversals = 0;
+  (entries || []).forEach((entry) => {
+    const amount = Number(entry.amount) || 0;
+    const type = String(entry.type || '').toLowerCase();
+    if (type === 'deposit') deposits += amount;
+    else if (type === 'balance') balances += amount;
+    else if (type === 'reversal') reversals += Math.abs(amount);
+  });
+  return {
+    deposits,
+    balances,
+    reversals,
+    net: deposits + balances - reversals,
+  };
 }
 
 export function getCombinedTotalRevenue(revenueDoc, manualSalesTotal) {

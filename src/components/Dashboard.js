@@ -4,6 +4,7 @@ import { db } from '../firebase';
 import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
 import { STATUS_CONFIG } from '../data/initialData';
 import AddPipelineModal from './AddPipelineModal';
+import { sumClientProjectRevenue } from '../utils/revenueTotals';
 
 function getProgress(project) {
   const allTasks = [
@@ -102,12 +103,32 @@ function ProjectCard({ project, onClick }) {
   );
 }
 
+function currentMonthRange() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const lastDay = String(new Date(year, now.getMonth() + 1, 0).getDate()).padStart(2, '0');
+  return {
+    from: `${year}-${month}-01`,
+    to: `${year}-${month}-${lastDay}`,
+  };
+}
+
+function formatDashboardMoney(amount) {
+  const n = Number(amount) || 0;
+  return n.toLocaleString('en-US', {
+    maximumFractionDigits: n % 1 === 0 ? 0 : 2,
+    minimumFractionDigits: n % 1 === 0 ? 0 : 2,
+  });
+}
+
 export default function Dashboard({ projects, pipelineItems, onSelectProject, onAddProject, onShowRevenue }) {
   const [dashboardSummary, setDashboardSummary] = useState(null);
   const [showAddPipelineModal, setShowAddPipelineModal] = useState(false);
   const [hoveredPipelineId, setHoveredPipelineId] = useState(null);
   const [movingPipelineId, setMovingPipelineId] = useState(null);
   const [monthlyExpensesTotal, setMonthlyExpensesTotal] = useState(0);
+  const [clientMonthNet, setClientMonthNet] = useState(0);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'dashboard', 'summary'), (snapshot) => {
@@ -132,9 +153,29 @@ export default function Dashboard({ projects, pipelineItems, onSelectProject, on
     return () => unsub();
   }, []);
 
+  useEffect(() => {
+    const { from, to } = currentMonthRange();
+    const params = new URLSearchParams({ from, to });
+    let cancelled = false;
+    fetch(`/api/revenue-entries?${params.toString()}`)
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Failed to load revenue entries');
+        return data;
+      })
+      .then((data) => {
+        if (!cancelled) setClientMonthNet(sumClientProjectRevenue(data.entries || []).net);
+      })
+      .catch(() => {
+        if (!cancelled) setClientMonthNet(0);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   const projectsMRR = projects.reduce((s, p) => s + (p.revenue?.monthly || 0), 0);
   const projectsRevenue = projects.reduce((s, p) => s + (p.revenue?.total || 0), 0);
-  const totalMRR = dashboardSummary?.monthlyRevenue ?? projectsMRR;
+  const appMonthlyRevenue = dashboardSummary?.monthlyRevenue ?? projectsMRR;
+  const totalMRR = (Number(appMonthlyRevenue) || 0) + (Number(clientMonthNet) || 0);
   const totalRevenue = dashboardSummary?.totalRevenue ?? projectsRevenue;
   const totalMonthlyExp = monthlyExpensesTotal;
   const liveCount = projects.filter(p => p.status === 'live').length;
@@ -204,7 +245,7 @@ export default function Dashboard({ projects, pipelineItems, onSelectProject, on
       <div className="stats-grid">
         <div className="stat-card teal">
           <div className="stat-label">Monthly Revenue</div>
-          <div className="stat-value" style={{ color: 'var(--teal)' }}>${totalMRR}</div>
+          <div className="stat-value" style={{ color: 'var(--teal)' }}>${formatDashboardMoney(totalMRR)}</div>
           <div className="stat-sub">Across all live apps</div>
         </div>
         <div className="stat-card coral">

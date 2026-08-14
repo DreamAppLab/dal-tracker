@@ -1163,6 +1163,13 @@ option { background: var(--bg-card); }
   margin-bottom: 24px;
   text-align: center;
 }
+.revenue-total-breakdown {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  align-items: end;
+}
+.revenue-total-item { min-width: 0; }
 .revenue-total-label {
   font-size: 12px;
   font-weight: 700;
@@ -1176,6 +1183,17 @@ option { background: var(--bg-card); }
   font-size: 48px;
   font-weight: 700;
   color: #4CAF50;
+}
+.revenue-total-value--sub {
+  font-size: 32px;
+}
+@media (max-width: 800px) {
+  .revenue-total-breakdown {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .revenue-total-value { font-size: 36px; }
+  .revenue-total-value--sub { font-size: 28px; }
 }
 .revenue-app-card { transition: transform 0.15s, border-color 0.15s; }
 .revenue-app-card:hover { transform: translateY(-2px); border-color: var(--border-active); }
@@ -1233,6 +1251,38 @@ option { background: var(--bg-card); }
   border-radius: 0 0 6px 0;
 }
 .revenue-card-resize-handle:hover { opacity: 0.9; }
+
+/* ── CLIENT PROJECT REVENUE ── */
+.client-revenue-section {
+  margin-top: 32px;
+}
+.client-revenue-summary {
+  margin-bottom: 20px;
+}
+.client-revenue-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+}
+.client-revenue-table {
+  width: 100%;
+}
+.client-revenue-type-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.client-revenue-amount-col {
+  text-align: right;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
 
 /* ── MANUAL SALES ── */
 .manual-sales-section { margin-top: 24px; }
