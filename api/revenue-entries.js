@@ -187,6 +187,14 @@ async function findEntryRef(db, id) {
 }
 
 module.exports = async (req, res) => {
+  if (req.method === 'POST' || req.method === 'DELETE') {
+    const auth = String(req.headers['authorization'] || '');
+    const secret = process.env.DAL_MC_INTERNAL_SECRET || '';
+    if (!secret || auth !== `Bearer ${secret}`) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+  }
+
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
