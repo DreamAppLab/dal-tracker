@@ -1,1 +1,7 @@
-{"buildCommand":"npm ci && DISABLE_ESLINT_PLUGIN=true npm run build","installCommand":"npm ci"}
+{
+  "buildCommand": "npm ci && DISABLE_ESLINT_PLUGIN=true npm run build",
+  "installCommand": "npm ci",
+  "rewrites": [
+    { "src": "/api/stripe-webhook", "dest": "/api/stripe-webhook.js" }
+  ]
+}
