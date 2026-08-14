@@ -28,11 +28,14 @@ import { getRevenueEntries, REVENUE_MOBILE_APPS, getDefaultRevenueDoc } from '..
 import { syncRevenueCatToFirestore } from '../utils/revenueCatApi';
 import {
   getCombinedTotalRevenue,
+  isClientProjectRevenueEntry,
+  sumClientProjectRevenue,
   sumManualSales,
   syncDashboardRevenueTotals,
 } from '../utils/revenueTotals';
 import { uploadAppLogo } from '../utils/uploadAppLogo';
 import AppLogo from './AppLogo';
+import ClientProjectRevenueSection from '../tabs/RevenueTab';
 
 const LAYOUT_DOC_ID = 'layout';
 const DEFAULT_CARD_WIDTH = 300;
@@ -486,16 +489,53 @@ export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
   const [filterFrom, setFilterFrom] = useState(currentYearStartISO());
   const [filterTo, setFilterTo] = useState(todayISO());
   const [isAllTime, setIsAllTime] = useState(false);
+  const [clientEntries, setClientEntries] = useState([]);
+  const [clientLoading, setClientLoading] = useState(true);
+  const [clientError, setClientError] = useState('');
 
   const filteredManualSalesByApp = useMemo(() => {
-    if (isAllTime) return manualSalesByApp;
+    const inRange = (sales) => {
+      if (isAllTime) return sales || [];
+      return (sales || []).filter(s => s.date && s.date >= filterFrom && s.date <= filterTo);
+    };
     return Object.fromEntries(
       Object.entries(manualSalesByApp).map(([appId, sales]) => [
         appId,
-        (sales || []).filter(s => s.date && s.date >= filterFrom && s.date <= filterTo),
+        inRange(sales).filter(s => !isClientProjectRevenueEntry(s)),
       ])
     );
   }, [manualSalesByApp, filterFrom, filterTo, isAllTime]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const params = new URLSearchParams();
+    if (!isAllTime) {
+      if (filterFrom) params.set('from', filterFrom);
+      if (filterTo) params.set('to', filterTo);
+    }
+    const qs = params.toString();
+    setClientLoading(true);
+    setClientError('');
+    fetch(`/api/revenue-entries${qs ? `?${qs}` : ''}`)
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || data.detail || 'Failed to load revenue entries');
+        return data;
+      })
+      .then((data) => {
+        if (!cancelled) setClientEntries(data.entries || []);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setClientEntries([]);
+          setClientError(err.message || 'Failed to load client project revenue');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setClientLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [filterFrom, filterTo, isAllTime]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -598,11 +638,13 @@ export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
   const missingApps = revenueEntries.filter(a => !cardLayout.order?.includes(a.appId));
   const displayApps = [...orderedApps, ...missingApps];
 
-  const totalRevenue = revenueEntries.reduce((sum, a) => {
+  const appRevenue = revenueEntries.reduce((sum, a) => {
     const d = revenueData[a.appId] || {};
     const manual = sumManualSales(filteredManualSalesByApp[a.appId]);
     return sum + getCombinedTotalRevenue(d, manual);
   }, 0);
+  const clientRevenueTotals = sumClientProjectRevenue(clientEntries);
+  const grandTotalRevenue = appRevenue + clientRevenueTotals.net;
 
   const netSalesRows = displayApps
     .map((app) => {
@@ -764,8 +806,20 @@ export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
       </div>
 
       <div className="revenue-total-banner">
-        <div className="revenue-total-label">Total Revenue — All Apps & Websites</div>
-        <div className="revenue-total-value">{formatMoney(totalRevenue)}</div>
+        <div className="revenue-total-breakdown">
+          <div className="revenue-total-item">
+            <div className="revenue-total-label">App Revenue</div>
+            <div className="revenue-total-value revenue-total-value--sub">{formatMoney(appRevenue)}</div>
+          </div>
+          <div className="revenue-total-item">
+            <div className="revenue-total-label">Client Project Revenue</div>
+            <div className="revenue-total-value revenue-total-value--sub">{formatMoney(clientRevenueTotals.net)}</div>
+          </div>
+          <div className="revenue-total-item">
+            <div className="revenue-total-label">Grand Total</div>
+            <div className="revenue-total-value">{formatMoney(grandTotalRevenue)}</div>
+          </div>
+        </div>
       </div>
 
       <div className="revenue-cards-canvas">
@@ -795,6 +849,12 @@ export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
           </SortableContext>
         </DndContext>
       </div>
+
+      <ClientProjectRevenueSection
+        entries={clientEntries}
+        loading={clientLoading}
+        error={clientError}
+      />
 
       {netSalesRows.length > 0 && (
         <div className="data-section" style={{ marginTop: 32 }}>
