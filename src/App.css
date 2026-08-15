@@ -2237,8 +2237,23 @@ option { background: var(--bg-card); }
   padding: 0;
   border-radius: 0;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.01em;
+}
+.board-status-text {
+  background: none;
+  border: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.btn-sent {
+  opacity: 0.62;
+}
+.btn-sent:hover:not(:disabled) {
+  opacity: 0.88;
 }
 .quotes-questions-form,
 .quotes-confirm-box {

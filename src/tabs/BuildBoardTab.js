@@ -192,9 +192,9 @@ async function postRevenue({ amount, type, description, buildId }) {
 
 function buildStatusMeta(status) {
   if (status === 'complete') {
-    return { label: 'Completed', color: '#166534', bg: 'rgba(22,101,52,0.4)' };
+    return { label: 'Completed', color: '#67E8F9' };
   }
-  return { label: 'In Progress', color: '#22C55E', bg: 'rgba(34,197,94,0.18)' };
+  return { label: 'In Progress', color: '#4ADE80' };
 }
 
 async function deleteBuildRecord(build) {
@@ -796,11 +796,12 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack, onDeleted }) {
     setError('');
     try {
       const { url, email } = await sendBalancePaymentLink(build, remaining);
+      const sentAt = new Date().toISOString();
       await updateDoc(doc(db, 'builds', build.id), {
         stripeBalanceUrl: url,
-        balanceLinkSentAt: new Date().toISOString(),
+        balanceLinkSentAt: sentAt,
       });
-      if (onPatched) onPatched(build.id, { stripeBalanceUrl: url });
+      if (onPatched) onPatched(build.id, { stripeBalanceUrl: url, balanceLinkSentAt: sentAt });
       setNotice(`Balance link sent to ${email}`);
     } catch (err) {
       console.error(err);
@@ -902,8 +903,7 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack, onDeleted }) {
             {build.businessName || '—'} · {formTypeLabel(build.formType)}
           </p>
         </div>
-        <span className="status-badge" style={{ background: meta.bg, color: meta.color }}>
-          <span className="status-dot" style={{ background: meta.color }} />
+        <span className="board-status-text" style={{ color: meta.color }}>
           {meta.label}
         </span>
       </div>
@@ -989,14 +989,20 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack, onDeleted }) {
                   : 'Mark In Progress'}
             </button>
           )}
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={!!busy || depositPaid == null || remaining <= 0}
-            onClick={handleSendBalanceLink}
-          >
-            {busy === 'balance_link' ? 'Sending…' : 'Send Balance Link'}
-          </button>
+          {!complete && (
+            <button
+              type="button"
+              className={`btn btn-primary${build.balanceLinkSentAt ? ' btn-sent' : ''}`}
+              disabled={!!busy || depositPaid == null || remaining <= 0}
+              onClick={handleSendBalanceLink}
+            >
+              {busy === 'balance_link'
+                ? 'Sending…'
+                : build.balanceLinkSentAt
+                  ? 'Balance Link Sent ✓'
+                  : 'Send Balance Link'}
+            </button>
+          )}
           {!complete && (
             <button
               type="button"
@@ -1156,10 +1162,14 @@ export default function BuildBoardTab() {
     setError('');
     try {
       const { url, email } = await sendBalancePaymentLink(build);
+      const sentAt = new Date().toISOString();
       await updateDoc(doc(db, 'builds', build.id), {
         stripeBalanceUrl: url,
-        balanceLinkSentAt: new Date().toISOString(),
+        balanceLinkSentAt: sentAt,
       });
+      setBuilds((prev) => prev.map((row) => (
+        row.id === build.id ? { ...row, stripeBalanceUrl: url, balanceLinkSentAt: sentAt } : row
+      )));
       setListNotice(`Balance link sent to ${email}`);
     } catch (err) {
       console.error(err);
@@ -1272,22 +1282,27 @@ export default function BuildBoardTab() {
                       <td>{formTypeLabel(build.formType)}</td>
                       <td>{money(build.total)}</td>
                       <td>
-                        <span className="status-badge" style={{ background: meta.bg, color: meta.color }}>
-                          <span className="status-dot" style={{ background: meta.color }} />
+                        <span className="board-status-text" style={{ color: meta.color }}>
                           {meta.label}
                         </span>
                       </td>
                       <td>{formatDateTime(build.movedToBuildAt)}</td>
                       <td>
                         <div className="item-actions" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            disabled={!!linkBusyId || remainingBalance(build) <= 0}
-                            onClick={() => handleListBalanceLink(build)}
-                          >
-                            {linkBusyId === build.id ? 'Sending…' : 'Send Balance Link'}
-                          </button>
+                          {!isBuildComplete(build) && (
+                            <button
+                              type="button"
+                              className={`btn btn-secondary btn-sm${build.balanceLinkSentAt ? ' btn-sent' : ''}`}
+                              disabled={!!linkBusyId || remainingBalance(build) <= 0}
+                              onClick={() => handleListBalanceLink(build)}
+                            >
+                              {linkBusyId === build.id
+                                ? 'Sending…'
+                                : build.balanceLinkSentAt
+                                  ? 'Balance Link Sent ✓'
+                                  : 'Send Balance Link'}
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="icon-btn danger"
