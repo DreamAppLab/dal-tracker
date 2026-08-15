@@ -432,6 +432,7 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved }) {
         firstName: firstName(quote.name),
         amount,
         businessName: biz,
+        quoteId: quote.id,
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -559,9 +560,10 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved }) {
   const handleMoveToBuildBoard = () =>
     runAction('move_board', async () => {
       const now = new Date().toISOString();
-      const existing = await getDocs(query(collection(db, 'builds'), where('quoteId', '==', quote.id)));
-      if (existing.empty) {
-        await addDoc(collection(db, 'builds'), {
+      const buildRef = doc(db, 'builds', 'quote-' + quote.id);
+      const named = await getDocs(query(collection(db, 'builds'), where('quoteId', '==', quote.id)));
+      if (named.empty) {
+        await setDoc(buildRef, {
           ...omitUndefined(quote),
           quoteId: quote.id,
           clientName: quote.name || '',
@@ -574,7 +576,7 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved }) {
           managementChoice: quote.managementChoice || '',
           managedTier: quote.managedTier || quote.plan || '',
           monthlyFee: quote.monthlyFee != null ? Number(quote.monthlyFee) : null,
-          status: 'in_build',
+          status: 'in_progress',
           source: 'quote',
           depositPostedToRevenue: false,
           balancePostedToRevenue: false,
@@ -584,7 +586,7 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved }) {
         });
       }
       await patchQuote({
-        status: 'in_build_board',
+        status: 'in_build',
         movedToBuildAt: now,
       });
       setConfirmMoveBoard(false);
@@ -614,14 +616,14 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved }) {
   const showDeposit =
     shownStatus !== 'no_action' &&
     (status === 'submitted' || status === 'accepted' || status === 'client_replied');
-  const showBalance = status === 'in_build' || status === 'in_build_board';
+  const showBalance = status === 'in_build' || status === 'in_build_board' || status === 'in_progress';
   const showMoveToBoard = status === 'deposit_sent';
   const showComplete = status === 'balance_sent';
   const showNoAction = shownStatus === 'no_action';
   const depositDone = localDone.deposit || status === 'deposit_sent' || !!quote.stripeDepositUrl;
   const balanceDone = localDone.balance || status === 'balance_sent' || !!quote.stripeBalanceUrl;
   const completeDone = localDone.complete || status === 'complete' || !!quote.completedAt;
-  const movedToBoard = localDone.movedToBoard || status === 'in_build_board';
+  const movedToBoard = localDone.movedToBoard || status === 'in_build_board' || status === 'in_build';
   const questionsLabel =
     status === 'questions_sent' || status === 'client_replied' ? 'Ask More Questions' : 'Ask Questions';
 
@@ -859,9 +861,9 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved }) {
         {status === 'deposit_sent' && (
           <div className="quotes-wait-notice">Deposit link sent — waiting for payment.</div>
         )}
-        {status === 'in_build_board' && (
+        {status === 'in_build_board' || status === 'in_build' ? (
           <div className="quotes-wait-notice">This project is on the Build Board.</div>
-        )}
+        ) : null}
         {status === 'balance_sent' && (
           <div className="quotes-wait-notice">Balance link sent — waiting for final payment.</div>
         )}
@@ -1128,7 +1130,10 @@ export default function QuotesTab() {
           .join(' ');
         if (!hay.includes(q)) return false;
       }
-      if (rawStatus(quote) === 'in_build_board' && filters.status !== 'in_build_board') return false;
+      const hiddenUnlessFiltered = ['in_build', 'in_build_board', 'deposit_paid'].includes(rawStatus(quote));
+      if (hiddenUnlessFiltered && filters.status !== rawStatus(quote)) {
+        return false;
+      }
       return true;
     });
   }, [quotes, filters]);
@@ -1291,7 +1296,6 @@ export default function QuotesTab() {
               ) : (
                 filtered.map((quote) => {
                   const pricing = quotePricing(quote);
-                  const hasDal = pricing.dalDiscount > 0;
                   const unread = isUnread(quote);
                   return (
                     <tr
@@ -1306,17 +1310,7 @@ export default function QuotesTab() {
                       <td>{quote.name || '—'}</td>
                       <td>{businessName(quote) || '—'}</td>
                       <td>{formTypeLabel(quote.formType)}</td>
-                      <td>
-                        {hasDal ? (
-                          <>
-                            <span className="quotes-strike">{money(pricing.afterClient)}</span>
-                            {' '}
-                            <strong>{money(pricing.finalTotal)}</strong>
-                          </>
-                        ) : (
-                          money(pricing.finalTotal)
-                        )}
-                      </td>
+                      <td>{money(pricing.finalTotal)}</td>
                       <td>
                         <QuoteStatusBadge status={displayStatus(quote)} />
                       </td>

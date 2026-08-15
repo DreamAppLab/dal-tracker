@@ -6,8 +6,20 @@ export function isClientProjectRevenueEntry(entry) {
   return CLIENT_REVENUE_TYPES.includes(String(entry?.type || '').toLowerCase());
 }
 
+export function isTestRevenueEntry(entry) {
+  if (!entry) return false;
+  if (entry.isTest === false) return false;
+  if (entry.isTest === true || entry.test === true) return true;
+  const type = String(entry.type || '').toLowerCase();
+  const amount = Number(entry.amount);
+  return type === 'deposit' && Number.isFinite(amount) && Math.abs(amount) === 2;
+}
+
 export function sumManualSales(entries) {
-  return (entries || []).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  return (entries || []).reduce((sum, e) => {
+    if (isTestRevenueEntry(e)) return sum;
+    return sum + (Number(e.amount) || 0);
+  }, 0);
 }
 
 export function sumClientProjectRevenue(entries) {
@@ -15,6 +27,7 @@ export function sumClientProjectRevenue(entries) {
   let balances = 0;
   let reversals = 0;
   (entries || []).forEach((entry) => {
+    if (isTestRevenueEntry(entry)) return;
     const amount = Number(entry.amount) || 0;
     const type = String(entry.type || '').toLowerCase();
     if (type === 'deposit') deposits += amount;
@@ -46,7 +59,11 @@ export async function fetchManualSalesTotals(db, appIds) {
   await Promise.all(
     ids.map(async (appId) => {
       const snap = await getDocs(collection(db, 'revenue', appId, 'manualSales'));
-      totals[appId] = snap.docs.reduce((sum, d) => sum + (Number(d.data().amount) || 0), 0);
+      totals[appId] = snap.docs.reduce((sum, d) => {
+        const data = d.data() || {};
+        if (isTestRevenueEntry(data)) return sum;
+        return sum + (Number(data.amount) || 0);
+      }, 0);
     })
   );
   return totals;

@@ -121,6 +121,10 @@ function pickAllowed(body) {
   if (body.appId != null) out.appId = String(body.appId).trim();
   if (body.quoteId != null) out.quoteId = String(body.quoteId).trim();
   if (body.buildId != null) out.buildId = String(body.buildId).trim();
+  if (body.stripePaymentIntentId != null) {
+    out.stripePaymentIntentId = String(body.stripePaymentIntentId).trim();
+  }
+  if (body.isTest != null) out.isTest = body.isTest === true || body.isTest === 'true';
 
   if (!out.date) throw Object.assign(new Error('Date is required'), { status: 400 });
   if (!out.description && out.note) out.description = out.note;
@@ -187,7 +191,7 @@ async function findEntryRef(db, id) {
 }
 
 module.exports = async (req, res) => {
-  if (req.method === 'POST' || req.method === 'DELETE') {
+  if (req.method === 'POST' || req.method === 'DELETE' || req.method === 'PATCH') {
     const auth = String(req.headers['authorization'] || '');
     const secret = process.env.DAL_MC_INTERNAL_SECRET || '';
     if (!secret || auth !== `Bearer ${secret}`) {
@@ -196,7 +200,7 @@ module.exports = async (req, res) => {
   }
 
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(204).end();
 
@@ -220,6 +224,50 @@ module.exports = async (req, res) => {
 
       const appRef = db.collection('revenue').doc(data.appId);
       await appRef.set({ appId: data.appId }, { merge: true });
+
+      if (data.stripePaymentIntentId) {
+        const byId = appRef.collection('manualSales').doc(data.stripePaymentIntentId);
+        const existingById = await byId.get();
+        if (existingById.exists) {
+          return res.status(200).json({
+            ok: true,
+            duplicate: true,
+            entry: serializeDoc(existingById, { appId: data.appId }),
+          });
+        }
+        const existingByField = await appRef
+          .collection('manualSales')
+          .where('stripePaymentIntentId', '==', data.stripePaymentIntentId)
+          .limit(1)
+          .get();
+        if (!existingByField.empty) {
+          return res.status(200).json({
+            ok: true,
+            duplicate: true,
+            entry: serializeDoc(existingByField.docs[0], { appId: data.appId }),
+          });
+        }
+        try {
+          await byId.create(data);
+        } catch (err) {
+          const code = err && (err.code || err.status);
+          if (code === 6 || code === 'already-exists' || /already exists/i.test(String(err.message || ''))) {
+            const dup = await byId.get();
+            return res.status(200).json({
+              ok: true,
+              duplicate: true,
+              entry: serializeDoc(dup, { appId: data.appId }),
+            });
+          }
+          throw err;
+        }
+        const created = await byId.get();
+        return res.status(200).json({
+          ok: true,
+          entry: serializeDoc(created, { appId: data.appId }),
+        });
+      }
+
       const ref = appRef.collection('manualSales').doc();
       await ref.set(data);
       const created = await ref.get();
@@ -227,6 +275,21 @@ module.exports = async (req, res) => {
         ok: true,
         entry: serializeDoc(created, { appId: data.appId }),
       });
+    }
+
+    if (req.method === 'PATCH') {
+      if (!id) return res.status(400).json({ error: 'Revenue entry id is required' });
+      const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
+      const ref = await findEntryRef(db, id);
+      if (!ref) return res.status(404).json({ error: 'Revenue entry not found' });
+      const patch = {};
+      if (body.isTest != null) patch.isTest = body.isTest === true || body.isTest === 'true';
+      if (!Object.keys(patch).length) {
+        return res.status(400).json({ error: 'No fields to update' });
+      }
+      await ref.set(patch, { merge: true });
+      const updated = await ref.get();
+      return res.status(200).json({ ok: true, entry: serializeDoc(updated) });
     }
 
     if (req.method === 'DELETE') {
