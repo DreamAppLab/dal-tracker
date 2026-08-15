@@ -46,7 +46,7 @@ function balanceEmail(firstName, amount, url) {
   `);
 }
 
-async function createStripeLink(productName, amountDollars) {
+async function createStripeLink(productName, amountDollars, meta = {}) {
   const secret = process.env.STRIPE_SECRET_KEY;
   const cents = Math.round(Number(amountDollars || 0) * 100);
   if (!secret || !cents) return null;
@@ -54,6 +54,7 @@ async function createStripeLink(productName, amountDollars) {
   const auth = 'Bearer ' + secret;
   const form = (obj) =>
     Object.entries(obj)
+      .filter(([, v]) => v != null && v !== '')
       .map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v))
       .join('&');
 
@@ -74,6 +75,10 @@ async function createStripeLink(productName, amountDollars) {
     throw new Error(price.error?.message || 'Stripe price create failed');
   }
 
+  const quoteId = String(meta.quoteId || '').trim();
+  const kind = String(meta.kind || '').trim();
+  const buildId = String(meta.buildId || '').trim();
+
   const linkRes = await fetch('https://api.stripe.com/v1/payment_links', {
     method: 'POST',
     headers: {
@@ -83,6 +88,12 @@ async function createStripeLink(productName, amountDollars) {
     body: form({
       'line_items[0][price]': price.id,
       'line_items[0][quantity]': '1',
+      'metadata[quoteId]': quoteId,
+      'metadata[kind]': kind,
+      'metadata[buildId]': buildId,
+      'payment_intent_data[metadata][quoteId]': quoteId,
+      'payment_intent_data[metadata][kind]': kind,
+      'payment_intent_data[metadata][buildId]': buildId,
     }),
   });
   const link = await linkRes.json();
@@ -127,11 +138,14 @@ module.exports = async (req, res) => {
     const firstName = String(body.firstName || 'there').trim() || 'there';
     const amount = Number(body.amount);
     const businessName = String(body.businessName || 'Dream App Lab Project').trim();
+    const quoteId = String(body.quoteId || '').trim();
+    const buildId = String(body.buildId || '').trim();
+    const copyOnly = body.copyOnly === true || body.sendEmail === false;
 
     if (kind !== 'deposit' && kind !== 'balance') {
       return res.status(400).json({ error: 'kind must be deposit or balance' });
     }
-    if (!email) return res.status(400).json({ error: 'email is required' });
+    if (!copyOnly && !email) return res.status(400).json({ error: 'email is required' });
     if (!Number.isFinite(amount) || amount <= 0) {
       return res.status(400).json({ error: 'A valid amount is required' });
     }
@@ -141,21 +155,23 @@ module.exports = async (req, res) => {
         ? 'Project Deposit — ' + businessName
         : 'Project Balance — ' + businessName;
 
-    const url = await createStripeLink(productName, amount);
+    const url = await createStripeLink(productName, amount, { quoteId, kind, buildId });
     if (!url) {
       return res.status(500).json({ error: 'Stripe is not configured or amount is invalid' });
     }
 
-    const html =
-      kind === 'deposit' ? depositEmail(firstName, amount, url) : balanceEmail(firstName, amount, url);
-    const subject =
-      kind === 'deposit'
-        ? 'Your Dream App Lab deposit link is ready'
-        : 'Your Dream App Lab project is ready — final balance';
+    if (!copyOnly) {
+      const html =
+        kind === 'deposit' ? depositEmail(firstName, amount, url) : balanceEmail(firstName, amount, url);
+      const subject =
+        kind === 'deposit'
+          ? 'Your Dream App Lab deposit link is ready'
+          : 'Your Dream App Lab project is ready — final balance';
 
-    await sendEmail(email, subject, html);
+      await sendEmail(email, subject, html);
+    }
 
-    return res.status(200).json({ ok: true, url, kind });
+    return res.status(200).json({ ok: true, url, kind, emailed: !copyOnly });
   } catch (e) {
     console.error('quote-payment-link error', e);
     return res.status(500).json({

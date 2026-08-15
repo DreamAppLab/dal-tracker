@@ -1,5 +1,7 @@
 import React from 'react';
-import { sumClientProjectRevenue } from '../utils/revenueTotals';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '../firebase';
+import { isTestRevenueEntry, sumClientProjectRevenue } from '../utils/revenueTotals';
 
 const TYPE_BADGE = {
   deposit: { label: 'Deposit', color: '#22C55E', bg: 'rgba(34, 197, 94, 0.16)' },
@@ -26,8 +28,25 @@ function formatEntryDate(value) {
   return `${month} ${parseInt(d, 10)}, ${y}`;
 }
 
-export default function ClientProjectRevenueSection({ entries = [], loading = false, error = '' }) {
+export default function ClientProjectRevenueSection({
+  entries = [],
+  loading = false,
+  error = '',
+  onEntryPatched,
+}) {
   const totals = sumClientProjectRevenue(entries);
+
+  const toggleTest = async (row) => {
+    const next = !row.isTest;
+    const appId = row.appId || 'dal-website';
+    try {
+      await updateDoc(doc(db, 'revenue', appId, 'manualSales', row.id), { isTest: next });
+    } catch (err) {
+      console.error('Failed to update manualSales test flag, trying top-level revenue doc', err);
+      await updateDoc(doc(db, 'revenue', row.id), { isTest: next });
+    }
+    if (onEntryPatched) onEntryPatched(row.id, { isTest: next });
+  };
 
   return (
     <div className="client-revenue-section">
@@ -78,6 +97,7 @@ export default function ClientProjectRevenueSection({ entries = [], loading = fa
                 <th>Description</th>
                 <th>Type</th>
                 <th className="client-revenue-amount-col">Amount</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -91,10 +111,25 @@ export default function ClientProjectRevenueSection({ entries = [], loading = fa
                 const isReversal = type === 'reversal';
                 const amount = Number(row.amount) || 0;
                 const displayAmount = isReversal ? -Math.abs(amount) : amount;
+                const isTest = isTestRevenueEntry(row);
                 return (
-                  <tr key={row.id}>
+                  <tr key={row.id} style={isTest ? { opacity: 0.55 } : undefined}>
                     <td>{formatEntryDate(row.date)}</td>
-                    <td>{row.description || row.note || '—'}</td>
+                    <td>
+                      {row.description || row.note || '—'}
+                      {isTest ? (
+                        <span
+                          className="client-revenue-type-badge"
+                          style={{
+                            marginLeft: 8,
+                            color: '#F59E0B',
+                            background: 'rgba(245, 158, 11, 0.16)',
+                          }}
+                        >
+                          Test
+                        </span>
+                      ) : null}
+                    </td>
                     <td>
                       <span
                         className="client-revenue-type-badge"
@@ -108,6 +143,15 @@ export default function ClientProjectRevenueSection({ entries = [], loading = fa
                       style={{ color: displayAmount < 0 || isReversal ? 'var(--coral)' : 'var(--green)' }}
                     >
                       {formatMoney(displayAmount)}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => toggleTest(row)}
+                      >
+                        {row.isTest ? 'Unmark Test' : 'Mark as Test'}
+                      </button>
                     </td>
                   </tr>
                 );

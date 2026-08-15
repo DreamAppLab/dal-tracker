@@ -854,6 +854,9 @@ export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
         entries={clientEntries}
         loading={clientLoading}
         error={clientError}
+        onEntryPatched={(id, fields) => {
+          setClientEntries((prev) => prev.map((row) => (row.id === id ? { ...row, ...fields } : row)));
+        }}
       />
 
       {netSalesRows.length > 0 && (

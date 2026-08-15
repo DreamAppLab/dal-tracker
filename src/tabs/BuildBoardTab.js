@@ -73,6 +73,61 @@ function money(n) {
   });
 }
 
+function isBuildComplete(build) {
+  const status = String(build?.status || '');
+  return status === 'complete' || !!build?.completedAt;
+}
+
+function remainingBalance(build) {
+  const total = Number(build.total || 0);
+  const depositPaid = Number(
+    build.depositPaidAmount != null ? build.depositPaidAmount : build.deposit || 0
+  );
+  if (build.balance != null && build.depositPaidAmount == null) {
+    return Math.max(0, Number(build.balance) || 0);
+  }
+  return Math.max(0, Math.round((total - depositPaid) * 100) / 100);
+}
+
+async function copyText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const el = document.createElement('textarea');
+  el.value = text;
+  document.body.appendChild(el);
+  el.select();
+  document.execCommand('copy');
+  document.body.removeChild(el);
+}
+
+async function createBalancePaymentLink(build) {
+  const amount = remainingBalance(build);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error('No remaining balance to collect.');
+  }
+  const res = await fetch('/api/quote-payment-link', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      kind: 'balance',
+      copyOnly: true,
+      email: build.email || build.clientEmail || '',
+      firstName: String(build.clientName || 'there').trim().split(/\s+/)[0] || 'there',
+      amount,
+      businessName: build.businessName || build.clientName || 'Dream App Lab Project',
+      quoteId: build.quoteId || '',
+      buildId: build.id,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error || data.detail || 'Failed to create balance link');
+  }
+  return data.url;
+}
+
 function formTypeLabel(formType) {
   const key = String(formType || '').toLowerCase();
   return FORM_TYPE_LABELS[key] || formType || 'Website';
@@ -98,9 +153,30 @@ async function postRevenue({ amount, type, description, buildId }) {
 
 function buildStatusMeta(status) {
   if (status === 'complete') {
-    return { label: 'Complete', color: '#166534', bg: 'rgba(22,101,52,0.4)' };
+    return { label: 'Completed', color: '#166534', bg: 'rgba(22,101,52,0.4)' };
   }
-  return { label: 'In Build', color: '#22C55E', bg: 'rgba(34,197,94,0.18)' };
+  return { label: 'In Progress', color: '#22C55E', bg: 'rgba(34,197,94,0.18)' };
+}
+
+async function deleteBuildRecord(build) {
+  const biz = build.businessName || build.clientName || 'Project';
+  if (build.depositPostedToRevenue) {
+    await postRevenue({
+      amount: -Number(build.deposit || 0),
+      type: 'reversal',
+      description: `Build deleted — deposit reversed: ${biz}`,
+      buildId: build.id,
+    });
+  }
+  if (build.balancePostedToRevenue) {
+    await postRevenue({
+      amount: -Number(build.balance || 0),
+      type: 'reversal',
+      description: `Build deleted — balance reversed: ${biz}`,
+      buildId: build.id,
+    });
+  }
+  await deleteDoc(doc(db, 'builds', build.id));
 }
 
 function InfoRow({ label, children }) {
@@ -448,7 +524,7 @@ function AddBuildModal({ onClose, onSaved }) {
         projectNotes: form.notes.trim(),
         paymentMethod: form.paymentMethod,
         source: 'manual',
-        status: 'in_build',
+        status: 'in_progress',
         depositPostedToRevenue: false,
         balancePostedToRevenue: false,
         createdAt: now,
@@ -601,9 +677,9 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack, onDeleted }) {
   const [confirmMoveBack, setConfirmMoveBack] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const status = String(build.status || 'in_build');
+  const status = String(build.status || 'in_progress');
   const meta = buildStatusMeta(status);
-  const complete = status === 'complete' || !!build.completedAt;
+  const complete = isBuildComplete(build);
 
   const saveNotes = async () => {
     setSavingNotes(true);
@@ -634,14 +710,34 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack, onDeleted }) {
         buildId: build.id,
       });
       await updateDoc(doc(db, 'builds', build.id), {
-        status: 'in_build',
+        status: 'in_progress',
         inBuildAt,
         depositPostedToRevenue: true,
       });
       if (onPatched) {
-        onPatched(build.id, { status: 'in_build', inBuildAt, depositPostedToRevenue: true });
+        onPatched(build.id, { status: 'in_progress', inBuildAt, depositPostedToRevenue: true });
       }
       setNotice('Deposit posted to Revenue');
+    } catch (err) {
+      console.error(err);
+      setError(err.message || String(err));
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const handleSendBalanceLink = async () => {
+    setBusy('balance_link');
+    setError('');
+    try {
+      const url = await createBalancePaymentLink(build);
+      await copyText(url);
+      await updateDoc(doc(db, 'builds', build.id), {
+        stripeBalanceUrl: url,
+        balanceLinkCopiedAt: new Date().toISOString(),
+      });
+      if (onPatched) onPatched(build.id, { stripeBalanceUrl: url });
+      setNotice('Balance link copied to clipboard');
     } catch (err) {
       console.error(err);
       setError(err.message || String(err));
@@ -680,24 +776,7 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack, onDeleted }) {
     setBusy('delete');
     setError('');
     try {
-      const biz = build.businessName || build.clientName || 'Project';
-      if (build.depositPostedToRevenue) {
-        await postRevenue({
-          amount: -Number(build.deposit || 0),
-          type: 'reversal',
-          description: `Build deleted — deposit reversed: ${biz}`,
-          buildId: build.id,
-        });
-      }
-      if (build.balancePostedToRevenue) {
-        await postRevenue({
-          amount: -Number(build.balance || 0),
-          type: 'reversal',
-          description: `Build deleted — balance reversed: ${biz}`,
-          buildId: build.id,
-        });
-      }
-      await deleteDoc(doc(db, 'builds', build.id));
+      await deleteBuildRecord(build);
       if (onDeleted) onDeleted(build.id);
     } catch (err) {
       console.error(err);
@@ -789,8 +868,8 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack, onDeleted }) {
             <span>{money(build.deposit)}</span>
           </div>
           <div className="quotes-price-row">
-            <span>Balance</span>
-            <span>{money(build.balance)}</span>
+            <span>Balance remaining</span>
+            <span>{money(remainingBalance(build))}</span>
           </div>
           <div className="quotes-price-row">
             <span>Management</span>
@@ -829,8 +908,10 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack, onDeleted }) {
           <div className="quotes-wait-notice">
             Project complete.{build.completedAt ? ` Completed ${formatDateTime(build.completedAt)}.` : ''}
           </div>
-        ) : (
-          <div className="quotes-action-row">
+        ) : null}
+
+        <div className="quotes-action-row" style={{ marginTop: complete ? 14 : 0 }}>
+          {!complete && (
             <button
               type="button"
               className="btn btn-primary"
@@ -838,11 +919,21 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack, onDeleted }) {
               onClick={handleMarkInBuild}
             >
               {build.depositPostedToRevenue
-                ? 'Marked In Build ✓'
+                ? 'Marked In Progress ✓'
                 : busy === 'in_build'
                   ? 'Saving…'
-                  : 'Mark In Build'}
+                  : 'Mark In Progress'}
             </button>
+          )}
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={!!busy || remainingBalance(build) <= 0}
+            onClick={handleSendBalanceLink}
+          >
+            {busy === 'balance_link' ? 'Creating link…' : 'Send Balance Link'}
+          </button>
+          {!complete && (
             <button
               type="button"
               className="btn btn-primary"
@@ -851,8 +942,8 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack, onDeleted }) {
             >
               {busy === 'complete' ? 'Saving…' : 'Mark Complete'}
             </button>
-          </div>
-        )}
+          )}
+        </div>
 
         {confirmDelete && (
           <div className="quotes-confirm-box" style={{ marginTop: 14 }}>
@@ -943,6 +1034,10 @@ export default function BuildBoardTab() {
   const [listNotice, setListNotice] = useState('');
   const [selectedId, setSelectedId] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [linkBusyId, setLinkBusyId] = useState('');
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -970,6 +1065,46 @@ export default function BuildBoardTab() {
   }, []);
 
   const selected = selectedId ? builds.find((b) => b.id === selectedId) : null;
+  const filteredBuilds = builds.filter((build) => {
+    if (statusFilter === 'in_progress') return !isBuildComplete(build);
+    if (statusFilter === 'completed') return isBuildComplete(build);
+    return true;
+  });
+
+  const handleListDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    setError('');
+    try {
+      await deleteBuildRecord(pendingDelete);
+      setPendingDelete(null);
+      setListNotice('Build deleted and revenue adjusted');
+    } catch (err) {
+      console.error(err);
+      setError(err.message || String(err));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleListBalanceLink = async (build) => {
+    setLinkBusyId(build.id);
+    setError('');
+    try {
+      const url = await createBalancePaymentLink(build);
+      await copyText(url);
+      await updateDoc(doc(db, 'builds', build.id), {
+        stripeBalanceUrl: url,
+        balanceLinkCopiedAt: new Date().toISOString(),
+      });
+      setListNotice('Balance link copied to clipboard');
+    } catch (err) {
+      console.error(err);
+      setError(err.message || String(err));
+    } finally {
+      setLinkBusyId('');
+    }
+  };
 
   if (selected) {
     return (
@@ -1005,6 +1140,19 @@ export default function BuildBoardTab() {
           <p className="page-subtitle">Active client builds and completed projects</p>
         </div>
         <div className="page-actions">
+          <div className="form-group" style={{ marginBottom: 0, minWidth: 180 }}>
+            <label className="form-label" htmlFor="build-status-filter">Status</label>
+            <select
+              id="build-status-filter"
+              className="form-select"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="all">All</option>
+              <option value="in_progress">In Progress</option>
+              <option value="completed">Completed</option>
+            </select>
+          </div>
           <button type="button" className="btn btn-primary" onClick={() => setShowAdd(true)}>
             Add Build
           </button>
@@ -1037,17 +1185,18 @@ export default function BuildBoardTab() {
                 <th>Total</th>
                 <th>Status</th>
                 <th>Started</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
-              {builds.length === 0 ? (
+              {filteredBuilds.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="quotes-muted" style={{ textAlign: 'center', padding: 28 }}>
-                    No builds yet. Move a quote to the Build Board from the quote Actions panel.
+                  <td colSpan={7} className="quotes-muted" style={{ textAlign: 'center', padding: 28 }}>
+                    No builds yet. A project appears here as soon as a deposit is paid.
                   </td>
                 </tr>
               ) : (
-                builds.map((build) => {
+                filteredBuilds.map((build) => {
                   const meta = buildStatusMeta(build.status);
                   return (
                     <tr
@@ -1066,12 +1215,74 @@ export default function BuildBoardTab() {
                         </span>
                       </td>
                       <td>{formatDateTime(build.movedToBuildAt)}</td>
+                      <td>
+                        <div className="item-actions" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            disabled={!!linkBusyId || remainingBalance(build) <= 0}
+                            onClick={() => handleListBalanceLink(build)}
+                          >
+                            {linkBusyId === build.id ? 'Copying…' : 'Send Balance Link'}
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-btn danger"
+                            title="Delete build"
+                            onClick={() => setPendingDelete(build)}
+                          >
+                            🗑
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {pendingDelete && (
+        <div className="modal-overlay" onClick={() => !deleting && setPendingDelete(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">Delete build</div>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                disabled={deleting}
+                onClick={() => setPendingDelete(null)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <p style={{ lineHeight: 1.5 }}>
+                Delete the build for <strong>{pendingDelete.clientName || 'this client'}</strong>
+                {pendingDelete.businessName ? ` (${pendingDelete.businessName})` : ''}? This cannot be undone.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={deleting}
+                onClick={() => setPendingDelete(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={deleting}
+                onClick={handleListDelete}
+              >
+                {deleting ? 'Deleting…' : 'Confirm'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
