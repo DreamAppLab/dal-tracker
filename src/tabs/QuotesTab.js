@@ -17,17 +17,17 @@ const FORM_TYPE_LABELS = {
 const DAL_SITE_QUOTE_REPLY = 'https://www.dreamapplab.com/api/quote-reply';
 
 const STATUS_META = {
-  submitted: { label: 'Submitted', color: '#94A3B8', bg: 'rgba(148,163,184,0.18)' },
-  accepted: { label: 'Ready to Review', color: '#3B82F6', bg: 'rgba(59,130,246,0.18)' },
-  thinking: { label: 'Thinking', color: '#F59E0B', bg: 'rgba(245,158,11,0.18)' },
-  questions_sent: { label: 'Questions Sent', color: '#F97316', bg: 'rgba(249,115,22,0.18)' },
-  client_replied: { label: 'Client Replied', color: '#A855F7', bg: 'rgba(168,85,247,0.2)', pulse: true },
-  deposit_sent: { label: 'Deposit Sent', color: '#14B8A6', bg: 'rgba(20,184,166,0.18)' },
-  in_build: { label: 'In Build', color: '#22C55E', bg: 'rgba(34,197,94,0.18)' },
-  in_build_board: { label: 'On Build Board', color: '#22C55E', bg: 'rgba(34,197,94,0.28)' },
-  balance_sent: { label: 'Balance Sent', color: '#7DD3FC', bg: 'rgba(125,211,252,0.2)' },
-  complete: { label: 'Complete', color: '#166534', bg: 'rgba(22,101,52,0.4)' },
-  no_action: { label: 'No Action', color: '#F87171', bg: 'rgba(248,113,113,0.14)' },
+  submitted: { label: 'Submitted', color: '#E2E8F0' },
+  accepted: { label: 'Ready to Review', color: '#93C5FD' },
+  thinking: { label: 'Thinking', color: '#FCD34D' },
+  questions_sent: { label: 'Questions Sent', color: '#FDBA74' },
+  client_replied: { label: 'Client Replied', color: '#E9D5FF', pulse: true },
+  deposit_sent: { label: 'Deposit Sent', color: '#5EEAD4' },
+  in_build: { label: 'In Build', color: '#4ADE80' },
+  in_build_board: { label: 'On Build Board', color: '#4ADE80' },
+  balance_sent: { label: 'Balance Sent', color: '#7DD3FC' },
+  complete: { label: 'Complete', color: '#67E8F9' },
+  no_action: { label: 'No Action', color: '#FCA5A5' },
 };
 
 const STATUS_FILTER_OPTIONS = [
