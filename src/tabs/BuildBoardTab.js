@@ -78,20 +78,63 @@ function isBuildComplete(build) {
   return status === 'complete' || !!build?.completedAt;
 }
 
-function actualDepositPaid(build) {
+function firstName(name) {
+  const n = String(name || '').trim();
+  if (!n) return 'there';
+  return n.split(/\s+/)[0];
+}
+
+function paymentIntentIds(build, quote) {
+  return [...new Set(
+    [
+      build.stripeDepositPaymentIntentId,
+      build.stripePaymentIntentId,
+      quote && quote.stripeDepositPaymentIntentId,
+      quote && quote.stripePaymentIntentId,
+    ]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  )];
+}
+
+function depositAmountFromRevenue(entries, build, quote) {
+  const deposits = (entries || []).filter((entry) => String(entry.type || '').toLowerCase() === 'deposit');
+  const piIds = new Set(paymentIntentIds(build, quote));
+
+  const byIntent = deposits.find((entry) => (
+    piIds.has(String(entry.stripePaymentIntentId || '')) ||
+    piIds.has(String(entry.id || ''))
+  ));
+  if (byIntent) return Number(byIntent.amount) || 0;
+
+  const quoteId = String(build.quoteId || (quote && quote.id) || '');
+  const byQuote = quoteId
+    ? deposits.find((entry) => String(entry.quoteId || '') === quoteId)
+    : null;
+  if (byQuote) return Number(byQuote.amount) || 0;
+
+  const byBuild = deposits.find((entry) => (
+    (build.id && entry.buildId === build.id) ||
+    (quoteId && entry.buildId === 'quote-' + quoteId)
+  ));
+  if (byBuild) return Number(byBuild.amount) || 0;
+
+  if (quote && quote.depositPaidAmount != null && quote.depositPaidAmount !== '') {
+    return Number(quote.depositPaidAmount) || 0;
+  }
   if (build.depositPaidAmount != null && build.depositPaidAmount !== '') {
     return Number(build.depositPaidAmount) || 0;
   }
-  return Number(build.deposit || 0);
+  return null;
 }
 
 function remainingBalance(build, paidOverride) {
   const total = Number(build.total || 0);
-  const depositPaid = paidOverride != null ? Number(paidOverride) : actualDepositPaid(build);
+  const depositPaid = paidOverride != null ? Number(paidOverride) : Number(build.depositPaidAmount || 0);
   return Math.max(0, Math.round((total - depositPaid) * 100) / 100);
 }
 
-async function createBalancePaymentLink(build, amountOverride) {
+async function sendBalancePaymentLink(build, amountOverride) {
   const amount = amountOverride != null ? Number(amountOverride) : remainingBalance(build);
   if (!Number.isFinite(amount) || amount <= 0) {
     throw new Error('No remaining balance to collect.');
@@ -106,18 +149,22 @@ async function createBalancePaymentLink(build, amountOverride) {
     body: JSON.stringify({
       kind: 'balance',
       email,
-      firstName: String(build.clientName || 'there').trim().split(/\s+/)[0] || 'there',
+      firstName: firstName(build.clientName),
       amount,
       businessName: build.businessName || build.clientName || 'Dream App Lab Project',
       quoteId: build.quoteId || '',
       buildId: build.id,
+      sendEmail: true,
     }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) {
     throw new Error(data.error || data.detail || 'Failed to send balance link');
   }
-  return { url: data.url, email };
+  if (!data.emailed) {
+    throw new Error('Payment link was created but the email was not sent.');
+  }
+  return { url: data.url, email: data.emailedTo || email };
 }
 
 function formTypeLabel(formType) {
@@ -668,28 +715,36 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack, onDeleted }) {
   const [notice, setNotice] = useState('');
   const [confirmMoveBack, setConfirmMoveBack] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [depositPaid, setDepositPaid] = useState(() => actualDepositPaid(build));
+  const [depositPaid, setDepositPaid] = useState(null);
 
   const status = String(build.status || 'in_progress');
   const meta = buildStatusMeta(status);
   const complete = isBuildComplete(build);
-  const remaining = remainingBalance(build, depositPaid);
+  const remaining = depositPaid == null ? 0 : remainingBalance(build, depositPaid);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'revenue', 'dal-website', 'manualSales'), (snap) => {
-      const sum = snap.docs.reduce((total, d) => {
-        const entry = d.data() || {};
-        if (String(entry.type || '').toLowerCase() !== 'deposit') return total;
-        const matchesBuild = build.id && entry.buildId === build.id;
-        const matchesQuote = build.quoteId && entry.quoteId === build.quoteId;
-        if (!matchesBuild && !matchesQuote) return total;
-        return total + (Number(entry.amount) || 0);
-      }, 0);
-      if (sum) setDepositPaid(sum);
-      else setDepositPaid(actualDepositPaid(build));
-    });
-    return () => unsub();
-  }, [build.id, build.quoteId, build.depositPaidAmount, build.deposit]);
+    let cancelled = false;
+    async function loadActualDeposit() {
+      let quote = null;
+      if (build.quoteId) {
+        const quoteRes = await fetch('/api/quotes?id=' + encodeURIComponent(build.quoteId));
+        const quoteData = await quoteRes.json().catch(() => ({}));
+        quote = quoteData.quote || null;
+      }
+      const revenueRes = await fetch('/api/revenue-entries?type=deposit');
+      const revenueData = await revenueRes.json().catch(() => ({}));
+      const amount = depositAmountFromRevenue(revenueData.entries || [], build, quote);
+      if (cancelled || amount == null) return;
+      setDepositPaid(amount);
+      if (Number(build.depositPaidAmount) !== amount) {
+        await updateDoc(doc(db, 'builds', build.id), { depositPaidAmount: amount }).catch((err) => {
+          console.error('Failed to persist actual deposit paid', err);
+        });
+      }
+    }
+    loadActualDeposit().catch((err) => console.error('Failed to load actual deposit paid', err));
+    return () => { cancelled = true; };
+  }, [build.id, build.quoteId, build.stripeDepositPaymentIntentId]);
 
   const saveNotes = async () => {
     setSavingNotes(true);
@@ -740,7 +795,7 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack, onDeleted }) {
     setBusy('balance_link');
     setError('');
     try {
-      const { url, email } = await createBalancePaymentLink(build, remaining);
+      const { url, email } = await sendBalancePaymentLink(build, remaining);
       await updateDoc(doc(db, 'builds', build.id), {
         stripeBalanceUrl: url,
         balanceLinkSentAt: new Date().toISOString(),
@@ -874,11 +929,11 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack, onDeleted }) {
           </div>
           <div className="quotes-price-row">
             <span>Deposit</span>
-            <span>{money(depositPaid)}</span>
+            <span>{depositPaid == null ? '—' : money(depositPaid)}</span>
           </div>
           <div className="quotes-price-row">
             <span>Balance remaining</span>
-            <span>{money(remaining)}</span>
+            <span>{depositPaid == null ? '—' : money(remaining)}</span>
           </div>
           <div className="quotes-price-row">
             <span>Management</span>
@@ -937,7 +992,7 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack, onDeleted }) {
           <button
             type="button"
             className="btn btn-primary"
-            disabled={!!busy || remaining <= 0}
+            disabled={!!busy || depositPaid == null || remaining <= 0}
             onClick={handleSendBalanceLink}
           >
             {busy === 'balance_link' ? 'Sending…' : 'Send Balance Link'}
@@ -1100,7 +1155,7 @@ export default function BuildBoardTab() {
     setLinkBusyId(build.id);
     setError('');
     try {
-      const { url, email } = await createBalancePaymentLink(build);
+      const { url, email } = await sendBalancePaymentLink(build);
       await updateDoc(doc(db, 'builds', build.id), {
         stripeBalanceUrl: url,
         balanceLinkSentAt: new Date().toISOString(),

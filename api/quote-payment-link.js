@@ -140,12 +140,11 @@ module.exports = async (req, res) => {
     const businessName = String(body.businessName || 'Dream App Lab Project').trim();
     const quoteId = String(body.quoteId || '').trim();
     const buildId = String(body.buildId || '').trim();
-    const copyOnly = body.copyOnly === true || body.sendEmail === false;
 
     if (kind !== 'deposit' && kind !== 'balance') {
       return res.status(400).json({ error: 'kind must be deposit or balance' });
     }
-    if (!copyOnly && !email) return res.status(400).json({ error: 'email is required' });
+    if (!email) return res.status(400).json({ error: 'email is required' });
     if (!Number.isFinite(amount) || amount <= 0) {
       return res.status(400).json({ error: 'A valid amount is required' });
     }
@@ -160,18 +159,16 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: 'Stripe is not configured or amount is invalid' });
     }
 
-    if (!copyOnly) {
-      const html =
-        kind === 'deposit' ? depositEmail(firstName, amount, url) : balanceEmail(firstName, amount, url);
-      const subject =
-        kind === 'deposit'
-          ? 'Your Dream App Lab deposit link is ready'
-          : 'Your Dream App Lab project is ready — final balance';
+    const html =
+      kind === 'deposit' ? depositEmail(firstName, amount, url) : balanceEmail(firstName, amount, url);
+    const subject =
+      kind === 'deposit'
+        ? 'Your Dream App Lab deposit link is ready'
+        : 'Your Dream App Lab project is ready — final balance';
 
-      await sendEmail(email, subject, html);
-    }
+    await sendEmail(email, subject, html);
 
-    return res.status(200).json({ ok: true, url, kind, emailed: !copyOnly });
+    return res.status(200).json({ ok: true, url, kind, emailed: true, emailedTo: email });
   } catch (e) {
     console.error('quote-payment-link error', e);
     return res.status(500).json({
