@@ -2231,6 +2231,15 @@ option { background: var(--bg-card); }
   line-height: 1.5;
   margin-bottom: 14px;
 }
+.quotes-status-text {
+  background: none;
+  border: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
 .quotes-questions-form,
 .quotes-confirm-box {
   background: var(--bg-input);

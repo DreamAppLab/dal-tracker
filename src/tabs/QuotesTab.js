@@ -242,11 +242,7 @@ function isUnread(quote) {
 function QuoteStatusBadge({ status }) {
   const meta = STATUS_META[status] || STATUS_META.submitted;
   return (
-    <span className="status-badge" style={{ background: meta.bg, color: meta.color }}>
-      <span
-        className={`status-dot ${meta.pulse ? 'pulse quotes-pulse' : ''}`}
-        style={{ background: meta.color, color: meta.color }}
-      />
+    <span className="quotes-status-text" style={{ color: meta.color }}>
       {meta.label}
     </span>
   );

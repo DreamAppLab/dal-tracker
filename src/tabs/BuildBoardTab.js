@@ -78,42 +78,34 @@ function isBuildComplete(build) {
   return status === 'complete' || !!build?.completedAt;
 }
 
-function remainingBalance(build) {
-  const total = Number(build.total || 0);
-  const depositPaid = Number(
-    build.depositPaidAmount != null ? build.depositPaidAmount : build.deposit || 0
-  );
-  if (build.balance != null && build.depositPaidAmount == null) {
-    return Math.max(0, Number(build.balance) || 0);
+function actualDepositPaid(build) {
+  if (build.depositPaidAmount != null && build.depositPaidAmount !== '') {
+    return Number(build.depositPaidAmount) || 0;
   }
+  return Number(build.deposit || 0);
+}
+
+function remainingBalance(build, paidOverride) {
+  const total = Number(build.total || 0);
+  const depositPaid = paidOverride != null ? Number(paidOverride) : actualDepositPaid(build);
   return Math.max(0, Math.round((total - depositPaid) * 100) / 100);
 }
 
-async function copyText(text) {
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-  const el = document.createElement('textarea');
-  el.value = text;
-  document.body.appendChild(el);
-  el.select();
-  document.execCommand('copy');
-  document.body.removeChild(el);
-}
-
-async function createBalancePaymentLink(build) {
-  const amount = remainingBalance(build);
+async function createBalancePaymentLink(build, amountOverride) {
+  const amount = amountOverride != null ? Number(amountOverride) : remainingBalance(build);
   if (!Number.isFinite(amount) || amount <= 0) {
     throw new Error('No remaining balance to collect.');
+  }
+  const email = String(build.email || build.clientEmail || '').trim();
+  if (!email) {
+    throw new Error('This build is missing the client email address.');
   }
   const res = await fetch('/api/quote-payment-link', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       kind: 'balance',
-      copyOnly: true,
-      email: build.email || build.clientEmail || '',
+      email,
       firstName: String(build.clientName || 'there').trim().split(/\s+/)[0] || 'there',
       amount,
       businessName: build.businessName || build.clientName || 'Dream App Lab Project',
@@ -123,9 +115,9 @@ async function createBalancePaymentLink(build) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) {
-    throw new Error(data.error || data.detail || 'Failed to create balance link');
+    throw new Error(data.error || data.detail || 'Failed to send balance link');
   }
-  return data.url;
+  return { url: data.url, email };
 }
 
 function formTypeLabel(formType) {
@@ -676,10 +668,28 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack, onDeleted }) {
   const [notice, setNotice] = useState('');
   const [confirmMoveBack, setConfirmMoveBack] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [depositPaid, setDepositPaid] = useState(() => actualDepositPaid(build));
 
   const status = String(build.status || 'in_progress');
   const meta = buildStatusMeta(status);
   const complete = isBuildComplete(build);
+  const remaining = remainingBalance(build, depositPaid);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'revenue', 'dal-website', 'manualSales'), (snap) => {
+      const sum = snap.docs.reduce((total, d) => {
+        const entry = d.data() || {};
+        if (String(entry.type || '').toLowerCase() !== 'deposit') return total;
+        const matchesBuild = build.id && entry.buildId === build.id;
+        const matchesQuote = build.quoteId && entry.quoteId === build.quoteId;
+        if (!matchesBuild && !matchesQuote) return total;
+        return total + (Number(entry.amount) || 0);
+      }, 0);
+      if (sum) setDepositPaid(sum);
+      else setDepositPaid(actualDepositPaid(build));
+    });
+    return () => unsub();
+  }, [build.id, build.quoteId, build.depositPaidAmount, build.deposit]);
 
   const saveNotes = async () => {
     setSavingNotes(true);
@@ -730,14 +740,13 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack, onDeleted }) {
     setBusy('balance_link');
     setError('');
     try {
-      const url = await createBalancePaymentLink(build);
-      await copyText(url);
+      const { url, email } = await createBalancePaymentLink(build, remaining);
       await updateDoc(doc(db, 'builds', build.id), {
         stripeBalanceUrl: url,
-        balanceLinkCopiedAt: new Date().toISOString(),
+        balanceLinkSentAt: new Date().toISOString(),
       });
       if (onPatched) onPatched(build.id, { stripeBalanceUrl: url });
-      setNotice('Balance link copied to clipboard');
+      setNotice(`Balance link sent to ${email}`);
     } catch (err) {
       console.error(err);
       setError(err.message || String(err));
@@ -865,11 +874,11 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack, onDeleted }) {
           </div>
           <div className="quotes-price-row">
             <span>Deposit</span>
-            <span>{money(build.deposit)}</span>
+            <span>{money(depositPaid)}</span>
           </div>
           <div className="quotes-price-row">
             <span>Balance remaining</span>
-            <span>{money(remainingBalance(build))}</span>
+            <span>{money(remaining)}</span>
           </div>
           <div className="quotes-price-row">
             <span>Management</span>
@@ -928,10 +937,10 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack, onDeleted }) {
           <button
             type="button"
             className="btn btn-primary"
-            disabled={!!busy || remainingBalance(build) <= 0}
+            disabled={!!busy || remaining <= 0}
             onClick={handleSendBalanceLink}
           >
-            {busy === 'balance_link' ? 'Creating link…' : 'Send Balance Link'}
+            {busy === 'balance_link' ? 'Sending…' : 'Send Balance Link'}
           </button>
           {!complete && (
             <button
@@ -1091,13 +1100,12 @@ export default function BuildBoardTab() {
     setLinkBusyId(build.id);
     setError('');
     try {
-      const url = await createBalancePaymentLink(build);
-      await copyText(url);
+      const { url, email } = await createBalancePaymentLink(build);
       await updateDoc(doc(db, 'builds', build.id), {
         stripeBalanceUrl: url,
-        balanceLinkCopiedAt: new Date().toISOString(),
+        balanceLinkSentAt: new Date().toISOString(),
       });
-      setListNotice('Balance link copied to clipboard');
+      setListNotice(`Balance link sent to ${email}`);
     } catch (err) {
       console.error(err);
       setError(err.message || String(err));
@@ -1223,7 +1231,7 @@ export default function BuildBoardTab() {
                             disabled={!!linkBusyId || remainingBalance(build) <= 0}
                             onClick={() => handleListBalanceLink(build)}
                           >
-                            {linkBusyId === build.id ? 'Copying…' : 'Send Balance Link'}
+                            {linkBusyId === build.id ? 'Sending…' : 'Send Balance Link'}
                           </button>
                           <button
                             type="button"
