@@ -1,17 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  deleteField,
-  doc,
-  onSnapshot,
-  serverTimestamp,
-  Timestamp,
-  updateDoc,
-} from 'firebase/firestore';
-import { dalSiteDb } from '../firebaseDalSite';
 
 const TABS = [
   { id: 'draft', label: 'Drafts' },
@@ -56,10 +44,17 @@ function toDatetimeLocal(value) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function timestampFromLocal(value) {
+function isoFromLocal(value) {
   if (!value) return null;
   const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? null : Timestamp.fromDate(d);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+async function apiJson(url, options) {
+  const res = await fetch(url, options);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || data.error || 'Request failed');
+  return data;
 }
 
 function normalizeStatus(status) {
@@ -103,27 +98,30 @@ export default function BlogAdmin() {
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState('');
 
-  useEffect(() => {
-    const unsub = onSnapshot(
-      collection(dalSiteDb, 'posts'),
-      (snapshot) => {
-        const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-        data.sort((a, b) => {
-          const av = toDate(listDate(a))?.getTime() || 0;
-          const bv = toDate(listDate(b))?.getTime() || 0;
-          return bv - av;
-        });
-        setPosts(data);
-        setLoading(false);
-        setError('');
-      },
-      (err) => {
-        setLoading(false);
-        setError(err?.message || 'Failed to listen to posts.');
-      }
-    );
-    return () => unsub();
+  const loadPosts = useCallback(async (opts = {}) => {
+    const silent = !!opts.silent;
+    if (!silent) setLoading(true);
+    setError('');
+    try {
+      const data = await apiJson('/api/blog/posts');
+      const list = Array.isArray(data.posts) ? data.posts : [];
+      list.sort((a, b) => {
+        const av = toDate(listDate(a))?.getTime() || 0;
+        const bv = toDate(listDate(b))?.getTime() || 0;
+        return bv - av;
+      });
+      setPosts(list);
+    } catch (err) {
+      setError(err?.message || 'Failed to load posts.');
+      setPosts([]);
+    } finally {
+      if (!silent) setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadPosts();
+  }, [loadPosts]);
 
   const counts = useMemo(() => {
     const next = { draft: 0, scheduled: 0, published: 0, archived: 0 };
@@ -176,13 +174,12 @@ export default function BlogAdmin() {
       title: draft.title.trim(),
       content: draft.content,
       status,
-      updatedAt: serverTimestamp(),
       ...rest,
     };
     if (status === 'scheduled') {
-      next.scheduledAt = timestampFromLocal(draft.scheduledAt) || deleteField();
+      next.scheduledAt = isoFromLocal(draft.scheduledAt);
     } else if (status === 'published' || clearSchedule) {
-      next.scheduledAt = deleteField();
+      next.scheduledAt = null;
     }
     return next;
   };
@@ -207,16 +204,20 @@ export default function BlogAdmin() {
     setError('');
     setNotice('');
     try {
-      const ref = await addDoc(collection(dalSiteDb, 'posts'), {
-        title: '',
-        content: '',
-        status: 'draft',
-        source: 'manual',
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+      const data = await apiJson('/api/blog/posts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: '',
+          content: '',
+          status: 'draft',
+          source: 'manual',
+        }),
       });
+      const created = data.post || {};
+      await loadPosts({ silent: true });
       setTab('draft');
-      setSelectedId(ref.id);
+      setSelectedId(created.id);
       setDraft({ title: '', content: '', status: 'draft', scheduledAt: '' });
       setDirty(false);
       setNotice('Draft created.');
@@ -233,17 +234,24 @@ export default function BlogAdmin() {
       return;
     }
     return runAction('save', async () => {
-      await updateDoc(doc(dalSiteDb, 'posts', selectedId), payloadFromDraft());
+      await apiJson('/api/blog/post/' + encodeURIComponent(selectedId), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payloadFromDraft()),
+      });
+      await loadPosts({ silent: true });
       setNotice('Saved.');
     });
   };
 
   const handlePublish = () =>
     runAction('publish', async () => {
-      await updateDoc(
-        doc(dalSiteDb, 'posts', selectedId),
-        payloadFromDraft({ status: 'published', clearSchedule: true })
-      );
+      await apiJson('/api/blog/post/' + encodeURIComponent(selectedId), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payloadFromDraft({ status: 'published', clearSchedule: true })),
+      });
+      await loadPosts({ silent: true });
       setDraft((prev) => (prev ? { ...prev, status: 'published', scheduledAt: '' } : prev));
       setTab('published');
       setNotice('Published.');
@@ -251,10 +259,12 @@ export default function BlogAdmin() {
 
   const handleArchive = () =>
     runAction('archive', async () => {
-      await updateDoc(
-        doc(dalSiteDb, 'posts', selectedId),
-        payloadFromDraft({ status: 'archived' })
-      );
+      await apiJson('/api/blog/post/' + encodeURIComponent(selectedId), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payloadFromDraft({ status: 'archived' })),
+      });
+      await loadPosts({ silent: true });
       setDraft((prev) => (prev ? { ...prev, status: 'archived' } : prev));
       setTab('archived');
       setNotice('Archived.');
@@ -263,10 +273,11 @@ export default function BlogAdmin() {
   const handleDelete = () => {
     if (!window.confirm('Delete this post permanently? This cannot be undone.')) return;
     return runAction('delete', async () => {
-      await deleteDoc(doc(dalSiteDb, 'posts', selectedId));
+      await apiJson('/api/blog/post/' + encodeURIComponent(selectedId), { method: 'DELETE' });
       setSelectedId(null);
       setDraft(null);
       setDirty(false);
+      await loadPosts({ silent: true });
       setNotice('Post deleted.');
     });
   };
@@ -279,10 +290,14 @@ export default function BlogAdmin() {
           <p className="page-subtitle">dreamapplab.com posts · dal-website-c9dd8</p>
         </div>
         <div className="page-actions">
-          <div className="live-indicator">
-            <span className="live-dot" />
-            Live
-          </div>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={loadPosts}
+            disabled={loading || !!busy}
+          >
+            {loading ? 'Refreshing…' : 'Refresh'}
+          </button>
           <button
             type="button"
             className="btn btn-primary"
