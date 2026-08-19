@@ -1,6 +1,6 @@
 // Auto-generated DAL pipeline checklist data — 106 tasks, 9 phases
 export const PWA_PIPELINE = {
-  "title": "DAL PWA Pipeline",
+  "title": "DAL PWA Launch Pipeline v1",
   "total": 106,
   "phases": [
     {

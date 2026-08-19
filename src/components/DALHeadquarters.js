@@ -6,6 +6,10 @@ import {
   ChecklistProgress,
   ChecklistItemRow,
 } from './AppChecklist';
+import {
+  getProjectTypesSeedStatus,
+  runSeedProjectTypes,
+} from '../scripts/seedProjectTypes';
 
 const COLLECTION = 'blackbox';
 const DOCUMENT = 'dal_wide';
@@ -338,7 +342,59 @@ export default function DALHeadquarters() {
         />
       </div>
 
+      <SeedProjectTypesPanel />
       <DalOpsChecklist />
+    </div>
+  );
+}
+
+function SeedProjectTypesPanel() {
+  const [seeded, setSeeded] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [logs, setLogs] = useState([]);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    getProjectTypesSeedStatus()
+      .then((status) => setSeeded(!!status?.seeded))
+      .catch(() => setSeeded(false));
+  }, []);
+
+  if (seeded && logs.length === 0) return null;
+
+  const handleRun = async () => {
+    setRunning(true);
+    setError('');
+    try {
+      const result = await runSeedProjectTypes();
+      setLogs(result.logs || []);
+      setSeeded(true);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || 'Seed failed');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="data-section">
+      <div className="section-label" style={{ marginBottom: 8 }}>One-time: seed project types</div>
+      <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+        Sets <code>projectType</code> on existing DAL app projects that do not have one.
+        This button disappears after a successful run.
+      </p>
+      {!seeded && (
+        <button type="button" className="btn btn-secondary" disabled={running} onClick={handleRun}>
+          {running ? 'Seeding…' : 'Seed project types'}
+        </button>
+      )}
+      {error ? <div className="quotes-error" style={{ marginTop: 12 }}>{error}</div> : null}
+      {logs.length > 0 && (
+        <pre style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'pre-wrap' }}>
+          {logs.join('\n')}
+        </pre>
+      )}
     </div>
   );
 }
