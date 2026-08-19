@@ -68,7 +68,7 @@ function normalizeStatus(status) {
 function postToDraft(post) {
   return {
     title: post.title || '',
-    content: post.content || '',
+    body: post.body || post.content || '',
     status: normalizeStatus(post.status),
     scheduledAt: toDatetimeLocal(post.scheduledAt),
   };
@@ -170,9 +170,11 @@ export default function BlogAdmin() {
   const payloadFromDraft = (overrides = {}) => {
     const { clearSchedule, ...rest } = overrides;
     const status = rest.status || draft.status;
+    const html = draft.body || '';
     const next = {
       title: draft.title.trim(),
-      content: draft.content,
+      body: html,
+      content: html,
       status,
       ...rest,
     };
@@ -218,7 +220,7 @@ export default function BlogAdmin() {
       await loadPosts({ silent: true });
       setTab('draft');
       setSelectedId(created.id);
-      setDraft({ title: '', content: '', status: 'draft', scheduledAt: '' });
+      setDraft({ title: '', body: '', status: 'draft', scheduledAt: '' });
       setDirty(false);
       setNotice('Draft created.');
     } catch (err) {
@@ -407,11 +409,11 @@ export default function BlogAdmin() {
               </div>
 
               <div className="form-group">
-                <label className="form-label">HTML content</label>
+                <label className="form-label">Body / Content</label>
                 <textarea
                   className="form-textarea blog-content-editor"
-                  value={draft.content}
-                  onChange={(e) => updateDraft({ content: e.target.value })}
+                  value={draft.body}
+                  onChange={(e) => updateDraft({ body: e.target.value })}
                   placeholder="<p>Write HTML here…</p>"
                   spellCheck={false}
                 />
