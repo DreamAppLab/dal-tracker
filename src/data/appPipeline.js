@@ -1,1859 +1,349 @@
-// Auto-generated DAL pipeline checklist data — 224 tasks, 17 phases
 export const APP_PIPELINE = {
-  "title": "DAL App Launch Pipeline",
-  "total": 224,
-  "phases": [
+  title: 'DAL App Launch Pipeline v4',
+  total: 224,
+  phases: [
     {
-      "id": "p1",
-      "title": "Phase 1 — Discovery, Scope & Kickoff",
-      "note": "Lock the product, audience, and success criteria before any code.",
-      "tasks": [
-        {
-          "id": "t1",
-          "num": 1,
-          "text": "Confirm product name, one-line pitch, and target user",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t2",
-          "num": 2,
-          "text": "Write the problem statement and why this app exists now",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t3",
-          "num": 3,
-          "text": "List must-have v1 features vs later-version parking lot",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t4",
-          "num": 4,
-          "text": "Define success metrics for launch (downloads, retention, revenue)",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t5",
-          "num": 5,
-          "text": "Identify platforms for v1 (iOS, Android, or both)",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t6",
-          "num": 6,
-          "text": "Confirm own-app vs client-app ownership and IP",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t7",
-          "num": 7,
-          "text": "Collect competitor apps and note gaps to beat",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t8",
-          "num": 8,
-          "text": "Draft user journeys for first-open, core loop, and return visit",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t9",
-          "num": 9,
-          "text": "Confirm budget, timeline, and who is building (Eddie / contractor)",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t10",
-          "num": 10,
-          "text": "Schedule kickoff and share the pipeline checklist with the builder",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t11",
-          "num": 11,
-          "text": "Create a Mission Control project and set project type",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t12",
-          "num": 12,
-          "text": "Save kickoff notes and decisions in project notes",
-          "note": "",
-          "badges": []
-        }
+      id: 'p1',
+      title: 'Phase 1 · Concept & Market Validation',
+      note: 'Zero code, zero accounts, zero setup until all of these are done.',
+      tasks: [
+        { id: 'p1t1', num: 1, text: 'Write the one-sentence concept: who it\'s for, what single problem it solves', note: 'This becomes your Cursor build prompt foundation, App Store description lead, and pitch to anyone who asks. If you cannot write it in one sentence, the concept is not clear enough yet.' },
+        { id: 'p1t2', num: 2, text: 'Search the App Store for the exact app name and every close variation', note: 'Search on your iPhone and at appstoreconnect.apple.com. Check exact match, abbreviations, and plurals. ⚠️ LESSON LEARNED: Flarepad was originally Wellnoted — name conflict found after significant build work.', badges: ['lesson'] },
+        { id: 'p1t3', num: 3, text: 'Search Google Play for the exact app name and every close variation', note: 'play.google.com/store — same search. Both stores must be clear before you commit to a name.' },
+        { id: 'p1t4', num: 4, text: 'Google the name — check for trademark conflicts, confusingly similar brands, or bad associations', note: 'A quick Google search can surface trademark holders, news stories, or existing brands you\'d never find in the App Store.' },
+        { id: 'p1t5', num: 5, text: 'Check USPTO TESS (tmsearch.uspto.gov) for registered trademarks on the name', note: 'Free search. Confirm the name is not trademarked in app/software categories. Flag anything close to Allen.' },
+        { id: 'p1t6', num: 6, text: 'Confirm bundle ID format: com.dreamapplab.appname (all lowercase, no hyphens, no spaces)', note: 'Example: com.dreamapplab.travelwhirl — set this once, NEVER change it after first build.' },
+        { id: 'p1t7', num: 7, text: 'Decide: Firebase backend or AsyncStorage only?', note: 'Firebase = required for multi-user, family, sync, or cloud-storage features. AsyncStorage = fine for single-user local apps (Flarepad, Logabode). Decision affects Phase 2 setup significantly.' },
+        { id: 'p1t8', num: 8, text: 'Decide: subscription IAP or one-time IAP or both?', note: 'Subscription = standard for Firebase apps with ongoing value. One-time = simple utility apps. Decide now — it affects paywall design, RevenueCat setup, and Allen\'s legal docs.' },
+        { id: 'p1t9', num: 9, text: 'Set all pricing tiers before building anything', note: 'DAL standard: $3.99/mo or $24.99/yr (basic), $5.99/mo or $34.99/yr (premium), $7.99/mo or $47.99/yr (family). One-time IAP: $3.99. Only deviate with a documented reason.' },
+        { id: 'p1t10', num: 10, text: 'Decide if this app uses AI features (Gemini, OpenAI, etc.)', note: 'If yes: must use paid API tier to prevent user data from being used for model training. Must disclose in PP. Must flag to Allen.' },
+        { id: 'p1t11', num: 11, text: 'List every third-party SDK you plan to integrate', note: 'Write out the full list: Firebase, RevenueCat, Sentry, Crisp, Mailgun, Gemini, Twilio, Travelpayouts, etc. This list goes to Allen and drives the PP disclosures. Missing a vendor = rejection or legal risk.' },
       ]
     },
     {
-      "id": "p2",
-      "title": "Phase 2 — Legal, Entity & Contracts",
-      "note": "Protect DAL and the client before accounts and code exist.",
-      "tasks": [
-        {
-          "id": "t13",
-          "num": 13,
-          "text": "Confirm Dream App Lab LLC is the contracting entity",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t14",
-          "num": 14,
-          "text": "Use the current DAL contract / SOW template",
-          "note": "Never invent legal language in chat.",
-          "badges": []
-        },
-        {
-          "id": "t15",
-          "num": 15,
-          "text": "Collect client legal name, billing address, and signer",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t16",
-          "num": 16,
-          "text": "Get the signed agreement stored (PDF in Drive + note in Black Box)",
-          "note": "",
-          "badges": [
-            "blackbox"
-          ]
-        },
-        {
-          "id": "t17",
-          "num": 17,
-          "text": "Confirm deposit amount, schedule, and what starts the build",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t18",
-          "num": 18,
-          "text": "Confirm revision rounds and out-of-scope change process",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t19",
-          "num": 19,
-          "text": "Confirm who owns source, accounts, and store listings",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t20",
-          "num": 20,
-          "text": "Confirm privacy / COPPA / kids-app constraints if any",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t21",
-          "num": 21,
-          "text": "Confirm data-retention and deletion commitments",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t22",
-          "num": 22,
-          "text": "Add lab@dreamapplab.com as the business contact of record",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t23",
-          "num": 23,
-          "text": "Create a client folder in Drive with contract + brand assets",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t24",
-          "num": 24,
-          "text": "Log lawyer / CPA questions if anything is non-standard",
-          "note": "",
-          "badges": []
-        }
+      id: 'p2',
+      title: 'Phase 2 · Pre-Code What-If & Design Session',
+      note: 'Complete BEFORE writing any app code. This session prevents 80% of rebuild work.',
+      tasks: [
+        { id: 'p2t1', num: 12, text: 'Run a full What-If session: walk through every user type, every state, every failure mode', note: 'Think through: new user, returning user, unverified user, subscribed user, expired trial, cancelled subscriber, soft-locked user, deleted user, reviewer account. What does each screen show? What happens if they tap every button?' },
+        { id: 'p2t2', num: 13, text: 'What-If: What happens if the user opens the app with no internet connection?', note: 'Every screen that loads remote data must handle offline gracefully — no crash, no blank screen, a clear message.' },
+        { id: 'p2t3', num: 14, text: 'What-If: What happens if the user\'s subscription expires mid-session?', note: '⚠️ LESSON LEARNED: FamilyLens crashed into an infinite loop when trial expired while app was open. The app must handle subscription state changes without freezing.', badges: ['lesson'] },
+        { id: 'p2t4', num: 15, text: 'What-If: What happens if the user is in the middle of onboarding and taps the home button?', note: 'Onboarding state must persist. The user should resume where they left off, not restart from scratch.' },
+        { id: 'p2t5', num: 16, text: 'What-If: What happens if a push notification arrives while the user is on every possible screen?', note: 'Tapping a notification must navigate to the correct screen regardless of current app state.' },
+        { id: 'p2t6', num: 17, text: 'What-If: What happens if the Apple reviewer creates an account and the trial immediately starts?', note: '⚠️ LESSON LEARNED: Reviewer accounts need pre-seeded full subscription access in Firestore. A reviewer who hits a paywall or trial expiry cannot review the app.', badges: ['lesson'] },
+        { id: 'p2t7', num: 18, text: 'What-If: What happens if a Firebase write fails silently?', note: 'All Firestore writes must have error handling. Silent failures = data loss the user never knows about.' },
+        { id: 'p2t8', num: 19, text: 'What-If: What happens if the user deletes their account?', note: 'Define the full deletion cascade before building: which Firestore collections, subcollections, Storage files, Auth records, and RevenueCat records get deleted? Who owns data in family/shared contexts?' },
+        { id: 'p2t9', num: 20, text: 'What-If: What happens if two users edit the same record simultaneously?', note: 'If your app has shared data, define the conflict resolution strategy. Last-write-wins is usually fine for family apps but must be intentional.' },
+        { id: 'p2t10', num: 21, text: 'What-If: What happens on first launch after a major app update?', note: 'New required fields, new consent screens, new onboarding steps — how does an existing user get migrated without data loss or crash?' },
+        { id: 'p2t11', num: 22, text: 'What-If: What happens if a required API (Firebase, RevenueCat, Gemini) is down?', note: 'App must fail gracefully. No crash. User sees a clear "service unavailable" message.' },
+        { id: 'p2t12', num: 23, text: 'What-If: What happens if the user\'s phone runs out of storage mid-upload?', note: 'Storage writes (photos, documents) must handle failure without corrupting existing data.' },
+        { id: 'p2t13', num: 24, text: 'Define all user roles and permissions in writing before building', note: 'Example for family apps: owner, member, viewer. What can each role read? Write? Delete? This becomes your Firestore security rules spec.' },
+        { id: 'p2t14', num: 25, text: 'Define the complete navigation structure — every screen, every tab, every modal', note: 'Draw it out or write it as a list. Every screen needs a name. Every path needs a back button or cancel. No dead ends.' },
+        { id: 'p2t15', num: 26, text: 'Define the complete Firestore data model — every collection, every field, every relationship', note: 'Changing the data model after launch = migration work. Get it right before the first document is written.' },
+        { id: 'p2t16', num: 27, text: 'Define all notification types — trigger, content, deep link destination for each', note: 'Write out every notification: what triggers it, what it says, where tapping it goes. This spec drives Cloud Functions.' },
       ]
     },
     {
-      "id": "p3",
-      "title": "Phase 3 — Brand, Design & Assets",
-      "note": "Ship with a real identity, not placeholder chrome.",
-      "tasks": [
-        {
-          "id": "t25",
-          "num": 25,
-          "text": "Finalize app name spelling, capitalization, and subtitle",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t26",
-          "num": 26,
-          "text": "Design or export app icon at required iOS and Android sizes",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t27",
-          "num": 27,
-          "text": "Define primary, secondary, and danger colors (hex)",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t28",
-          "num": 28,
-          "text": "Choose display + body fonts and confirm license",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t29",
-          "num": 29,
-          "text": "Create a simple design system (buttons, cards, inputs, dark theme)",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t30",
-          "num": 30,
-          "text": "Produce empty-state and first-run illustrations or photos",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t31",
-          "num": 31,
-          "text": "Write onboarding copy (3 screens max unless product needs more)",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t32",
-          "num": 32,
-          "text": "Prepare splash / launch screen artwork",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t33",
-          "num": 33,
-          "text": "Collect logo SVG/PNG and usage rules",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t34",
-          "num": 34,
-          "text": "Export store screenshot frames and device mock sizes",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t35",
-          "num": 35,
-          "text": "Confirm DAL blue #4cc1f3 usage on DAL-owned surfaces",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t36",
-          "num": 36,
-          "text": "Save brand files in the project Drive folder",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t37",
-          "num": 37,
-          "text": "Add icon + color to the Mission Control project card",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t38",
-          "num": 38,
-          "text": "Review contrast for body text on dark backgrounds",
-          "note": "",
-          "badges": []
-        }
+      id: 'p3',
+      title: 'Phase 3 · Project Infrastructure Setup',
+      note: '🔒 ALL security items in this phase are required before writing any app code.',
+      tasks: [
+        { id: 'p3t1', num: 28, text: 'Create GitHub repo under DreamAppLab org (NOT personal account) — set to Private', note: 'github.com → DreamAppLab → New Repository. Private. Name matches app name.' },
+        { id: 'p3t2', num: 29, text: 'Clone repo to C:\\dev\\[appname] in PowerShell — NOT OneDrive, NOT DAL Redesign, NOT Desktop', note: 'Path must be exactly C:\\dev\\[appname]. Cursor Agent requires this exact location.', badges: ['critical'] },
+        { id: 'p3t3', num: 30, text: 'Create comprehensive .gitignore BEFORE the first commit', note: 'Must include: .env, .env.*, .env.local, serviceAccount*.json, *-firebase-adminsdk*.json, *.jks, *.p12, *.p8, *.key, *.pem, *.mobileprovision, google-services.json.bak, GoogleService-Info.plist.bak, eas-credentials.txt, *.aab, node_modules/, .expo/, dist/. ⚠️ LESSON LEARNED: Flarepad keystore and Shady Duck service account were both committed to GitHub because gitignore was not set before first push.', badges: ['security', 'lesson'] },
+        { id: 'p3t4', num: 31, text: 'Verify .gitignore is working: run git status and confirm no sensitive files appear as untracked', note: 'Do this before the first git add. If any .env or credential file appears untracked, stop and fix gitignore first.' },
+        { id: 'p3t5', num: 32, text: 'Initialize Expo project with correct bundle ID and slug in app.json/app.config.js', note: 'Bundle ID: com.dreamapplab.[appname]. Slug must match — never revert to old app name. ⚠️ LESSON LEARNED: Flarepad slug kept reverting to "wellnoted" across Cursor commits.', badges: ['lesson'] },
+        { id: 'p3t6', num: 33, text: 'Create EAS project: run eas init inside C:\\dev\\[appname] in Cursor Terminal', note: 'This generates the EAS Project ID. Required before any build.' },
+        { id: 'p3t7', num: 34, text: 'Save EAS Project ID to Black Box in Mission Control immediately', badges: ['blackbox'] },
+        { id: 'p3t8', num: 35, text: 'Set up Firebase project (backend apps only) — name: [appname]-prod — enable Blaze plan', note: 'Always -prod suffix. Enable Blaze plan immediately — Cloud Functions require it.' },
+        { id: 'p3t9', num: 36, text: 'Download google-services.json (Android) and GoogleService-Info.plist (iOS) from Firebase Console', note: 'Save to C:\\dev\\[appname]\\ root. Verify both are listed in .gitignore BEFORE adding to git.' },
+        { id: 'p3t10', num: 37, text: 'Save all Firebase config values to Black Box: Project ID, API key, Auth domain, Storage bucket, iOS App ID, Android App ID', badges: ['blackbox'] },
+        { id: 'p3t11', num: 38, text: 'Enable PITR (Point-in-Time Recovery) on Firestore — Firebase Console → Firestore → Backups', note: '⚠️ LESSON LEARNED: DAL apps ran for months without PITR. A bad script run caused irreversible data loss on Shady Duck. Enable on day 1, no exceptions.', badges: ['security', 'lesson'] },
+        { id: 'p3t12', num: 39, text: 'Set up Firebase scheduled daily backups to Cloud Storage', note: 'Firebase Console → Firestore → Backups → Create backup schedule. Daily, retain for 7 days minimum.' },
+        { id: 'p3t13', num: 40, text: 'Set GCP budget alert at $10 on the Firebase project — enable email notifications', note: '⚠️ LESSON LEARNED: Apps ran for months on Blaze plan with no spending ceiling.', badges: ['security', 'lesson'] },
+        { id: 'p3t14', num: 41, text: 'Fix Firebase Auth email sender name — set to "Dream App Lab" or app name', note: '⚠️ LESSON LEARNED: Blank sender name caused Gmail to silently drop ALL auth verification emails for months. Firebase Console → Authentication → Templates → Edit → Sender name.', badges: ['critical', 'lesson'] },
+        { id: 'p3t15', num: 42, text: 'Send a test verification email and confirm it arrives in both Gmail AND iCloud', note: '⚠️ LESSON LEARNED: Verifying only Gmail is not enough. iCloud handles email differently. Test both.', badges: ['lesson'] },
+        { id: 'p3t16', num: 43, text: 'Confirm Google Cloud account for this Firebase project is lab@dreamapplab.com — NOT personal Gmail', note: '⚠️ LESSON LEARNED: Several DAL Firebase projects are still owned by eddieskehan@gmail.com. New projects must be under lab@dreamapplab.com.', badges: ['security', 'lesson'] },
+        { id: 'p3t17', num: 44, text: 'Create App Store Connect app record — bundle ID, SKU, primary language', note: 'appstoreconnect.apple.com → Apps → + → New App. Bundle ID must match exactly. Create under DAL org (CAT6U7K4K5), NOT personal account.' },
+        { id: 'p3t18', num: 45, text: 'Save App Store Connect App ID to Black Box', badges: ['blackbox'] },
+        { id: 'p3t19', num: 46, text: 'Create Google Play app record — confirm bundle ID matches iOS', note: 'play.google.com/console → Create app. Select correct developer account (DAL org).' },
+        { id: 'p3t20', num: 47, text: 'Generate Android keystore via EAS credentials — save to C:\\dev\\_keystores\\[appname]\\', note: 'Run: eas credentials → Android → Production → Keystore → Generate. ⚠️ LESSON LEARNED: Flarepad keystore was briefly exposed in a GitHub commit.', badges: ['lesson'] },
+        { id: 'p3t21', num: 48, text: 'Save Android keystore password and alias to Black Box', badges: ['blackbox', 'security'] },
+        { id: 'p3t22', num: 49, text: 'Add SENTRY_AUTH_TOKEN as EAS secret BEFORE the first build', note: '⚠️ LESSON LEARNED: Missing this causes source map uploads to fail silently. Build appears to succeed but Sentry cannot symbolicate any crashes. Run: eas secret:create --name SENTRY_AUTH_TOKEN --value [token]', badges: ['critical', 'lesson'] },
+        { id: 'p3t23', num: 50, text: 'Create Sentry project for this app — platform: React Native — connect DreamAppLab GitHub repo', note: 'sentry.io → New Project → React Native → name [appname] → team #dream-app-lab.' },
+        { id: 'p3t24', num: 51, text: 'Copy Sentry DSN and save to Black Box', badges: ['blackbox'] },
+        { id: 'p3t25', num: 52, text: 'Add Sentry DSN as EAS secret: SENTRY_DSN', note: 'Never hardcode the DSN in source. Always via EAS secret.' },
+        { id: 'p3t26', num: 53, text: 'Create Crisp workspace for this app — name it [App Name] Support', note: 'crisp.chat → New Inbox → name "[App Name] Support". Separate workspace per app — never share workspaces.' },
+        { id: 'p3t27', num: 54, text: 'Save Crisp Website ID to Black Box', badges: ['blackbox'] },
+        { id: 'p3t28', num: 55, text: 'Add Crisp Website ID as EAS secret: CRISP_WEBSITE_ID', note: 'Never hardcode. Always via EAS secret.' },
+        { id: 'p3t29', num: 56, text: 'Set up RevenueCat project — connect App Store Connect and Google Play via API keys', note: 'app.revenuecat.com → Create project → [appname]. Connect both stores.' },
+        { id: 'p3t30', num: 57, text: 'Save RevenueCat iOS and Android public keys to Black Box', badges: ['blackbox'] },
+        { id: 'p3t31', num: 58, text: 'Generate App Store Connect API key for RevenueCat analytics under DAL org — save .p8 file and Key ID to Black Box', note: '⚠️ LESSON LEARNED: Flarepad\'s ASC API key became invalid when the app transferred to DAL org.', badges: ['blackbox', 'lesson'] },
+        { id: 'p3t32', num: 59, text: 'Add project to DAL Mission Control — mark type as "Own App" or "Client App" — attach pipeline checklist', note: 'dal-tracker.vercel.app → add project.' },
+        { id: 'p3t33', num: 60, text: 'Verify dev folder audit — C:\\dev\\[appname] contains only repo files — no screenshots, zips, docs, or build artifacts', note: '⚠️ LESSON LEARNED: Multiple DAL repos had screenshots, .aab files, legal docs, and brand assets sitting in the repo root.', badges: ['lesson'] },
       ]
     },
     {
-      "id": "p4",
-      "title": "Phase 4 — Repo, Architecture & Environments",
-      "note": "Feature branches only. Never push straight to main.",
-      "tasks": [
-        {
-          "id": "t39",
-          "num": 39,
-          "text": "Create the GitHub repo under the correct DAL account",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t40",
-          "num": 40,
-          "text": "Initialize README with run, env, and deploy instructions",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t41",
-          "num": 41,
-          "text": "Add .gitignore (never commit .env, keystores, or p8 keys)",
-          "note": "",
-          "badges": [
-            "security",
-            "lesson"
-          ]
-        },
-        {
-          "id": "t42",
-          "num": 42,
-          "text": "Create develop (or main) protection rules — PRs required",
-          "note": "",
-          "badges": [
-            "critical"
-          ]
-        },
-        {
-          "id": "t43",
-          "num": 43,
-          "text": "Decide Expo / React Native SDK version and lock it",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t44",
-          "num": 44,
-          "text": "Create .env.example with every public env key documented",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t45",
-          "num": 45,
-          "text": "Split dev / preview / production env files",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t46",
-          "num": 46,
-          "text": "Confirm EAS project is linked (eas init) and slug is correct",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t47",
-          "num": 47,
-          "text": "Set EXPO_PUBLIC_USE_FIREBASE_EMULATOR=false documented for store builds",
-          "note": "",
-          "badges": [
-            "lesson"
-          ]
-        },
-        {
-          "id": "t48",
-          "num": 48,
-          "text": "Add a basic CI or at least a PR checklist in the README",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t49",
-          "num": 49,
-          "text": "Create the first feature branch — never work on main",
-          "note": "",
-          "badges": [
-            "lesson"
-          ]
-        },
-        {
-          "id": "t50",
-          "num": 50,
-          "text": "Document folder structure (screens, components, services, data)",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t51",
-          "num": 51,
-          "text": "Confirm Node version and package manager (npm/yarn) in README",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t52",
-          "num": 52,
-          "text": "Save GitHub repo URL and default branch in Black Box",
-          "note": "",
-          "badges": [
-            "blackbox"
-          ]
-        }
+      id: 'p4',
+      title: 'Phase 4 · Development',
+      note: 'Feature branch → PR → review diff → merge. NEVER push to main directly.',
+      tasks: [
+        { id: 'p4t1', num: 61, text: 'Write full Cursor Agent build prompt — include: bundle ID, color palette, all screens, all features, full data model, all user roles, navigation structure, notification types', note: 'More detail = better output and fewer rebuild cycles. Reference the What-If session output from Phase 2.' },
+        { id: 'p4t2', num: 62, text: 'Branch workflow enforced from commit #1: create feature branch → push → open PR on GitHub → review diff → merge', note: 'NEVER git push origin main or git push origin master directly. This rule has no exceptions.', badges: ['lesson'] },
+        { id: 'p4t3', num: 63, text: 'Firestore writes: always update() or set({merge:true}). Never bare set().', note: 'Bare set() silently overwrites all existing fields. This has caused data loss. Non-negotiable DAL rule.', badges: ['security'] },
+        { id: 'p4t4', num: 64, text: 'PowerShell only — never chain commands with && — run each command separately', note: 'PowerShell does not support && chaining. Split into separate commands every time.', badges: ['lesson'] },
+        { id: 'p4t5', num: 65, text: 'File staging: always stage specific files (git add filename) — never git add .', note: 'Blind git add . risks committing sensitive files, build artifacts, and debug logs.', badges: ['lesson'] },
+        { id: 'p4t6', num: 66, text: 'Install and wire Sentry SDK via wizard: run npx @sentry/wizard@latest -i reactNative in Cursor Terminal', note: 'Enable Session Replay and Logs when prompted. DSN must come from EAS secret, not hardcoded.' },
+        { id: 'p4t7', num: 67, text: 'Install and wire Crisp SDK — react-native-crisp-chat-sdk — Website ID from EAS secret', note: 'Wire to Settings screen support button and any in-app help triggers.' },
+        { id: 'p4t8', num: 68, text: 'Install react-native-purchases (RevenueCat SDK) and initialize on app startup', note: 'Initialize even if paywall is not built yet. Saves time later.' },
+        { id: 'p4t9', num: 69, text: 'If app uses Gemini or any AI API: confirm paid tier is active to prevent user data training', note: 'Free Gemini tier allows Google to use submitted content for model training. Paid tier opts out.', badges: ['security'] },
+        { id: 'p4t10', num: 70, text: 'Implement legal consent WebView flow — TOS + PP with scroll-to-bottom gate on first launch', note: 'All users must scroll to bottom of each document before the Accept button activates. Hosted at dreamapplab.com/legal/[appname]/tos.html and pp.html. Never hardcode legal text — always WebView to hosted URL.', badges: ['lesson'] },
+        { id: 'p4t11', num: 71, text: 'Store consent acknowledgment in Firestore with timestamp and version', note: 'Required for GDPR/CCPA compliance.' },
+        { id: 'p4t12', num: 72, text: 'Build paywall UI with real product names and RevenueCat dynamic pricing — never hardcode prices', note: 'RevenueCat pricing updates automatically when you change prices in ASC. Hardcoded prices = stale UI.' },
+        { id: 'p4t13', num: 73, text: 'Add Preview Paywall button (hidden, debug-only) for App Store screen recording', note: 'This button must be removed or hidden behind a debug flag before public launch.' },
+        { id: 'p4t14', num: 74, text: 'Build Settings screen with: Sign Out, Delete Account, TOS link, PP link, Support (Crisp open), App Version', note: 'Apple requires visible account deletion, TOS, and PP in the app. Missing any = rejection.', badges: ['critical'] },
+        { id: 'p4t15', num: 75, text: 'Add cancel/back buttons to EVERY onboarding screen, modal, and multi-step flow', note: '⚠️ LESSON LEARNED: FamilyLens was rejected because some onboarding screens had no visible exit path.', badges: ['lesson'] },
+        { id: 'p4t16', num: 76, text: 'Add in-app review prompt using expo-store-review — trigger after meaningful action, only once ever', note: 'Use AsyncStorage flag to track if already shown.' },
+        { id: 'p4t17', num: 77, text: 'Add Share App button in Settings using React Native Share API' },
+        { id: 'p4t18', num: 78, text: 'Install expo-font if using @expo/vector-icons', note: '⚠️ LESSON LEARNED: Missing expo-font peer dependency works in Expo Go but causes white screen crash on TestFlight production build. Run: npx expo install expo-font', badges: ['lesson'] },
+        { id: 'p4t19', num: 79, text: 'Write Firestore security rules from the data model and user roles defined in Phase 2', note: 'Every collection needs explicit allow/deny. Never leave in test mode.', badges: ['security'] },
+        { id: 'p4t20', num: 80, text: 'Write Firebase Storage security rules — restrict to authenticated users with correct family/user scope', badges: ['security'] },
+        { id: 'p4t21', num: 81, text: 'Build account deletion flow — cover complete cascade: Auth record, Firestore user doc, all user subcollections, all user-owned family data, Storage files, RevenueCat record', note: '⚠️ LESSON LEARNED: FamilyLens has 5 known deletion cascade gaps.', badges: ['lesson'] },
+        { id: 'p4t22', num: 82, text: 'Implement soft-lock and pending deletion grace period if applicable — Cloud Function owned, not client-side', note: 'Soft-lock logic must be enforced in Firestore security rules AND Cloud Functions, not only client-side checks.', badges: ['security'] },
+        { id: 'p4t23', num: 83, text: 'Wire RevenueCat webhook to Firebase Cloud Function for subscription status sync', note: 'Without this, a user who subscribes via App Store will not be recognized as subscribed by the app.', badges: ['critical'] },
+        { id: 'p4t24', num: 84, text: 'Verify getFunctions() calls use the correct deployed region for this Firebase project', note: '⚠️ LESSON LEARNED: FamilyLens functions are deployed to us-central1 but some calls used us-east1. Mismatch causes Cloud Functions to silently not be called.', badges: ['lesson'] },
+        { id: 'p4t25', num: 85, text: 'Scan all source files for hardcoded API keys, DSNs, credentials, or secrets — move all to EAS secrets', note: 'Search for: sk_, pk_, AIza, https://o4, firebase.com, revcat.', badges: ['security'] },
+        { id: 'p4t26', num: 86, text: 'Verify all EAS secrets are set: list with eas secret:list in Cursor Terminal', note: 'Required at minimum: SENTRY_AUTH_TOKEN, SENTRY_DSN, CRISP_WEBSITE_ID, EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID (if using Google Auth).', badges: ['critical'] },
+        { id: 'p4t27', num: 87, text: 'Build Cloud Functions for all notification types defined in Phase 2', note: 'Each notification type needs: Firestore trigger or scheduled function, eligible recipient logic, push token validation, in-app notification write, Expo push send.' },
+        { id: 'p4t28', num: 88, text: 'Check firebase-functions SDK version in functions/package.json — note if outdated but do not upgrade without a dedicated test session', note: '⚠️ LESSON LEARNED: Opportunistic SDK upgrades have broken Cloud Functions deployments.', badges: ['lesson'] },
       ]
     },
     {
-      "id": "p5",
-      "title": "Phase 5 — Firebase & Backend Foundation",
-      "note": "One Firebase project per product unless a documented exception exists.",
-      "tasks": [
-        {
-          "id": "t53",
-          "num": 53,
-          "text": "Create or confirm the Firebase project under lab@dreamapplab.com",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t54",
-          "num": 54,
-          "text": "Enable Firestore, Auth, Storage, and Hosting if needed",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t55",
-          "num": 55,
-          "text": "Create iOS + Android (and web if used) apps in Firebase",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t56",
-          "num": 56,
-          "text": "Download google-services.json and GoogleService-Info.plist — do not commit secrets if policy says so",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t57",
-          "num": 57,
-          "text": "Set Firestore location and enable PITR / scheduled backups",
-          "note": "",
-          "badges": [
-            "security",
-            "critical"
-          ]
-        },
-        {
-          "id": "t58",
-          "num": 58,
-          "text": "Write first-pass Firestore rules (deny by default)",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t59",
-          "num": 59,
-          "text": "Write first-pass Storage rules (path + auth checks)",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t60",
-          "num": 60,
-          "text": "Create indexes as soon as composite queries appear",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t61",
-          "num": 61,
-          "text": "Configure authorized domains for Auth",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t62",
-          "num": 62,
-          "text": "Turn on email enumeration protection",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t63",
-          "num": 63,
-          "text": "Set a $10 GCP budget alert at 50/90/100%",
-          "note": "",
-          "badges": [
-            "security",
-            "lesson"
-          ]
-        },
-        {
-          "id": "t64",
-          "num": 64,
-          "text": "Disable billing auto-reload if not required",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t65",
-          "num": 65,
-          "text": "Document emulator vs production switch in README",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t66",
-          "num": 66,
-          "text": "Save Firebase project ID, web API key, and console URL in Black Box",
-          "note": "",
-          "badges": [
-            "blackbox"
-          ]
-        },
-        {
-          "id": "t67",
-          "num": 67,
-          "text": "Confirm App Check plan (do before public launch)",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t68",
-          "num": 68,
-          "text": "Add a seed/admin path only if rules still protect it",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        }
+      id: 'p5',
+      title: 'Phase 5 · App Check',
+      note: '🔒 SECURITY — Configure in Firebase Console now. Code integration before first production build.',
+      tasks: [
+        { id: 'p5t1', num: 89, text: 'Enable App Check in Firebase Console — Firebase Console → App Check → Get Started', note: 'App Check verifies that requests to your Firebase backend come from your actual app binary. Without this, your Firestore, Storage, and Cloud Functions are open to direct API abuse.', badges: ['security'] },
+        { id: 'p5t2', num: 90, text: 'Register iOS app in App Check — provider: App Attest', note: 'Firebase Console → App Check → Apps → iOS app → App Attest.' },
+        { id: 'p5t3', num: 91, text: 'Register Android app in App Check — provider: Play Integrity', note: 'Firebase Console → App Check → Apps → Android app → Play Integrity.' },
+        { id: 'p5t4', num: 92, text: 'Add App Check debug token for local development', note: 'Firebase Console → App Check → Apps → overflow menu → Manage debug tokens → Add token.' },
+        { id: 'p5t5', num: 93, text: 'Add @react-native-firebase/app-check to the app in a Cursor Agent feature branch', note: 'Install the SDK, initialize App Check before any other Firebase service in app startup.' },
+        { id: 'p5t6', num: 94, text: 'Test App Check works in development build — check Firebase Console → App Check → Metrics for verified traffic' },
+        { id: 'p5t7', num: 95, text: 'DO NOT enforce App Check yet — enforcement goes live in Phase 13 after app is published', note: 'Enforcing too early blocks all traffic including your own dev builds. Enforce ONLY after the production app is live and verified.', badges: ['critical'] },
       ]
     },
     {
-      "id": "p6",
-      "title": "Phase 6 — Authentication, Users & Access",
-      "note": "Auth is a security boundary, not a screen.",
-      "tasks": [
-        {
-          "id": "t69",
-          "num": 69,
-          "text": "Choose auth methods (email, Apple, Google) and enable only those",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t70",
-          "num": 70,
-          "text": "Implement Apple Sign-In if the app has any other social login (Apple requirement)",
-          "note": "",
-          "badges": [
-            "critical"
-          ]
-        },
-        {
-          "id": "t71",
-          "num": 71,
-          "text": "Build sign-up, sign-in, and forgot-password flows",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t72",
-          "num": 72,
-          "text": "Add account deletion (Apple / Play requirement)",
-          "note": "",
-          "badges": [
-            "critical"
-          ]
-        },
-        {
-          "id": "t73",
-          "num": 73,
-          "text": "Store uid as the only user identity in Firestore paths",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t74",
-          "num": 74,
-          "text": "Never trust client-sent role fields — enforce in rules",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t75",
-          "num": 75,
-          "text": "Gate paid or family features server-side, not only in UI",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t76",
-          "num": 76,
-          "text": "Add session persistence and a signed-out empty state",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t77",
-          "num": 77,
-          "text": "Create a reviewer test account and store it in Black Box",
-          "note": "",
-          "badges": [
-            "blackbox"
-          ]
-        },
-        {
-          "id": "t78",
-          "num": 78,
-          "text": "Test sign-in on a physical device, not only simulator",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t79",
-          "num": 79,
-          "text": "Confirm password reset email sender / domain",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t80",
-          "num": 80,
-          "text": "Rate-limit sign-up if public (Firebase quota / App Check)",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t81",
-          "num": 81,
-          "text": "Log auth errors without leaking whether an email exists",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t82",
-          "num": 82,
-          "text": "Document how to add a second admin without sharing passwords",
-          "note": "",
-          "badges": []
-        }
+      id: 'p6',
+      title: 'Phase 6 · Legal',
+      note: 'Send to Allen before writing the App Store listing. Never host placeholder docs.',
+      tasks: [
+        { id: 'p6t1', num: 96, text: 'Send Allen: app concept, full list of third-party SDKs, data collected, subscription pricing, and whether you send SMS or use AI', note: 'Allen needs every data touchpoint to write accurate TOS and PP.' },
+        { id: 'p6t2', num: 97, text: 'If app uses SMS (Twilio): flag TCPA compliance requirement to Allen explicitly', note: 'TCPA requires explicit consent language for marketing SMS.' },
+        { id: 'p6t3', num: 98, text: 'If app uses affiliate links (Travelpayouts, etc.): flag FTC disclosure requirement to Allen', note: 'FTC requires disclosure when you earn commissions from links.' },
+        { id: 'p6t4', num: 99, text: 'If app targets or could be used by minors: flag COPPA compliance to Allen', note: 'If any user could be under 13, COPPA applies.' },
+        { id: 'p6t5', num: 100, text: 'Review Allen\'s TOS draft — verify every third-party service listed is actually integrated in this build', note: '⚠️ LESSON LEARNED: FamilyThread PP listed Sentry before it was integrated. Only include services live in the exact build being submitted.', badges: ['lesson'] },
+        { id: 'p6t6', num: 101, text: 'Review Allen\'s PP draft — verify GDPR/CCPA data deletion rights, children\'s privacy section (if applicable), and data retention language' },
+        { id: 'p6t7', num: 102, text: 'Build final TOS as HTML file using DAL legal page template' },
+        { id: 'p6t8', num: 103, text: 'Build final PP as HTML file using DAL legal page template' },
+        { id: 'p6t9', num: 104, text: 'If operating in Washington state: build Washington Consumer Health Data Privacy Policy as separate HTML file' },
+        { id: 'p6t10', num: 105, text: 'Deploy TOS to: dreamapplab.com/legal/[appname]/tos.html', note: '⚠️ LESSON LEARNED: Files must go in /legal/[appname]/ at the repo root of dal-site — NOT /public/legal/. Wrong folder = 404 for all users.', badges: ['lesson'] },
+        { id: 'p6t11', num: 106, text: 'Deploy PP to: dreamapplab.com/legal/[appname]/pp.html', note: 'Same folder rule as TOS. No exceptions.' },
+        { id: 'p6t12', num: 107, text: 'Verify both URLs load correctly in a browser AND on iPhone Safari' },
+        { id: 'p6t13', num: 108, text: 'Verify the WebView in the app loads both legal URLs correctly — scroll-to-bottom gate activates', note: 'Test on a physical device, not Expo Go. Test slow network conditions.' },
       ]
     },
     {
-      "id": "p7",
-      "title": "Phase 7 — Security Hardening",
-      "note": "Do this before any TestFlight / public preview.",
-      "tasks": [
-        {
-          "id": "t83",
-          "num": 83,
-          "text": "Diff-review Firestore rules before every firebase deploy --only firestore:rules",
-          "note": "",
-          "badges": [
-            "security",
-            "lesson"
-          ]
-        },
-        {
-          "id": "t84",
-          "num": 84,
-          "text": "Confirm no open list queries on user-owned collections",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t85",
-          "num": 85,
-          "text": "Confirm Storage paths cannot be enumerated by another uid",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t86",
-          "num": 86,
-          "text": "Strip console logs that print tokens, emails, or PII",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t87",
-          "num": 87,
-          "text": "Confirm API keys in the client are the public/restricted ones only",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t88",
-          "num": 88,
-          "text": "Restrict Google Maps / Gemini / other keys by bundle ID + SHA",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t89",
-          "num": 89,
-          "text": "Enable App Check on Firestore, Storage, and callable functions",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t90",
-          "num": 90,
-          "text": "Rotate any key that was ever pasted into chat or a ticket",
-          "note": "",
-          "badges": [
-            "security",
-            "critical"
-          ]
-        },
-        {
-          "id": "t91",
-          "num": 91,
-          "text": "Confirm .env files are not in git history",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t92",
-          "num": 92,
-          "text": "Set Auth authorized domains (no wildcard leftovers)",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t93",
-          "num": 93,
-          "text": "Review Cloud Functions IAM — no allUsers on admin callables",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t94",
-          "num": 94,
-          "text": "Confirm backups restore procedure is written down",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t95",
-          "num": 95,
-          "text": "Add a security notes section to the README for operators",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t96",
-          "num": 96,
-          "text": "Run a pass for secrets in source (grep apiKey, private_key, BEGIN)",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t97",
-          "num": 97,
-          "text": "Confirm kids / sensitive data is not sent to analytics SDKs",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t98",
-          "num": 98,
-          "text": "Update Black Box after every new credential is created",
-          "note": "",
-          "badges": [
-            "blackbox"
-          ]
-        }
+      id: 'p7',
+      title: 'Phase 7 · RevenueCat & Subscriptions',
+      note: 'Complete before building screenshots — paywall must be visible for IAP screenshots.',
+      tasks: [
+        { id: 'p7t1', num: 109, text: 'Create subscription products in App Store Connect — set display name, description, duration, price for each tier' },
+        { id: 'p7t2', num: 110, text: 'Add IAP screenshots to each subscription product in ASC — screenshot must show your actual paywall UI', note: '⚠️ LESSON LEARNED: Missing IAP screenshots caused submission delays.', badges: ['lesson'] },
+        { id: 'p7t3', num: 111, text: 'Create subscription group in ASC — set upgrade/downgrade/crossgrade relationships between tiers' },
+        { id: 'p7t4', num: 112, text: 'Add localizations for each subscription product — at minimum English' },
+        { id: 'p7t5', num: 113, text: 'Create subscription products in Google Play Console — match iOS pricing and tier structure' },
+        { id: 'p7t6', num: 114, text: 'Create entitlements in RevenueCat — map to product IDs from both stores' },
+        { id: 'p7t7', num: 115, text: 'Create offerings in RevenueCat — set default offering with all products' },
+        { id: 'p7t8', num: 116, text: 'Wire RevenueCat webhook URL to Firebase Cloud Function endpoint', note: 'RevenueCat → Project Settings → Integrations → Webhooks → Add endpoint.' },
+        { id: 'p7t9', num: 117, text: 'Test RevenueCat webhook end-to-end: make a sandbox purchase → verify Cloud Function fires → verify Firestore subscription field updates', note: 'This is the single most important integration test. Without it, subscribers are not recognized.', badges: ['critical'] },
+        { id: 'p7t10', num: 118, text: 'Test sandbox restore purchases — sign in with a different sandbox account that already purchased, confirm restore works' },
+        { id: 'p7t11', num: 119, text: 'Test subscription expiry in sandbox — confirm app correctly revokes access after expiry' },
+        { id: 'p7t12', num: 120, text: 'Test free trial if applicable — confirm trial starts, trial period is correct, trial expiry is handled gracefully', note: '⚠️ LESSON LEARNED: FamilyLens had a critical freeze when trial expired.', badges: ['lesson'] },
+        { id: 'p7t13', num: 121, text: 'Verify RevenueCat dashboard shows sandbox purchase events in real time' },
       ]
     },
     {
-      "id": "p8",
-      "title": "Phase 8 — Core Product Build",
-      "note": "Build the v1 loop. Park polish that does not serve launch.",
-      "tasks": [
-        {
-          "id": "t99",
-          "num": 99,
-          "text": "Implement navigation and the primary information architecture",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t100",
-          "num": 100,
-          "text": "Build the empty state for the core object (trip, family, log, etc.)",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t101",
-          "num": 101,
-          "text": "Implement create / read / update / delete for the core object",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t102",
-          "num": 102,
-          "text": "Add optimistic UI only where rollback is safe",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t103",
-          "num": 103,
-          "text": "Persist local cache where offline matters; document the limits",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t104",
-          "num": 104,
-          "text": "Handle permission-denied and offline banners",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t105",
-          "num": 105,
-          "text": "Add settings screen (account, legal links, sign out, delete)",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t106",
-          "num": 106,
-          "text": "Wire deep links / universal links if the product needs them",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t107",
-          "num": 107,
-          "text": "Add share sheet where it helps acquisition",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t108",
-          "num": 108,
-          "text": "Implement search / filter if it is a v1 must-have",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t109",
-          "num": 109,
-          "text": "Add loading and error skeletons — no blank white screens",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t110",
-          "num": 110,
-          "text": "Keep business rules in one module (easier to test)",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t111",
-          "num": 111,
-          "text": "Feature-flag risky work so main stays shippable",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t112",
-          "num": 112,
-          "text": "PR review: Files Changed shows only the intended files",
-          "note": "",
-          "badges": [
-            "lesson"
-          ]
-        }
+      id: 'p8',
+      title: 'Phase 8 · ASO Research',
+      note: 'Do this before writing the App Store listing. One metadata change per month after launch.',
+      tasks: [
+        { id: 'p8t1', num: 122, text: 'Research keywords in ASO.dev (Indie plan) — target popularity >15, difficulty <30', note: 'Log the full research session. Note top 10 keywords, their popularity and difficulty scores.' },
+        { id: 'p8t2', num: 123, text: 'Write 30-character subtitle — include the highest-value keyword', note: 'Subtitle is the second most important ASO field after title.' },
+        { id: 'p8t3', num: 124, text: 'Write App Store description — 4000 char max — lead with strongest value prop in first 3 lines', note: 'First 3 lines appear before the "More" fold. End description with TOS line.' },
+        { id: 'p8t4', num: 125, text: 'Write 170-character promotional text', note: 'Only App Store field that can be updated without a new submission.' },
+        { id: 'p8t5', num: 126, text: 'Write Google Play short description (80 chars) and long description (4000 chars)' },
+        { id: 'p8t6', num: 127, text: 'Save final keyword string and subtitle to Black Box', badges: ['blackbox'] },
       ]
     },
     {
-      "id": "p9",
-      "title": "Phase 9 — Payments, IAP & RevenueCat",
-      "note": "If the app is paid or subscription, this phase is blocking.",
-      "tasks": [
-        {
-          "id": "t113",
-          "num": 113,
-          "text": "Decide paid, freemium, or subscription and write it on the project",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t114",
-          "num": 114,
-          "text": "Create App Store Connect IAP / subscription products",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t115",
-          "num": 115,
-          "text": "Create Play Console one-time / subscription products with matching IDs",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t116",
-          "num": 116,
-          "text": "Create RevenueCat project, apps, and entitlements",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t117",
-          "num": 117,
-          "text": "Use the same product IDs on Apple, Google, and RevenueCat",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t118",
-          "num": 118,
-          "text": "Implement purchase, restore, and customer-center / management URL",
-          "note": "",
-          "badges": [
-            "critical"
-          ]
-        },
-        {
-          "id": "t119",
-          "num": 119,
-          "text": "Test sandbox purchase on a real device",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t120",
-          "num": 120,
-          "text": "Test Restore Purchases (Apple requires it)",
-          "note": "",
-          "badges": [
-            "critical"
-          ]
-        },
-        {
-          "id": "t121",
-          "num": 121,
-          "text": "Gate premium features by entitlement, not a local boolean",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t122",
-          "num": 122,
-          "text": "Add a clear paywall that states price and period",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t123",
-          "num": 123,
-          "text": "Save RevenueCat API keys (public vs secret) in Black Box",
-          "note": "",
-          "badges": [
-            "blackbox"
-          ]
-        },
-        {
-          "id": "t124",
-          "num": 124,
-          "text": "Document how refunds / grace period should look in-app",
-          "note": "",
-          "badges": []
-        }
+      id: 'p9',
+      title: 'Phase 9 · App Icon & Screenshots',
+      note: 'Save ALL assets to C:\\dev\\_assets\\[appname]\\ — never inside the app repo.',
+      tasks: [
+        { id: 'p9t1', num: 128, text: 'Design app icon — 1024×1024px PNG — no alpha channel — no rounded corners (Apple adds them)', note: 'Dark background recommended. Export to C:\\dev\\_assets\\[appname]\\icon-1024.png' },
+        { id: 'p9t2', num: 129, text: 'Verify icon renders correctly in app.json and shows in Expo Go before taking screenshots' },
+        { id: 'p9t3', num: 130, text: 'Take paywall screenshots BEFORE subscribing with your test account', note: '⚠️ LESSON LEARNED: Subscribing before taking screenshots means the paywall will not appear.', badges: ['lesson'] },
+        { id: 'p9t4', num: 131, text: 'Create iPhone 6.9" screenshots (1320×2868px) — required — covers all current iPhone models' },
+        { id: 'p9t5', num: 132, text: 'Create iPhone 6.5" screenshots (1242×2688px) — legacy coverage' },
+        { id: 'p9t6', num: 133, text: 'Create iPad 13" screenshots (2064×2752px) — required — Expo apps are Universal by default', note: 'Missing iPad screenshots = rejection for Universal apps.', badges: ['critical'] },
+        { id: 'p9t7', num: 134, text: 'Create iPad 12.9" screenshots (2048×2732px) — legacy coverage' },
+        { id: 'p9t8', num: 135, text: 'Create Android phone screenshots (1080×1920px minimum)' },
+        { id: 'p9t9', num: 136, text: 'Save all screenshot source files to C:\\dev\\_assets\\[appname]-screenshots\\ — never inside the repo' },
+        { id: 'p9t10', num: 137, text: 'Upload final screenshots to ASC — correct device slot for each size' },
+        { id: 'p9t11', num: 138, text: 'Upload IAP screenshots to each subscription product in ASC' },
       ]
     },
     {
-      "id": "p10",
-      "title": "Phase 10 — Analytics, Crash Reporting & Support",
-      "note": "You cannot improve what you cannot see.",
-      "tasks": [
-        {
-          "id": "t125",
-          "num": 125,
-          "text": "Add Sentry (or agreed crash tool) with environment tags",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t126",
-          "num": 126,
-          "text": "Add PostHog or the agreed analytics — no PII in event props",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t127",
-          "num": 127,
-          "text": "Confirm source maps / debug files upload on EAS builds",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t128",
-          "num": 128,
-          "text": "Add a support email (lab@dreamapplab.com) in Settings",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t129",
-          "num": 129,
-          "text": "Add Crisp or the agreed chat only if the product needs it",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t130",
-          "num": 130,
-          "text": "Create a simple in-app “Report a problem” path",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t131",
-          "num": 131,
-          "text": "Verify crash-free session on a TestFlight build",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t132",
-          "num": 132,
-          "text": "Add an event for first-open, signup, and core-action",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t133",
-          "num": 133,
-          "text": "Confirm analytics is off or anonymized for kids apps",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t134",
-          "num": 134,
-          "text": "Save Sentry DSN / project IDs in Black Box",
-          "note": "",
-          "badges": [
-            "blackbox"
-          ]
-        },
-        {
-          "id": "t135",
-          "num": 135,
-          "text": "Save PostHog project key in Black Box",
-          "note": "",
-          "badges": [
-            "blackbox"
-          ]
-        },
-        {
-          "id": "t136",
-          "num": 136,
-          "text": "Write the support SLA you will actually keep",
-          "note": "",
-          "badges": []
-        }
+      id: 'p10',
+      title: 'Phase 10 · Firestore Rules Testing',
+      note: 'Run in Firebase emulator before first EAS production build.',
+      tasks: [
+        { id: 'p10t1', num: 139, text: 'Write Firestore security rules emulator test file covering every collection', note: 'Test file must cover: unauthenticated read (fail), unauthenticated write (fail), authenticated wrong-user read (fail), authenticated wrong-user write (fail), authenticated correct-user read (pass), owner write (pass), member write (pass if allowed), soft-locked user.' },
+        { id: 'p10t2', num: 140, text: 'Run emulator test suite: firebase emulators:start --only firestore in Cursor Terminal', note: 'All tests must pass before any production build.' },
+        { id: 'p10t3', num: 141, text: 'Test Storage rules in emulator — confirm unauthorized users cannot read or write any Storage paths' },
+        { id: 'p10t4', num: 142, text: 'After any significant feature addition, rerun the full emulator test suite', note: 'New collections and new user roles require new test coverage.' },
       ]
     },
     {
-      "id": "p11",
-      "title": "Phase 11 — Legal Pages, Consent & Privacy",
-      "note": "Live URLs before you press Submit.",
-      "tasks": [
-        {
-          "id": "t137",
-          "num": 137,
-          "text": "Publish a Privacy Policy at a stable public URL",
-          "note": "",
-          "badges": [
-            "critical"
-          ]
-        },
-        {
-          "id": "t138",
-          "num": 138,
-          "text": "Publish Terms of Service at a stable public URL",
-          "note": "",
-          "badges": [
-            "critical"
-          ]
-        },
-        {
-          "id": "t139",
-          "num": 139,
-          "text": "Link both from the app Settings and store listings",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t140",
-          "num": 140,
-          "text": "Implement first-launch scroll-gate for ToS + Privacy if required",
-          "note": "",
-          "badges": [
-            "lesson"
-          ]
-        },
-        {
-          "id": "t141",
-          "num": 141,
-          "text": "Add a Support / Contact URL",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t142",
-          "num": 142,
-          "text": "Fill App Privacy nutrition labels honestly",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t143",
-          "num": 143,
-          "text": "Fill Play Data safety form honestly",
-          "note": "",
-          "badges": [
-            "security"
-          ]
-        },
-        {
-          "id": "t144",
-          "num": 144,
-          "text": "Confirm tracking / ATT prompt only if you actually track",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t145",
-          "num": 145,
-          "text": "Add account deletion instructions that match the in-app flow",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t146",
-          "num": 146,
-          "text": "Confirm no hidden SDKs that change the privacy labels",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t147",
-          "num": 147,
-          "text": "Save policy URLs in Black Box and on the project record",
-          "note": "",
-          "badges": [
-            "blackbox"
-          ]
-        },
-        {
-          "id": "t148",
-          "num": 148,
-          "text": "Re-read policies after any new analytics or ads SDK",
-          "note": "",
-          "badges": []
-        }
+      id: 'p11',
+      title: 'Phase 11 · QA & What-If Testing',
+      note: 'Every scenario must pass on a real device before EAS production build. Not Expo Go — real device.',
+      tasks: [
+        { id: 'p11t1', num: 143, text: 'Build development client first: eas build --profile development --platform ios', note: 'Do this once per app. Enables instant JS reload via npx expo start without a full EAS rebuild.' },
+        { id: 'p11t2', num: 144, text: 'Run: npx expo-doctor — must show 0 errors before every EAS build', note: '⚠️ LESSON LEARNED: Skipping expo-doctor caused multiple failed builds. Non-negotiable before every build.', badges: ['critical', 'lesson'] },
+        { id: 'p11t3', num: 145, text: 'Test: fresh install on physical device → complete full onboarding → subscribe → access gated feature' },
+        { id: 'p11t4', num: 146, text: 'Test: every Cancel and back button in onboarding and modals — no dead ends anywhere', badges: ['lesson'] },
+        { id: 'p11t5', num: 147, text: 'Test: all legal links (TOS, PP) open correctly via WebView — scroll to bottom — Accept activates' },
+        { id: 'p11t6', num: 148, text: 'Test: sign out → sign back in → all data reloads correctly, no stale state' },
+        { id: 'p11t7', num: 149, text: 'Test: cancel subscription in sandbox → verify access revokes correctly at period end' },
+        { id: 'p11t8', num: 150, text: 'Test: restore purchases on a fresh install → correct access restored' },
+        { id: 'p11t9', num: 151, text: 'Test: subscription expires → verify app handles gracefully with no crash, freeze, or infinite loop', note: '⚠️ LESSON LEARNED: FamilyLens froze on trial expiry.', badges: ['lesson'] },
+        { id: 'p11t10', num: 152, text: 'Test: free trial if applicable → trial starts, runs correctly, expires gracefully' },
+        { id: 'p11t11', num: 153, text: 'Test: reviewer account (apple.reviewer@dreamapplab.com) → full app access with no paywalls or trial prompts' },
+        { id: 'p11t12', num: 154, text: 'Test: delete account → verify all Firestore, Storage, and Auth data is fully purged' },
+        { id: 'p11t13', num: 155, text: 'Test: app launch with no internet → graceful offline state, no crash' },
+        { id: 'p11t14', num: 156, text: 'Test: push notification received on every major screen → tapping navigates correctly' },
+        { id: 'p11t15', num: 157, text: 'Test: open app after receiving push notification while app was closed → correct deep link' },
+        { id: 'p11t16', num: 158, text: 'Test: app update scenario → existing user data is preserved, no crash on first launch after update' },
+        { id: 'p11t17', num: 159, text: 'Test: Crisp support → send a message in-app → confirm it appears in Crisp dashboard' },
+        { id: 'p11t18', num: 160, text: 'Test: Sentry → trigger a test error → confirm it appears in Sentry with correct symbolication (not "unknown")', note: 'If Sentry shows "unknown" stack traces, SENTRY_AUTH_TOKEN is missing or incorrect.', badges: ['lesson'] },
+        { id: 'p11t19', num: 161, text: 'Test: RevenueCat webhook → make sandbox purchase → confirm Firestore subscription field updates within 30 seconds' },
+        { id: 'p11t20', num: 162, text: 'Test: App Check → confirm Firebase requests succeed in development build with debug token' },
+        { id: 'p11t21', num: 163, text: 'Test: paywall screenshots visible BEFORE subscribing — take screenshots now if not done' },
       ]
     },
     {
-      "id": "p12",
-      "title": "Phase 12 — QA, Devices & Accessibility",
-      "note": "Simulator QA is not enough for store review.",
-      "tasks": [
-        {
-          "id": "t149",
-          "num": 149,
-          "text": "Test on at least one physical iPhone",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t150",
-          "num": 150,
-          "text": "Test on at least one physical Android",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t151",
-          "num": 151,
-          "text": "Test small phone and large phone layouts",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t152",
-          "num": 152,
-          "text": "Test dark mode and light mode if both ship",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t153",
-          "num": 153,
-          "text": "Test Dynamic Type / large fonts on iOS",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t154",
-          "num": 154,
-          "text": "Test VoiceOver / TalkBack on the primary flow",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t155",
-          "num": 155,
-          "text": "Test airplane mode and flaky network",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t156",
-          "num": 156,
-          "text": "Test kill-and-relaunch persistence",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t157",
-          "num": 157,
-          "text": "Test a fresh install vs an upgrade from previous build",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t158",
-          "num": 158,
-          "text": "Walk the delete-account path on a throwaway user",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t159",
-          "num": 159,
-          "text": "Walk purchase + restore on sandbox",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t160",
-          "num": 160,
-          "text": "Capture bugs as Edits Needed in Mission Control",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t161",
-          "num": 161,
-          "text": "Fix P0/P1 bugs before submission",
-          "note": "",
-          "badges": [
-            "critical"
-          ]
-        },
-        {
-          "id": "t162",
-          "num": 162,
-          "text": "Have a second person do a 15-minute dogfood pass",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t163",
-          "num": 163,
-          "text": "Confirm no debug menus in production builds",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t164",
-          "num": 164,
-          "text": "Confirm emulator flag is false in the binary you will submit",
-          "note": "",
-          "badges": [
-            "lesson"
-          ]
-        }
+      id: 'p12',
+      title: 'Phase 12 · App Store Connect Setup',
+      note: 'Complete ALL fields — no yellow warnings anywhere — before submitting.',
+      tasks: [
+        { id: 'p12t1', num: 164, text: 'Set App Name, Subtitle, Description, Keywords, Promotional Text in ASC' },
+        { id: 'p12t2', num: 165, text: 'Add TOS line to bottom of App Description', note: 'e.g. "By using [App Name], you agree to our Terms of Service at dreamapplab.com/legal/[appname]/tos.html"' },
+        { id: 'p12t3', num: 166, text: 'Set Support URL, Marketing URL, Privacy Policy URL in ASC' },
+        { id: 'p12t4', num: 167, text: 'Complete App Privacy questionnaire — every data type collected, link-to-user status, tracking status', note: 'Commonly missed: Purchase History (RevenueCat), Crash Data (Sentry), Support messages (Crisp).', badges: ['critical'] },
+        { id: 'p12t5', num: 168, text: 'Complete Age Rating questionnaire — answer ALL questions including social media and user-generated content sections', note: '⚠️ LESSON LEARNED: Flarepad and Logabode both have an open September 7, 2026 deadline for social media questions.', badges: ['lesson'] },
+        { id: 'p12t6', num: 169, text: 'Set pricing — Free with IAP (subscription or one-time)' },
+        { id: 'p12t7', num: 170, text: 'Create pre-verified reviewer Firebase account: apple.reviewer@dreamapplab.com / DALthread681@!', note: 'Must be a real Firebase Auth account with email_verified=true.' },
+        { id: 'p12t8', num: 171, text: 'Seed reviewer Firestore document with all required fields: consentAcknowledgments, familyMembership, revenueCatSubscription with correct entitlement, trial flags set to bypass trial', note: 'Run the seed script from scripts/ in Cursor Terminal. Verify the document exists in Firebase Console.' },
+        { id: 'p12t9', num: 172, text: 'Add reviewer notes in ASC: explain the paywall, provide reviewer credentials, explain any non-obvious features' },
+        { id: 'p12t10', num: 173, text: 'Upload screenshots to correct device slots — verify each slot has the right screenshot' },
+        { id: 'p12t11', num: 174, text: 'Confirm app version number and build number in ASC match the TestFlight build being submitted' },
+        { id: 'p12t12', num: 175, text: 'Verify no yellow warning banners in ASC — every required field must be complete', badges: ['critical'] },
       ]
     },
     {
-      "id": "p13",
-      "title": "Phase 13 — Black Box, Credentials & Ops",
-      "note": "If it is not in Black Box, it does not exist.",
-      "tasks": [
-        {
-          "id": "t165",
-          "num": 165,
-          "text": "Enable App Store Connect service and save App ID / bundle ID",
-          "note": "",
-          "badges": [
-            "blackbox"
-          ]
-        },
-        {
-          "id": "t166",
-          "num": 166,
-          "text": "Save Apple Team ID, issuer ID, and p8 location",
-          "note": "",
-          "badges": [
-            "blackbox",
-            "security"
-          ]
-        },
-        {
-          "id": "t167",
-          "num": 167,
-          "text": "Enable Google Play service and save package name",
-          "note": "",
-          "badges": [
-            "blackbox"
-          ]
-        },
-        {
-          "id": "t168",
-          "num": 168,
-          "text": "Save Play service-account JSON location (never commit it)",
-          "note": "",
-          "badges": [
-            "blackbox",
-            "security"
-          ]
-        },
-        {
-          "id": "t169",
-          "num": 169,
-          "text": "Save Expo / EAS project ID and slug",
-          "note": "",
-          "badges": [
-            "blackbox"
-          ]
-        },
-        {
-          "id": "t170",
-          "num": 170,
-          "text": "Save Firebase project ID and apps",
-          "note": "",
-          "badges": [
-            "blackbox"
-          ]
-        },
-        {
-          "id": "t171",
-          "num": 171,
-          "text": "Save RevenueCat keys if used",
-          "note": "",
-          "badges": [
-            "blackbox"
-          ]
-        },
-        {
-          "id": "t172",
-          "num": 172,
-          "text": "Save Sentry / PostHog / Crisp IDs if used",
-          "note": "",
-          "badges": [
-            "blackbox"
-          ]
-        },
-        {
-          "id": "t173",
-          "num": 173,
-          "text": "Save reviewer test account",
-          "note": "",
-          "badges": [
-            "blackbox"
-          ]
-        },
-        {
-          "id": "t174",
-          "num": 174,
-          "text": "Save keystore alias and location for Android",
-          "note": "",
-          "badges": [
-            "blackbox",
-            "security"
-          ]
-        },
-        {
-          "id": "t175",
-          "num": 175,
-          "text": "Confirm no credentials live only in a chat thread",
-          "note": "",
-          "badges": [
-            "critical"
-          ]
-        },
-        {
-          "id": "t176",
-          "num": 176,
-          "text": "Print/export dry-run: Black Box table is complete enough for handoff",
-          "note": "",
-          "badges": []
-        }
+      id: 'p13',
+      title: 'Phase 13 · EAS Production Build & TestFlight',
+      note: 'Run expo-doctor first. Every single time. No exceptions.',
+      tasks: [
+        { id: 'p13t1', num: 176, text: 'Run: npx expo-doctor in Cursor Terminal from C:\\dev\\[appname] — must be 0 errors', badges: ['critical'] },
+        { id: 'p13t2', num: 177, text: 'Run: eas secret:list — verify SENTRY_AUTH_TOKEN and all required secrets are present', note: 'Do this before every production build. Missing secrets cause silent build failures.', badges: ['critical'] },
+        { id: 'p13t3', num: 178, text: 'Verify .gitignore is still intact — run git status and confirm no sensitive files are untracked', note: 'Run this before every build. A new file added during development might not be gitignored.' },
+        { id: 'p13t4', num: 179, text: 'Run: eas build --platform ios --profile production in Cursor Terminal from C:\\dev\\[appname]', note: 'Takes 10–20 minutes. Monitor the build log URL for errors.' },
+        { id: 'p13t5', num: 180, text: 'Confirm EAS build succeeded — no errors in build log' },
+        { id: 'p13t6', num: 181, text: 'Submit to TestFlight: eas submit --platform ios --profile production' },
+        { id: 'p13t7', num: 182, text: 'Install TestFlight build on physical device — wait for processing if needed' },
+        { id: 'p13t8', num: 183, text: 'Run full QA smoke test on TestFlight build — cover all critical paths from Phase 11', note: 'TestFlight is the real production environment. Expo Go hides build-time issues.' },
+        { id: 'p13t9', num: 184, text: 'Verify Sentry is receiving events from TestFlight build — trigger a test error if needed', note: 'If Sentry shows "unknown" stack traces, source maps are missing. Fix SENTRY_AUTH_TOKEN before submitting.' },
+        { id: 'p13t10', num: 185, text: 'Verify App Check debug token is NOT being used in production build', note: 'Production build must use real App Attest / Play Integrity, not the debug token.' },
       ]
     },
     {
-      "id": "p14",
-      "title": "Phase 14 — Store Listings, ASO & Screenshots",
-      "note": "Listing quality is part of the product.",
-      "tasks": [
-        {
-          "id": "t177",
-          "num": 177,
-          "text": "Write App Store name (30) and subtitle (30)",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t178",
-          "num": 178,
-          "text": "Write Play title and short description",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t179",
-          "num": 179,
-          "text": "Write long description with keywords used naturally",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t180",
-          "num": 180,
-          "text": "Choose keywords in App Store Connect",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t181",
-          "num": 181,
-          "text": "Export screenshots for every required size (iPhone, and iPad if you ship iPad)",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t182",
-          "num": 182,
-          "text": "Export Play Store screenshots (phone; tablet if you ship tablet)",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t183",
-          "num": 183,
-          "text": "Create a preview video only if it is worth the time",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t184",
-          "num": 184,
-          "text": "Write What’s New for 1.0",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t185",
-          "num": 185,
-          "text": "Choose category and content rating questionnaires",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t186",
-          "num": 186,
-          "text": "Set support URL, marketing URL, and privacy URL",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t187",
-          "num": 187,
-          "text": "Add a recognizable icon that reads at small sizes",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t188",
-          "num": 188,
-          "text": "Proofread listings — no placeholder lorem",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t189",
-          "num": 189,
-          "text": "Save listing copy in Drive so ASO experiments are versioned",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t190",
-          "num": 190,
-          "text": "Confirm screenshots match the build you will submit",
-          "note": "",
-          "badges": []
-        }
+      id: 'p14',
+      title: 'Phase 14 · App Store Submission',
+      note: 'Submit only after TestFlight QA passes completely.',
+      tasks: [
+        { id: 'p14t1', num: 186, text: 'Select TestFlight build in ASC → Add for Review' },
+        { id: 'p14t2', num: 187, text: 'Final check: verify all ASC fields complete, no warnings, reviewer notes filled in' },
+        { id: 'p14t3', num: 188, text: 'Write release notes (What\'s New) — plain English, user-facing, no technical jargon' },
+        { id: 'p14t4', num: 189, text: 'Set release type: Automatic after approval (unless you have a specific launch date)' },
+        { id: 'p14t5', num: 190, text: 'Submit for Review' },
+        { id: 'p14t6', num: 191, text: 'Check ASC every day — respond to any information requests within 24 hours', note: '⚠️ LESSON LEARNED: Apple information requests (Guideline 2.1) may require a screen recording.', badges: ['lesson'] },
+        { id: 'p14t7', num: 192, text: 'If Apple requests a screen recording: record all major features, show the paywall, show TOS/PP screens, show account deletion flow' },
+        { id: 'p14t8', num: 193, text: 'If rejected: read the full rejection reason, fix the root cause, do not resubmit without a real fix', note: 'Multiple rejections for the same reason damage your relationship with the App Review team.' },
       ]
     },
     {
-      "id": "p15",
-      "title": "Phase 15 — Pre-Publish Pipeline",
-      "note": "Run this before every EAS production build.",
-      "tasks": [
-        {
-          "id": "t191",
-          "num": 191,
-          "text": "Run npx expo-doctor — 0 warnings",
-          "note": "",
-          "badges": [
-            "lesson"
-          ]
-        },
-        {
-          "id": "t192",
-          "num": 192,
-          "text": "Set EXPO_PUBLIC_USE_FIREBASE_EMULATOR=false",
-          "note": "",
-          "badges": [
-            "lesson"
-          ]
-        },
-        {
-          "id": "t193",
-          "num": 193,
-          "text": "git status — stage specific files, never git add . blindly",
-          "note": "",
-          "badges": [
-            "lesson"
-          ]
-        },
-        {
-          "id": "t194",
-          "num": 194,
-          "text": "Commit current work before npx expo prebuild --clean",
-          "note": "",
-          "badges": [
-            "lesson"
-          ]
-        },
-        {
-          "id": "t195",
-          "num": 195,
-          "text": "Bump app.json version and iOS buildNumber / Android versionCode",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t196",
-          "num": 196,
-          "text": "Review Firestore rules diff before deploy",
-          "note": "",
-          "badges": [
-            "security",
-            "lesson"
-          ]
-        },
-        {
-          "id": "t197",
-          "num": 197,
-          "text": "Confirm you are on a feature branch, not main",
-          "note": "",
-          "badges": [
-            "lesson"
-          ]
-        },
-        {
-          "id": "t198",
-          "num": 198,
-          "text": "Create the PR and review Files Changed on GitHub",
-          "note": "",
-          "badges": [
-            "lesson"
-          ]
-        },
-        {
-          "id": "t199",
-          "num": 199,
-          "text": "Merge only after the diff is the expected set of files",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t200",
-          "num": 200,
-          "text": "Confirm legal URLs still load",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t201",
-          "num": 201,
-          "text": "Confirm Black Box is updated for this build",
-          "note": "",
-          "badges": [
-            "blackbox"
-          ]
-        },
-        {
-          "id": "t202",
-          "num": 202,
-          "text": "Tag or note the build number you will submit",
-          "note": "",
-          "badges": []
-        }
+      id: 'p15',
+      title: 'Phase 15 · Post-Approval Launch',
+      note: 'Complete within 48 hours of approval.',
+      tasks: [
+        { id: 'p15t1', num: 194, text: 'Confirm app is live on App Store — search by name and open direct link' },
+        { id: 'p15t2', num: 195, text: 'Remove Preview Paywall button and any debug-only UI — submit as next build', note: '⚠️ LESSON LEARNED: FamilyLens had a temporary Preview Paywall button added for the screen recording. Must be removed before public users encounter it.', badges: ['lesson'] },
+        { id: 'p15t3', num: 196, text: 'Enforce App Check in Firebase Console — Firebase Console → App Check → Enforce', note: '🔒 Now that the app is live, flip enforcement on. Do NOT enforce before the public app is live.', badges: ['security', 'critical'] },
+        { id: 'p15t4', num: 197, text: 'Add app to dreamapplab.com portfolio page — icon, name, description, App Store link' },
+        { id: 'p15t5', num: 198, text: 'Set up Better Stack uptime monitor for any web endpoints this app uses' },
+        { id: 'p15t6', num: 199, text: 'Submit Android build to Google Play: eas build --platform android --profile production', note: 'Run expo-doctor first. Upload AAB to Play Console.' },
+        { id: 'p15t7', num: 200, text: 'Complete Google Play Data Safety questionnaire — match iOS App Privacy disclosures' },
+        { id: 'p15t8', num: 201, text: 'Post launch announcement — social media, BNI, personal network' },
+        { id: 'p15t9', num: 202, text: 'Run a complete Black Box audit — verify every credential, ID, key, and secret is saved in Mission Control', badges: ['blackbox'] },
       ]
     },
     {
-      "id": "p16",
-      "title": "Phase 16 — App Store & Play Store Submission",
-      "note": "Submission is a process, not a button.",
-      "tasks": [
-        {
-          "id": "t203",
-          "num": 203,
-          "text": "Run EAS production build for iOS",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t204",
-          "num": 204,
-          "text": "Run EAS production build for Android",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t205",
-          "num": 205,
-          "text": "Submit iOS via EAS Submit or Transporter",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t206",
-          "num": 206,
-          "text": "Upload Android AAB to Play internal/closed testing first",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t207",
-          "num": 207,
-          "text": "Write App Review notes including test account",
-          "note": "",
-          "badges": [
-            "critical"
-          ]
-        },
-        {
-          "id": "t208",
-          "num": 208,
-          "text": "Complete export compliance / encryption answers honestly",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t209",
-          "num": 209,
-          "text": "Complete advertising identifier answers honestly",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t210",
-          "num": 210,
-          "text": "Select the correct age rating",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t211",
-          "num": 211,
-          "text": "Promote Play from testing to production when iOS is also ready (or document why not)",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t212",
-          "num": 212,
-          "text": "Watch for missing compliance, privacy, or binary issues",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t213",
-          "num": 213,
-          "text": "Respond to App Review questions within 24 hours",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t214",
-          "num": 214,
-          "text": "Save the live store URLs in Black Box when approved",
-          "note": "",
-          "badges": [
-            "blackbox"
-          ]
-        }
+      id: 'p16',
+      title: 'Phase 16 · Post-Launch Monitoring',
+      note: 'Ongoing — review weekly for the first month, monthly after that.',
+      tasks: [
+        { id: 'p16t1', num: 203, text: 'Monitor Sentry daily for first 2 weeks — resolve crash patterns before they affect ratings' },
+        { id: 'p16t2', num: 204, text: 'Monitor Crisp daily for first 2 weeks — respond to user support messages within 24 hours' },
+        { id: 'p16t3', num: 205, text: 'Monitor RevenueCat dashboard — verify subscription events flow correctly from both stores' },
+        { id: 'p16t4', num: 206, text: 'Monitor Firebase Console — watch Firestore read/write counts and Storage usage for unexpected spikes', note: 'Unexpected spikes = runaway listener, bot traffic, or billing risk.' },
+        { id: 'p16t5', num: 207, text: 'Check GCP billing weekly for first month — verify no unexpected charges from Blaze plan usage' },
+        { id: 'p16t6', num: 208, text: 'Wire user-not-subscribed Cloud Function notification — fires 24 hours after install if no subscription', note: 'Do not send immediately. Give users time to explore.' },
+        { id: 'p16t7', num: 209, text: 'Check App Store ratings and reviews weekly — respond to all reviews, positive and negative' },
+        { id: 'p16t8', num: 210, text: 'After 3–4 weeks: review keyword rankings in ASO.dev — adjust ONE metadata element if needed', note: 'Golden Rule: change ONE metadata element per month maximum.' },
+        { id: 'p16t9', num: 211, text: 'Verify RevenueCat webhook is still firing correctly after any Firebase or Cloud Function update' },
       ]
     },
     {
-      "id": "p17",
-      "title": "Phase 17 — Launch, Handoff & Post-Launch",
-      "note": "Launch is the start of operations, not the end of the pipeline.",
-      "tasks": [
-        {
-          "id": "t215",
-          "num": 215,
-          "text": "Announce launch (site, social, email) with live store links",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t216",
-          "num": 216,
-          "text": "Monitor Sentry and store reviews for 72 hours",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t217",
-          "num": 217,
-          "text": "File the first hotfix branch if a P0 ships",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t218",
-          "num": 218,
-          "text": "Request reviews in-app at a natural milestone (not on first open)",
-          "note": "",
-          "badges": [
-            "lesson"
-          ]
-        },
-        {
-          "id": "t219",
-          "num": 219,
-          "text": "Add the app to DAL HQ / revenue tracking if it earns",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t220",
-          "num": 220,
-          "text": "Schedule the next version’s top three items",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t221",
-          "num": 221,
-          "text": "If client job: run Print / Export handoff and walk the client through it",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t222",
-          "num": 222,
-          "text": "Confirm client has access to the accounts they own",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t223",
-          "num": 223,
-          "text": "Archive kickoff docs and mark project status Live or In Progress as appropriate",
-          "note": "",
-          "badges": []
-        },
-        {
-          "id": "t224",
-          "num": 224,
-          "text": "Retrospective: write one Lesson Learned back into this checklist if needed",
-          "note": "",
-          "badges": [
-            "lesson"
-          ]
-        }
+      id: 'p17',
+      title: 'Phase 17 · Ongoing Maintenance',
+      note: 'Recurring tasks — schedule quarterly calendar reminders.',
+      tasks: [
+        { id: 'p17t1', num: 212, text: 'Update EAS CLI quarterly: npm install -g eas-cli', note: '⚠️ LESSON LEARNED: Outdated EAS CLI causes deprecated command warnings and occasional build failures.', badges: ['lesson'] },
+        { id: 'p17t2', num: 213, text: 'Review firebase-functions SDK version quarterly — schedule upgrade deliberately, do not upgrade opportunistically', note: '⚠️ LESSON LEARNED: Rushed SDK upgrades have broken Cloud Functions deployments.', badges: ['lesson'] },
+        { id: 'p17t3', num: 214, text: 'Audit Firestore security rules after every significant new feature', note: 'New collections, new user roles, new permission patterns all need explicit rules coverage.', badges: ['security'] },
+        { id: 'p17t4', num: 215, text: 'Run Firestore rules emulator test suite after any rules change', note: 'Never deploy rules changes without re-running the full emulator test suite.' },
+        { id: 'p17t5', num: 216, text: 'Review and rotate Firebase service account keys annually', badges: ['security'] },
+        { id: 'p17t6', num: 217, text: 'Verify GCP budget alerts are still active quarterly — they can be accidentally disabled', badges: ['security'] },
+        { id: 'p17t7', num: 218, text: 'Run deletion cascade audit annually — verify all Firestore and Storage data is fully purged on user delete', note: '⚠️ LESSON LEARNED: FamilyLens has 5 known deletion cascade gaps that are GDPR/CCPA risks.', badges: ['lesson'] },
+        { id: 'p17t8', num: 219, text: 'Keep legal pages current — if features change and new data is collected, update TOS/PP and notify Allen' },
+        { id: 'p17t9', num: 220, text: 'Verify all API keys and secrets are still valid quarterly: RevenueCat, Sentry, Crisp, Firebase, ASC API key', badges: ['security'] },
+        { id: 'p17t10', num: 221, text: 'Verify App Check enforcement is still active — Firebase Console → App Check → confirm Enforced status', badges: ['security'] },
+        { id: 'p17t11', num: 222, text: 'Verify uptime monitors are active and alert contacts are current' },
+        { id: 'p17t12', num: 223, text: 'Verify PITR and scheduled backups are still active — Firebase Console → Firestore → Backups', badges: ['security'] },
+        { id: 'p17t13', num: 224, text: 'Verify dev folder is clean — no stray screenshots, docs, or build artifacts in C:\\dev\\[appname]\\', note: 'Stray files in the repo folder are always at risk of being accidentally committed.', badges: ['lesson'] },
       ]
-    }
+    },
   ]
 };

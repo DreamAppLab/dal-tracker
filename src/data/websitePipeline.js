@@ -1,6 +1,6 @@
 // Auto-generated DAL pipeline checklist data — 115 tasks, 10 phases
 export const WEBSITE_PIPELINE = {
-  "title": "DAL Website Pipeline",
+  "title": "DAL Website Launch Pipeline v1",
   "total": 115,
   "phases": [
     {
