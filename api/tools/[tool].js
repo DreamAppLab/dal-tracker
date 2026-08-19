@@ -96,7 +96,7 @@ async function sentry() {
   const url =
     'https://sentry.io/api/0/organizations/dream-app-lab/issues/?query=is:unresolved&limit=25';
   const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    headers: { Authorization: `Token ${token}`, Accept: 'application/json' },
   });
   const data = await res.json().catch(() => []);
   if (!res.ok) {
@@ -125,15 +125,14 @@ async function posthog() {
     'POSTHOG_API_KEY'
   );
   if (!key) throw new Error('Missing REACT_APP_POSTHOG_PERSONAL_API_KEY');
-  const host = (env('REACT_APP_POSTHOG_HOST', 'POSTHOG_HOST') || 'https://us.posthog.com').replace(/\/$/, '');
   const headers = { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' };
 
-  const projectsData = await fetchJson(`${host}/api/projects/`, { headers });
+  const projectsData = await fetchJson('https://us.posthog.com/api/projects/', { headers });
   const projects = projectsData.results || projectsData.items || [];
   const project = projects[0];
   if (!project?.id) throw new Error('No PostHog project found');
 
-  const query = await fetchJson(`${host}/api/projects/${project.id}/query/`, {
+  const query = await fetchJson(`https://us.posthog.com/api/projects/${project.id}/query/`, {
     method: 'POST',
     headers,
     body: JSON.stringify({
@@ -168,7 +167,7 @@ async function github() {
   };
 
   const reposData = await fetchJson(
-    `https://api.github.com/orgs/${org}/repos?per_page=100&sort=pushed`,
+    `https://api.github.com/users/DreamAppLab/repos?per_page=100&sort=pushed&type=owner`,
     { headers }
   );
   const repos = (Array.isArray(reposData) ? reposData : [])
@@ -257,7 +256,11 @@ async function mailgun() {
 async function expo() {
   const token = env('REACT_APP_EXPO_TOKEN', 'EXPO_TOKEN', 'EXPO_ACCESS_TOKEN');
   if (!token) throw new Error('Missing REACT_APP_EXPO_TOKEN');
-  const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json' };
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/json',
+    'User-Agent': 'dal-mission-control',
+  };
 
   const data = await fetchJson(
     'https://api.expo.dev/v2/accounts/dreamapplab/builds?limit=5',
@@ -307,7 +310,7 @@ async function crisp() {
   let open = 0;
   for (const websiteId of websiteIds) {
     const conv = await fetchJson(
-      `https://api.crisp.chat/v1/website/${encodeURIComponent(websiteId)}/conversations/1`,
+      `https://api.crisp.chat/v1/website/${encodeURIComponent(websiteId)}/conversations/0`,
       { headers }
     );
     const items = (conv.data || conv).items || conv.data || [];
