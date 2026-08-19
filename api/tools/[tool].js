@@ -26,7 +26,11 @@ async function fetchJson(url, options = {}) {
   }
   if (!res.ok) {
     const detail =
-      (data && (data.error || data.message || data.detail)) ||
+      (data && data.error === true
+        ? data.reason || (data.data && data.data.message)
+        : null) ||
+      (data && typeof data.error === 'string' && data.error) ||
+      (data && (data.message || data.detail)) ||
       text.slice(0, 240) ||
       res.statusText;
     const err = new Error(String(detail));
@@ -88,11 +92,9 @@ async function revenuecat() {
 async function sentry() {
   const token = env('REACT_APP_SENTRY_AUTH_TOKEN', 'SENTRY_AUTH_TOKEN');
   if (!token) throw new Error('Missing REACT_APP_SENTRY_AUTH_TOKEN');
-  const org = env('REACT_APP_SENTRY_ORG', 'SENTRY_ORG') || 'dream-app-lab';
 
   const url =
-    `https://sentry.io/api/0/organizations/${encodeURIComponent(org)}/issues/` +
-    `?query=${encodeURIComponent('is:unresolved')}&limit=100`;
+    'https://sentry.io/api/0/organizations/dream-app-lab/issues/?query=is:unresolved&limit=25';
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
   });
@@ -103,7 +105,7 @@ async function sentry() {
   const issues = Array.isArray(data) ? data : [];
   const openCount = issues.length;
   return {
-    headline: `${openCount}${openCount >= 100 ? '+' : ''} open issues`,
+    headline: `${openCount}${openCount >= 25 ? '+' : ''} open issues`,
     openIssues: openCount,
     sample: issues.slice(0, 8).map((issue) => ({
       id: issue.id,
@@ -111,13 +113,18 @@ async function sentry() {
       project: issue.project?.slug || issue.project?.name || '',
       count: issue.count,
     })),
-    org,
+    org: 'dream-app-lab',
   };
 }
 
 async function posthog() {
-  const key = env('REACT_APP_POSTHOG_API_KEY', 'POSTHOG_API_KEY', 'POSTHOG_PERSONAL_API_KEY');
-  if (!key) throw new Error('Missing REACT_APP_POSTHOG_API_KEY');
+  const key = env(
+    'REACT_APP_POSTHOG_PERSONAL_API_KEY',
+    'REACT_APP_POSTHOG_API_KEY',
+    'POSTHOG_PERSONAL_API_KEY',
+    'POSTHOG_API_KEY'
+  );
+  if (!key) throw new Error('Missing REACT_APP_POSTHOG_PERSONAL_API_KEY');
   const host = (env('REACT_APP_POSTHOG_HOST', 'POSTHOG_HOST') || 'https://us.posthog.com').replace(/\/$/, '');
   const headers = { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' };
 
@@ -161,31 +168,35 @@ async function github() {
   };
 
   const reposData = await fetchJson(
-    `https://api.github.com/orgs/${org}/repos?per_page=100&sort=updated`,
+    `https://api.github.com/orgs/${org}/repos?per_page=100&sort=pushed`,
     { headers }
   );
-  const repos = Array.isArray(reposData) ? reposData : [];
+  const repos = (Array.isArray(reposData) ? reposData : [])
+    .slice()
+    .sort((a, b) => new Date(b.pushed_at || 0) - new Date(a.pushed_at || 0))
+    .slice(0, 10);
 
-  const search = await fetchJson(
-    `https://api.github.com/search/issues?q=${encodeURIComponent(`org:${org} type:pr state:open`)}&per_page=100`,
-    { headers }
-  );
-  const openPrs = Number(search.total_count) || (search.items || []).length;
-  const byRepo = {};
-  (search.items || []).forEach((item) => {
-    const name = (item.repository_url || '').split('/').pop() || 'unknown';
-    byRepo[name] = (byRepo[name] || 0) + 1;
-  });
+  const repoStats = [];
+  let openPrs = 0;
+  for (const repo of repos) {
+    const pulls = await fetchJson(
+      `https://api.github.com/repos/${org}/${encodeURIComponent(repo.name)}/pulls?state=open&per_page=100`,
+      { headers }
+    );
+    const count = Array.isArray(pulls) ? pulls.length : 0;
+    openPrs += count;
+    repoStats.push({
+      name: repo.name,
+      openPrs: count,
+      pushedAt: repo.pushed_at,
+    });
+  }
 
   return {
     headline: `${openPrs} open PRs`,
     openPrs,
     repoCount: repos.length,
-    repos: repos.slice(0, 12).map((r) => ({
-      name: r.name,
-      openPrs: byRepo[r.name] || 0,
-      pushedAt: r.pushed_at,
-    })),
+    repos: repoStats,
   };
 }
 
@@ -246,25 +257,12 @@ async function mailgun() {
 async function expo() {
   const token = env('REACT_APP_EXPO_TOKEN', 'EXPO_TOKEN', 'EXPO_ACCESS_TOKEN');
   if (!token) throw new Error('Missing REACT_APP_EXPO_TOKEN');
-  const account = env('REACT_APP_EXPO_ACCOUNT', 'EXPO_ACCOUNT') || 'dreamapplab';
   const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json' };
 
-  let data;
-  const urls = [
-    `https://api.expo.dev/v2/accounts/${encodeURIComponent(account)}/builds?limit=5`,
-    'https://api.expo.dev/v2/builds?limit=5',
-  ];
-  let lastError = null;
-  for (const url of urls) {
-    try {
-      data = await fetchJson(url, { headers });
-      lastError = null;
-      break;
-    } catch (err) {
-      lastError = err;
-    }
-  }
-  if (lastError && !data) throw lastError;
+  const data = await fetchJson(
+    'https://api.expo.dev/v2/accounts/dreamapplab/builds?limit=5',
+    { headers }
+  );
 
   const builds = data.data || data.builds || data.items || [];
   const latest = builds[0];
@@ -280,7 +278,7 @@ async function expo() {
       createdAt: b.createdAt || b.created_at,
       project: b.appName || b.projectName || b.fullName,
     })),
-    account,
+    account: 'dreamapplab',
   };
 }
 
@@ -296,22 +294,10 @@ async function crisp() {
     'Content-Type': 'application/json',
   };
 
-  let websiteIds = (env('REACT_APP_CRISP_WEBSITE_ID', 'CRISP_WEBSITE_ID') || '')
+  const websiteIds = (process.env.REACT_APP_CRISP_WEBSITE_ID || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-
-  if (!websiteIds.length) {
-    try {
-      const listed = await fetchJson('https://api.crisp.chat/v1/user/account/websites', { headers });
-      const items = listed.data || listed;
-      if (Array.isArray(items)) {
-        websiteIds = items.map((w) => w.website_id || w.id).filter(Boolean);
-      }
-    } catch {
-      websiteIds = [];
-    }
-  }
 
   if (!websiteIds.length) {
     throw new Error('No Crisp website IDs. Set REACT_APP_CRISP_WEBSITE_ID.');
