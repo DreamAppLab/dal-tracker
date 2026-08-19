@@ -216,6 +216,8 @@ export const STATUS_CONFIG = {
   live: { label: "Live", color: "#00D4B8", bg: "rgba(0,212,184,0.15)" },
   submitted: { label: "Submitted", color: "#6366F1", bg: "rgba(99,102,241,0.15)" },
   "in-development": { label: "In Development", color: "#F59E0B", bg: "rgba(245,158,11,0.15)" },
+  "In Progress": { label: "In Progress", color: "#F59E0B", bg: "rgba(245,158,11,0.15)" },
+  "in-progress": { label: "In Progress", color: "#F59E0B", bg: "rgba(245,158,11,0.15)" },
   ideation: { label: "Ideation", color: "#94A3B8", bg: "rgba(148,163,184,0.15)" },
   paused: { label: "Paused", color: "#FF5B5B", bg: "rgba(255,91,91,0.15)" }
 };
