@@ -1,21 +1,40 @@
 // src/components/AddProjectModal.js
 import React, { useState } from 'react';
+import {
+  PROJECT_TYPE_OPTIONS,
+  internalTypeForProjectType,
+  platformForProjectType,
+} from '../data/projectTypes';
 
 const EMOJIS = ['📱', '🌐', '🚀', '💡', '🏠', '✈️', '📚', '🏥', '🐾', '🌿', '💊', '🧠', '❤️', '🧶', '🚐', '🎮', '📸', '🎵', '💰', '⚙️'];
 const COLORS = ['#00D4B8', '#6366F1', '#F59E0B', '#FF5B5B', '#22C55E', '#58c6f4', '#EC4899', '#8B5CF6', '#06B6D4', '#F43F5E'];
 
-export default function AddProjectModal({ onAdd, onClose }) {
+export default function AddProjectModal({ onAdd, onClose, defaultProjectType = '' }) {
   const [form, setForm] = useState({
-    name: '', tagline: '', type: 'own-app', platform: 'mobile', status: 'in-development',
+    name: '', tagline: '', projectType: defaultProjectType, platform: defaultProjectType ? platformForProjectType(defaultProjectType) : 'mobile', status: 'in-development',
     logo: '📱', color: '#00D4B8', bundleId: '', pricing: '', price: 0,
     revenue: { monthly: 0, total: 0, model: 'paid' },
     expenses: [], milestones: [], edits: [], techStack: []
   });
+  const [typeError, setTypeError] = useState('');
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const handleSubmit = () => {
     if (!form.name.trim()) return;
-    onAdd({ ...form, id: form.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') + '-' + Date.now() });
+    if (!form.projectType) {
+      setTypeError('Select a project type before creating the project.');
+      return;
+    }
+    setTypeError('');
+    const now = new Date().toISOString();
+    onAdd({
+      ...form,
+      type: internalTypeForProjectType(form.projectType),
+      platform: form.platform || platformForProjectType(form.projectType),
+      createdAt: now,
+      updatedAt: now,
+      id: form.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') + '-' + Date.now(),
+    });
   };
 
   return (
@@ -66,16 +85,31 @@ export default function AddProjectModal({ onAdd, onClose }) {
             <label className="form-label">Tagline</label>
             <input className="form-input" value={form.tagline} onChange={e => set('tagline', e.target.value)} placeholder="Short description" />
           </div>
+          <div className="form-group">
+            <label className="form-label">Project Type *</label>
+            <select
+              className="form-select"
+              value={form.projectType}
+              onChange={(e) => {
+                setTypeError('');
+                const projectType = e.target.value;
+                setForm((f) => ({
+                  ...f,
+                  projectType,
+                  platform: projectType ? platformForProjectType(projectType) : f.platform,
+                }));
+              }}
+            >
+              <option value="">Select project type…</option>
+              {PROJECT_TYPE_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+            {typeError ? (
+              <div style={{ color: 'var(--coral)', fontSize: 12, marginTop: 6 }}>{typeError}</div>
+            ) : null}
+          </div>
           <div className="form-grid">
-            <div className="form-group">
-              <label className="form-label">Type</label>
-              <select className="form-select" value={form.type} onChange={e => set('type', e.target.value)}>
-                <option value="own-app">Own App</option>
-                <option value="own-website">Own Website</option>
-                <option value="client-app">Client App</option>
-                <option value="client-website">Client Website</option>
-              </select>
-            </div>
             <div className="form-group">
               <label className="form-label">Platform</label>
               <select className="form-select" value={form.platform} onChange={e => set('platform', e.target.value)}>
@@ -89,6 +123,7 @@ export default function AddProjectModal({ onAdd, onClose }) {
               <select className="form-select" value={form.status} onChange={e => set('status', e.target.value)}>
                 <option value="ideation">Ideation</option>
                 <option value="in-development">In Development</option>
+                <option value="In Progress">In Progress</option>
                 <option value="submitted">Submitted</option>
                 <option value="live">Live</option>
                 <option value="paused">Paused</option>

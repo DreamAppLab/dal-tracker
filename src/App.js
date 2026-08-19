@@ -14,6 +14,7 @@ import BlogAdmin from './pages/BlogAdmin';
 import ToolsHub from './pages/ToolsHub';
 import ExpensesTab from './tabs/ExpensesTab';
 import ProjectDetail from './components/ProjectDetail';
+import ClientJobsDashboard from './components/ClientJobsDashboard';
 import Sidebar from './components/Sidebar';
 import AddProjectModal from './components/AddProjectModal';
 import LoginScreen from './components/LoginScreen';
@@ -46,7 +47,9 @@ function DashboardApp() {
   const [activeView, setActiveView] = useState('dashboard');
   const [selectedProject, setSelectedProject] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [addModalProjectType, setAddModalProjectType] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [toast, setToast] = useState('');
 
   useEffect(() => {
     const timeoutId = setTimeout(() => setLoading(false), 8000);
@@ -105,14 +108,26 @@ function DashboardApp() {
     setActiveView('project');
   };
 
+  const showToast = (message) => {
+    setToast(message);
+    window.setTimeout(() => setToast(''), 4000);
+  };
+
   const handleUpdateProject = async (updatedProject) => {
-    await setDoc(doc(db, 'projects', updatedProject.id), updatedProject);
-    setSelectedProject(updatedProject);
+    const withStamp = { ...updatedProject, updatedAt: new Date().toISOString() };
+    await setDoc(doc(db, 'projects', withStamp.id), withStamp, { merge: true });
+    setSelectedProject(withStamp);
   };
 
   const handleAddProject = async (newProject) => {
-    await setDoc(doc(db, 'projects', newProject.id), newProject);
+    await setDoc(doc(db, 'projects', newProject.id), newProject, { merge: true });
     setShowAddModal(false);
+    setAddModalProjectType('');
+  };
+
+  const openAddModal = (projectType = '') => {
+    setAddModalProjectType(projectType);
+    setShowAddModal(true);
   };
 
   const handleDeleteProject = async () => {
@@ -142,7 +157,7 @@ function DashboardApp() {
         selectedProjectId={currentProject?.id}
         onNavigate={setActiveView}
         onSelectProject={handleSelectProject}
-        onAddProject={() => setShowAddModal(true)}
+        onAddProject={() => openAddModal('')}
         onLogout={logout}
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
@@ -153,7 +168,14 @@ function DashboardApp() {
             projects={projects}
             pipelineItems={pipelineItems}
             onSelectProject={handleSelectProject}
-            onAddProject={() => setShowAddModal(true)}
+            onAddProject={() => openAddModal('')}
+          />
+        )}
+        {activeView === 'client-jobs' && (
+          <ClientJobsDashboard
+            projects={projects}
+            onSelectProject={handleSelectProject}
+            onNewClientJob={() => openAddModal('Client Job')}
           />
         )}
         {activeView === 'aso' && (
@@ -190,15 +212,41 @@ function DashboardApp() {
             onUpdate={handleUpdateProject}
             onDelete={handleDeleteProject}
             onBack={() => setActiveView('dashboard')}
+            onOpenProject={handleSelectProject}
+            onToast={showToast}
           />
         )}
       </main>
       {showAddModal && (
         <AddProjectModal
           onAdd={handleAddProject}
-          onClose={() => setShowAddModal(false)}
+          onClose={() => {
+            setShowAddModal(false);
+            setAddModalProjectType('');
+          }}
+          defaultProjectType={addModalProjectType}
         />
       )}
+      {toast ? (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            right: 24,
+            zIndex: 2000,
+            background: '#0f172a',
+            border: '1px solid #4cc1f3',
+            color: '#E2E8F0',
+            padding: '12px 16px',
+            borderRadius: 10,
+            boxShadow: '0 12px 40px rgba(0,0,0,0.4)',
+            fontSize: 13,
+            maxWidth: 360,
+          }}
+        >
+          {toast}
+        </div>
+      ) : null}
     </div>
     </GoogleCalendarProvider>
   );

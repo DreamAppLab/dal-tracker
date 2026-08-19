@@ -23,6 +23,8 @@ const STATUS_META = {
   questions_sent: { label: 'Questions Sent', color: '#FDBA74' },
   client_replied: { label: 'Client Replied', color: '#E9D5FF', pulse: true },
   deposit_sent: { label: 'Deposit Sent', color: '#5EEAD4' },
+  deposit_paid: { label: 'Deposit Paid', color: '#4ADE80' },
+  approved: { label: 'Approved', color: '#86EFAC' },
   in_build: { label: 'In Build', color: '#4ADE80' },
   in_build_board: { label: 'On Build Board', color: '#4ADE80' },
   balance_sent: { label: 'Balance Sent', color: '#7DD3FC' },
@@ -309,7 +311,7 @@ function MessageBubble({ message, clientLabel }) {
   );
 }
 
-function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved }) {
+function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProject, onToast }) {
   const [discountOpen, setDiscountOpen] = useState(false);
   const [discountMode, setDiscountMode] = useState('dollar');
   const [discountValue, setDiscountValue] = useState('');
@@ -323,6 +325,7 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved }) {
   const [completionDate, setCompletionDate] = useState(dateKey(quote.estimatedCompletion));
   const [confirmDeposit, setConfirmDeposit] = useState(false);
   const [confirmMoveBoard, setConfirmMoveBoard] = useState(false);
+  const [confirmMoveToJob, setConfirmMoveToJob] = useState(false);
   const [localDone, setLocalDone] = useState({
     deposit: false,
     balance: false,
@@ -591,6 +594,52 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved }) {
       if (onQuoteMoved) onQuoteMoved(quote.id);
     });
 
+  const handleMoveToClientJob = () =>
+    runAction('move_job', async () => {
+      const now = new Date().toISOString();
+      const existing = await getDocs(query(collection(db, 'projects'), where('quoteId', '==', quote.id)));
+      let created = null;
+      if (!existing.empty) {
+        projectId = existing.docs[0].id;
+        created = { id: projectId, ...existing.docs[0].data() };
+      } else {
+        const name = biz || quote.name || 'Client Job';
+        projectId =
+          name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') +
+          '-' +
+          Date.now();
+        created = {
+          id: projectId,
+          name,
+          projectType: 'Client Job',
+          type: 'client-website',
+          platform: 'web',
+          status: 'In Progress',
+          clientName: biz || quote.name || '',
+          clientEmail: quote.email || '',
+          quoteId: quote.id,
+          createdAt: now,
+          updatedAt: now,
+          logo: '💼',
+          color: '#FACC15',
+          tagline: formTypeLabel(quote.formType),
+          revenue: { monthly: 0, total: 0, model: 'lead-gen' },
+          expenses: [],
+          milestones: [],
+          edits: [],
+          techStack: [],
+        };
+        await setDoc(doc(db, 'projects', projectId), created, { merge: true });
+      }
+      setConfirmMoveToJob(false);
+      if (typeof onToast === 'function') {
+        onToast('Client job created — pipeline checklist is ready');
+      }
+      if (typeof onOpenProject === 'function') {
+        onOpenProject(created);
+      }
+    });
+
   const handleResendEstimate = () =>
     runAction('resend', async () => {
       const res = await fetch('/api/quotes/resend', {
@@ -614,6 +663,7 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved }) {
     (status === 'submitted' || status === 'accepted' || status === 'client_replied');
   const showBalance = status === 'in_build' || status === 'in_build_board' || status === 'in_progress';
   const showMoveToBoard = status === 'deposit_sent';
+  const showMoveToClientJob = ['deposit_paid', 'approved', 'in_build', 'in_progress'].includes(status);
   const showComplete = status === 'balance_sent';
   const showNoAction = shownStatus === 'no_action';
   const depositDone = localDone.deposit || status === 'deposit_sent' || !!quote.stripeDepositUrl;
@@ -964,6 +1014,29 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved }) {
             </div>
           </div>
         )}
+        {showMoveToClientJob && confirmMoveToJob && (
+          <div className="quotes-confirm-box">
+            <p>Create a Client Job from this quote and open the pipeline checklist?</p>
+            <div className="quotes-action-row" style={{ marginTop: 12 }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!!busyAction}
+                onClick={handleMoveToClientJob}
+              >
+                {busyAction === 'move_job' ? 'Creating…' : 'Confirm'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={!!busyAction}
+                onClick={() => setConfirmMoveToJob(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="quotes-action-row">
           {showQuestions && (
@@ -1028,6 +1101,16 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved }) {
                   : 'Move to Build Board'}
             </button>
           )}
+          {showMoveToClientJob && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!!busyAction}
+              onClick={() => setConfirmMoveToJob(true)}
+            >
+              {busyAction === 'move_job' ? 'Creating…' : 'Move to Build'}
+            </button>
+          )}
           {showComplete && (
             <button
               type="button"
@@ -1071,7 +1154,7 @@ const EMPTY_FILTERS = {
   search: '',
 };
 
-export default function QuotesTab() {
+export default function QuotesTab({ onOpenProject, onToast }) {
   const [quotes, setQuotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -1186,6 +1269,8 @@ export default function QuotesTab() {
             setSelectedId(null);
             setListNotice('Moved to Build Board');
           }}
+          onOpenProject={onOpenProject}
+          onToast={onToast}
         />
       </div>
     );

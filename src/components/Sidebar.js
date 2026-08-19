@@ -62,8 +62,8 @@ export default function Sidebar({
   const showNavItems = !sidebarOpen || sections.navigation;
   const showApps = sidebarOpen && sections.apps;
   const showWebsites = sidebarOpen && sections.websites;
-  const ownApps = projects.filter((p) => p.type === 'own-app');
-  const webApps = projects.filter((p) => p.type !== 'own-app');
+  const ownApps = projects.filter((p) => p.type === 'own-app' && p.projectType !== 'Client Job');
+  const webApps = projects.filter((p) => p.type !== 'own-app' && p.projectType !== 'Client Job');
 
   const renderProject = (p) => {
     const sc = STATUS_CONFIG[p.status];
@@ -113,6 +113,13 @@ export default function Sidebar({
             >
               <span className="sidebar-item-icon">📊</span>
               {sidebarOpen && <span className="sidebar-item-text">Dashboard</span>}
+            </button>
+            <button
+              className={`sidebar-item ${activeView === 'client-jobs' ? 'active' : ''}`}
+              onClick={() => onNavigate('client-jobs')}
+            >
+              <span className="sidebar-item-icon">💼</span>
+              {sidebarOpen && <span className="sidebar-item-text">Client Jobs</span>}
             </button>
             <button className={`sidebar-item ${activeView === 'aso' ? 'active' : ''}`} onClick={() => onNavigate('aso')}>
               <span className="sidebar-item-icon">📈</span>

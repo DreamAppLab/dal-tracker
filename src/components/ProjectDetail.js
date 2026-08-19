@@ -9,11 +9,16 @@ import ExpenseModal from './ExpenseModal';
 import TechStackModal from './TechStackModal';
 import PaymentModal from './PaymentModal';
 import AppChecklist from './AppChecklist';
+import AppPipelineChecklist from './AppPipelineChecklist';
+import WebsitePipelineChecklist from './WebsitePipelineChecklist';
+import PWAPipelineChecklist from './PWAPipelineChecklist';
 import AppLogo from './AppLogo';
 import BlackBox from './BlackBox';
 import { FamilyThreadAdminTab } from '../pages/FamilyThreadAdmin';
 import QuotesTab from '../tabs/QuotesTab';
 import BuildBoardTab from '../tabs/BuildBoardTab';
+import { hasPipelineTab, pipelineKindForProjectType, PROJECT_TYPE_BADGE } from '../data/projectTypes';
+import { openProjectHandoffPrint } from '../utils/projectHandoffPrint';
 
 function getProgress(project) {
   const allTasks = [...(project.milestones || []), ...(project.edits || [])];
@@ -187,7 +192,7 @@ function isDalWebsiteProject(project) {
   return id === 'dal-website' || name.includes('dream app lab');
 }
 
-export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, onDelete, onBack }) {
+export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, onDelete, onBack, onOpenProject, onToast }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -203,10 +208,14 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
   const [editsFilter, setEditsFilter] = useState('all');
   const [uploadingEditId, setUploadingEditId] = useState(null);
   const [editUploadError, setEditUploadError] = useState(null);
+  const [printBusy, setPrintBusy] = useState(false);
   const editImageInputRef = useRef(null);
   const pendingEditIdRef = useRef(null);
 
-  const isApp = isAppProject(project);
+  const isApp = isAppProject(project) || project.projectType === 'Own App' || project.projectType === 'Client App';
+  const showPipeline = hasPipelineTab(project.projectType);
+  const pipelineKind = pipelineKindForProjectType(project.projectType);
+  const typeBadge = PROJECT_TYPE_BADGE[project.projectType];
   const isFamilyThread = isFamilyThreadProject(project);
   const isDalWebsite = isDalWebsiteProject(project);
   const TABS = [
@@ -216,6 +225,7 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
       { key: 'builds', label: 'Build Board' },
     ] : []),
     ...(isFamilyThread ? [{ key: 'admin', label: 'Admin Panel' }] : []),
+    ...(showPipeline ? [{ key: 'pipeline', label: 'Pipeline' }] : []),
     ...BASE_TABS.filter((t) => t.key !== 'overview'),
     ...(isApp ? [{ key: 'checklist', label: 'Checklists' }] : []),
   ];
@@ -238,7 +248,10 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
     if (activeTab === 'builds' && !isDalWebsite) {
       setActiveTab('overview');
     }
-  }, [activeTab, isFamilyThread, isDalWebsite, project.id]);
+    if (activeTab === 'pipeline' && !showPipeline) {
+      setActiveTab('overview');
+    }
+  }, [activeTab, isFamilyThread, isDalWebsite, showPipeline, project.id]);
 
   const toggleMilestone = (id) => {
     const milestone = project.milestones.find(m => m.id === id);
@@ -392,7 +405,17 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
           <AppLogo logoUrl={revenueLogos[project.id]} fallback={project.logo} color={project.color} size={48} />
         </div>
         <div style={{ flex: 1 }}>
-          <div className="detail-title">{project.name}</div>
+          <div className="detail-title" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            {project.name}
+            {project.projectType && typeBadge && (
+              <span
+                className="status-badge"
+                style={{ background: typeBadge.bg, color: typeBadge.color, fontSize: 11 }}
+              >
+                {project.projectType}
+              </span>
+            )}
+          </div>
           <div className="detail-meta">
             <span className="status-badge" style={{ background: sc.bg, color: sc.color }}>
               <span className="status-dot" style={{ background: sc.color }} /> {sc.label}
@@ -403,6 +426,23 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
           </div>
         </div>
         <div className="detail-header-actions">
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={printBusy}
+            onClick={async () => {
+              setPrintBusy(true);
+              try {
+                await openProjectHandoffPrint(project);
+              } catch (err) {
+                console.error(err);
+              } finally {
+                setPrintBusy(false);
+              }
+            }}
+          >
+            {printBusy ? 'Preparing…' : 'Print / Export'}
+          </button>
           <button
             className="btn btn-danger btn-sm"
             onClick={() => {
@@ -497,7 +537,19 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
 
       {activeTab === 'admin' && isFamilyThread && <FamilyThreadAdminTab />}
 
-      {activeTab === 'quotes' && isDalWebsite && <QuotesTab />}
+      {activeTab === 'quotes' && isDalWebsite && (
+        <QuotesTab onOpenProject={onOpenProject} onToast={onToast} />
+      )}
+
+      {activeTab === 'pipeline' && showPipeline && pipelineKind === 'app' && (
+        <AppPipelineChecklist project={project} />
+      )}
+      {activeTab === 'pipeline' && showPipeline && pipelineKind === 'website' && (
+        <WebsitePipelineChecklist project={project} />
+      )}
+      {activeTab === 'pipeline' && showPipeline && pipelineKind === 'pwa' && (
+        <PWAPipelineChecklist project={project} />
+      )}
 
       {activeTab === 'builds' && isDalWebsite && <BuildBoardTab />}
 
