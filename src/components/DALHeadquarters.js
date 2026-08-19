@@ -10,6 +10,10 @@ import {
   getProjectTypesSeedStatus,
   runSeedProjectTypes,
 } from '../scripts/seedProjectTypes';
+import {
+  getPipelineProgressSeedStatus,
+  runSeedPipelineProgress,
+} from '../scripts/seedPipelineProgress';
 
 const COLLECTION = 'blackbox';
 const DOCUMENT = 'dal_wide';
@@ -343,6 +347,7 @@ export default function DALHeadquarters() {
       </div>
 
       <SeedProjectTypesPanel />
+      <SeedPipelineProgressPanel />
       <DalOpsChecklist />
     </div>
   );
@@ -387,6 +392,57 @@ function SeedProjectTypesPanel() {
       {!seeded && (
         <button type="button" className="btn btn-secondary" disabled={running} onClick={handleRun}>
           {running ? 'Seeding…' : 'Seed project types'}
+        </button>
+      )}
+      {error ? <div className="quotes-error" style={{ marginTop: 12 }}>{error}</div> : null}
+      {logs.length > 0 && (
+        <pre style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'pre-wrap' }}>
+          {logs.join('\n')}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function SeedPipelineProgressPanel() {
+  const [seeded, setSeeded] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [logs, setLogs] = useState([]);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    getPipelineProgressSeedStatus()
+      .then((status) => setSeeded(!!status?.seeded))
+      .catch(() => setSeeded(false));
+  }, []);
+
+  if (seeded && logs.length === 0) return null;
+
+  const handleRun = async () => {
+    setRunning(true);
+    setError('');
+    try {
+      const result = await runSeedPipelineProgress();
+      setLogs(result.logs || []);
+      setSeeded(true);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || 'Seed failed');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="data-section">
+      <div className="section-label" style={{ marginBottom: 8 }}>One-time: seed pipeline progress</div>
+      <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+        Marks completed app-pipeline tasks for FamilyThread, TravelWhirl, FamilyLens, Flarepad, and Logabode
+        as of August 19, 2026. This button disappears after a successful run.
+      </p>
+      {!seeded && (
+        <button type="button" className="btn btn-secondary" disabled={running} onClick={handleRun}>
+          {running ? 'Seeding…' : 'Seed pipeline progress'}
         </button>
       )}
       {error ? <div className="quotes-error" style={{ marginTop: 12 }}>{error}</div> : null}
