@@ -14,14 +14,14 @@ const TOOLS = [
     name: 'Sentry',
     icon: '🪲',
     url: 'https://dream-app-lab.sentry.io',
-    live: true,
+    live: false,
   },
   {
     id: 'posthog',
     name: 'PostHog',
     icon: '🦔',
     url: 'https://us.posthog.com',
-    live: true,
+    live: false,
   },
   {
     id: 'github',
@@ -49,14 +49,14 @@ const TOOLS = [
     name: 'Expo / EAS',
     icon: '📦',
     url: 'https://expo.dev/accounts/dreamapplab',
-    live: true,
+    live: false,
   },
   {
     id: 'crisp',
     name: 'Crisp',
     icon: '💬',
     url: 'https://app.crisp.chat',
-    live: true,
+    live: false,
   },
   {
     id: 'app-store',
