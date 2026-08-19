@@ -11,6 +11,7 @@ import TodoDashboard from './components/TodoDashboard';
 import ReviewRequestsDashboard from './components/ReviewRequestsDashboard';
 import DALHeadquarters from './components/DALHeadquarters';
 import BlogAdmin from './pages/BlogAdmin';
+import ToolsHub from './pages/ToolsHub';
 import ExpensesTab from './tabs/ExpensesTab';
 import ProjectDetail from './components/ProjectDetail';
 import Sidebar from './components/Sidebar';
@@ -181,6 +182,7 @@ function DashboardApp() {
         )}
         {activeView === 'hq' && <DALHeadquarters />}
         {activeView === 'blog' && <BlogAdmin />}
+        {activeView === 'tools' && <ToolsHub />}
         {activeView === 'project' && currentProject && (
           <ProjectDetail
             project={currentProject}
