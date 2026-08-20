@@ -13,7 +13,6 @@ import {
   collection,
   doc,
   onSnapshot,
-  orderBy,
   query,
   serverTimestamp,
   updateDoc,
@@ -53,6 +52,7 @@ export default function ClientTab({ project }) {
   const [emailBody, setEmailBody] = useState('');
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailError, setEmailError] = useState('');
+  const [attachment, setAttachment] = useState(null);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'clients'), (snapshot) => {
@@ -69,14 +69,20 @@ export default function ClientTab({ project }) {
     const q = query(
       collection(db, 'clientEmails'),
       where('projectId', '==', project.id),
-      where('source', '==', 'project'),
-      orderBy('sentAt', 'asc')
+      where('source', '==', 'project')
     );
-    const unsub = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const unsub = onSnapshot(q, (snap) => {
+      console.log('ClientTab emails snapshot:', snap.size, 'docs');
+      snap.docs.forEach(d => console.log('email doc:', d.id, d.data()));
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      data.sort((a, b) => {
+        const aTime = a.sentAt?.toMillis?.() || 0;
+        const bTime = b.sentAt?.toMillis?.() || 0;
+        return aTime - bTime;
+      });
       setEmails(data);
       setLoadingEmails(false);
-      snapshot.docs.forEach((emailDoc) => {
+      snap.docs.forEach((emailDoc) => {
         const row = emailDoc.data();
         if (row.direction === 'inbound' && row.read === false) {
           updateDoc(doc(db, 'clientEmails', emailDoc.id), { read: true }).catch(() => {});
@@ -169,17 +175,17 @@ export default function ClientTab({ project }) {
     setSendingEmail(true);
     setEmailError('');
     try {
+      const fd = new FormData();
+      fd.append('to', composeClient.email);
+      fd.append('clientId', composeClient.id);
+      fd.append('subject', emailSubject);
+      fd.append('body', emailBody);
+      fd.append('source', 'project');
+      fd.append('projectId', project.id);
+      if (attachment) fd.append('attachment', attachment);
       const res = await fetch('/api/client-email', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: composeClient.email,
-          clientId: composeClient.id,
-          subject: emailSubject,
-          body: emailBody,
-          source: 'project',
-          projectId: project.id,
-        }),
+        body: fd,
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Failed to send email.');
@@ -187,6 +193,7 @@ export default function ClientTab({ project }) {
       setComposeClient(null);
       setEmailSubject('');
       setEmailBody('');
+      setAttachment(null);
     } catch (err) {
       setEmailError(err.message || 'Failed to send email.');
     } finally {
@@ -323,7 +330,7 @@ export default function ClientTab({ project }) {
         <div className="empty-state">Loading...</div>
       ) : emails.length === 0 ? (
         <div className="empty-state">
-          <div className="empty-state-text">No emails yet — compose your first message to a client.</div>
+            <div className="empty-state-text">No emails yet — click Compose to send your first message to an assigned contact.</div>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -393,11 +400,16 @@ export default function ClientTab({ project }) {
       ) : null}
 
       {composing ? (
-        <div className="modal-overlay" onClick={() => !sendingEmail && setComposing(false)}>
+        <div className="modal-overlay" onClick={() => {
+          if (!sendingEmail) {
+            setComposing(false);
+            setAttachment(null);
+          }
+        }}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title">Compose Email</div>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setComposing(false)} disabled={sendingEmail}>✕</button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setComposing(false); setAttachment(null); }} disabled={sendingEmail}>✕</button>
             </div>
             <div className="modal-body">
               <div className="form-group">
@@ -421,10 +433,25 @@ export default function ClientTab({ project }) {
                 <label className="form-label">Body</label>
                 <textarea className="form-textarea" rows={8} value={emailBody} onChange={(e) => setEmailBody(e.target.value)} />
               </div>
+              <div className="form-group">
+                <label className="form-label">Attachment (optional)</label>
+                <input
+                  type="file"
+                  className="form-input"
+                  style={{ padding: '6px' }}
+                  onChange={(e) => setAttachment(e.target.files[0] || null)}
+                  accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.html"
+                />
+                {attachment && (
+                  <div style={{ fontSize: 12, color: 'var(--green-text)', marginTop: 4 }}>
+                    📎 {attachment.name}
+                  </div>
+                )}
+              </div>
               {emailError ? <div className="quotes-error">{emailError}</div> : null}
             </div>
             <div className="modal-footer">
-              <button type="button" className="btn btn-ghost" onClick={() => setComposing(false)} disabled={sendingEmail}>Cancel</button>
+              <button type="button" className="btn btn-ghost" onClick={() => { setComposing(false); setAttachment(null); }} disabled={sendingEmail}>Cancel</button>
               <button type="button" className="btn btn-primary" onClick={handleSendEmail} disabled={sendingEmail}>Send Email</button>
             </div>
           </div>
