@@ -15,6 +15,7 @@ import ToolsHub from './pages/ToolsHub';
 import ExpensesTab from './tabs/ExpensesTab';
 import ProjectDetail from './components/ProjectDetail';
 import ClientJobsDashboard from './components/ClientJobsDashboard';
+import Contacts from './components/Contacts';
 import Sidebar from './components/Sidebar';
 import AddProjectModal from './components/AddProjectModal';
 import LoginScreen from './components/LoginScreen';
@@ -178,6 +179,7 @@ function DashboardApp() {
             onNewClientJob={() => openAddModal('Client Job')}
           />
         )}
+        {activeView === 'contacts' && <Contacts />}
         {activeView === 'aso' && (
           <ASODashboard projects={projects} />
         )}
