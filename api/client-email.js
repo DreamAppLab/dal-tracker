@@ -21,7 +21,7 @@ export default async function handler(req, res) {
     params.append('to', to);
     params.append('subject', subject);
     params.append('text', body);
-    params.append('h:Reply-To', 'lab@inbound.dreamapplab.com');
+    params.append('h:Reply-To', 'clients@inbound.dreamapplab.com');
 
     const mgRes = await fetch(
       `https://api.mailgun.net/v3/${MAILGUN_DOMAIN}/messages`,
