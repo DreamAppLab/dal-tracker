@@ -8,6 +8,7 @@ import {
   deleteDoc,
   doc,
   onSnapshot,
+  orderBy,
   query,
   serverTimestamp,
   updateDoc,
@@ -21,6 +22,13 @@ const EMPTY_FORM = {
   phone: '',
   notes: '',
 };
+
+function formatSentAt(value) {
+  if (!value) return '';
+  const d = value.toDate ? value.toDate() : new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString();
+}
 
 function ContactModal({ client, onClose, onSaved, onDelete }) {
   const isEdit = Boolean(client);
@@ -188,6 +196,10 @@ export default function Contacts({ onUnreadCount }) {
   const [emailError, setEmailError] = useState('');
   const [emailSuccess, setEmailSuccess] = useState('');
   const [unreadCount, setUnreadCount] = useState(0);
+  const [selectedContact, setSelectedContact] = useState(null);
+  const [contactEmails, setContactEmails] = useState([]);
+  const [loadingEmails, setLoadingEmails] = useState(false);
+  const [attachment, setAttachment] = useState(null);
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -243,6 +255,32 @@ export default function Contacts({ onUnreadCount }) {
   useEffect(() => {
     if (onUnreadCount) onUnreadCount(unreadCount);
   }, [unreadCount, onUnreadCount]);
+
+  useEffect(() => {
+    if (!selectedContact) {
+      setContactEmails([]);
+      return;
+    }
+    setLoadingEmails(true);
+    const q = query(
+      collection(db, 'clientEmails'),
+      where('clientId', '==', selectedContact.id),
+      where('source', '==', 'contact'),
+      orderBy('sentAt', 'asc')
+    );
+    const unsub = onSnapshot(q, async (snapshot) => {
+      const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setContactEmails(data);
+      setLoadingEmails(false);
+      for (const emailDoc of snapshot.docs) {
+        const row = emailDoc.data();
+        if (row.direction === 'inbound' && row.read === false) {
+          await updateDoc(doc(db, 'clientEmails', emailDoc.id), { read: true });
+        }
+      }
+    });
+    return () => unsub();
+  }, [selectedContact]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -304,7 +342,15 @@ export default function Contacts({ onUnreadCount }) {
               {filtered.map((client) => {
                 const clientProjects = projectMap.get(client.id) || [];
                 return (
-                <tr key={client.id}>
+                <tr
+                  key={client.id}
+                  onClick={() => setSelectedContact(client)}
+                  style={{
+                    cursor: 'pointer',
+                    background: selectedContact?.id === client.id ? 'rgba(56, 189, 248, 0.08)' : undefined,
+                    boxShadow: selectedContact?.id === client.id ? 'inset 3px 0 0 var(--teal)' : undefined,
+                  }}
+                >
                   <td>
                     <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{client.name}</div>
                     {client.company ? (
@@ -338,7 +384,8 @@ export default function Contacts({ onUnreadCount }) {
                       type="button"
                       className="btn btn-ghost btn-sm"
                       title="Send Email"
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         setComposingFor(client);
                         setEmailSubject('');
                         setEmailBody('');
@@ -353,7 +400,10 @@ export default function Contacts({ onUnreadCount }) {
                       type="button"
                       className="btn btn-ghost btn-sm"
                       title="Edit"
-                      onClick={() => setEditing(client)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditing(client);
+                      }}
                     >
                       ✏️
                     </button>
@@ -361,7 +411,10 @@ export default function Contacts({ onUnreadCount }) {
                       type="button"
                       className="btn btn-ghost btn-sm"
                       title="Delete"
-                      onClick={() => confirmDelete(client)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        confirmDelete(client);
+                      }}
                     >
                       🗑️
                     </button>
@@ -373,6 +426,76 @@ export default function Contacts({ onUnreadCount }) {
           </table>
         </div>
       )}
+
+      {selectedContact ? (
+        <div className="data-section" style={{ marginTop: 24 }}>
+          <div className="data-section-header">
+            <div>
+              <h3 className="data-section-title">{selectedContact.name}</h3>
+              <div className="quotes-muted">{selectedContact.email || 'No email'}</div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={!selectedContact.email}
+                onClick={() => {
+                  setComposingFor(selectedContact);
+                  setEmailSubject('');
+                  setEmailBody('');
+                  setEmailError('');
+                  setEmailSuccess('');
+                }}
+              >
+                Compose
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  setSelectedContact(null);
+                  setComposingFor(null);
+                  setAttachment(null);
+                }}
+              >
+                ✕ Close
+              </button>
+            </div>
+          </div>
+          {loadingEmails ? (
+            <div className="empty-state">Loading...</div>
+          ) : contactEmails.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-text">No emails yet — click Compose to send the first one.</div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {contactEmails.map((email) => {
+                const outbound = email.direction === 'outbound';
+                return (
+                  <div
+                    key={email.id}
+                    style={{
+                      alignSelf: outbound ? 'flex-end' : 'flex-start',
+                      maxWidth: '78%',
+                      background: outbound ? 'var(--teal-dim)' : 'var(--bg-card)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 12,
+                      padding: 14,
+                    }}
+                  >
+                    <div className="quotes-muted" style={{ marginBottom: 6 }}>
+                      {outbound ? 'Sent' : 'Reply'} · {formatSentAt(email.sentAt)}
+                    </div>
+                    <div style={{ fontWeight: 700, marginBottom: 6 }}>{email.subject}</div>
+                    <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.5 }}>{email.body}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {showAdd ? (
         <ContactModal
@@ -391,14 +514,22 @@ export default function Contacts({ onUnreadCount }) {
       ) : null}
 
       {composingFor ? (
-        <div className="modal-overlay" onClick={() => !sendingEmail && setComposingFor(null)}>
+        <div className="modal-overlay" onClick={() => {
+          if (!sendingEmail) {
+            setComposingFor(null);
+            setAttachment(null);
+          }
+        }}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title">Email {composingFor.name}</div>
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
-                onClick={() => setComposingFor(null)}
+                onClick={() => {
+                  setComposingFor(null);
+                  setAttachment(null);
+                }}
                 disabled={sendingEmail}
               >✕</button>
             </div>
@@ -426,6 +557,21 @@ export default function Contacts({ onUnreadCount }) {
                   placeholder="Message"
                 />
               </div>
+              <div className="form-group">
+                <label className="form-label">Attachment (optional)</label>
+                <input
+                  type="file"
+                  className="form-input"
+                  style={{ padding: '6px' }}
+                  onChange={(e) => setAttachment(e.target.files[0] || null)}
+                  accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.html"
+                />
+                {attachment && (
+                  <div style={{ fontSize: 12, color: 'var(--green-text)', marginTop: 4 }}>
+                    📎 {attachment.name}
+                  </div>
+                )}
+              </div>
               {emailError ? (
                 <div style={{ color: 'var(--coral)', fontSize: 13, marginBottom: 8 }}>{emailError}</div>
               ) : null}
@@ -438,7 +584,10 @@ export default function Contacts({ onUnreadCount }) {
                 type="button"
                 className="btn btn-ghost"
                 disabled={sendingEmail}
-                onClick={() => setComposingFor(null)}
+                onClick={() => {
+                  setComposingFor(null);
+                  setAttachment(null);
+                }}
               >
                 Cancel
               </button>
@@ -455,24 +604,28 @@ export default function Contacts({ onUnreadCount }) {
                   setEmailError('');
                   setEmailSuccess('');
                   try {
+                    const fd = new FormData();
+                    fd.append('to', composingFor.email);
+                    fd.append('clientId', composingFor.id);
+                    fd.append('subject', emailSubject);
+                    fd.append('body', emailBody);
+                    fd.append('source', 'contact');
+                    fd.append('projectId', '');
+                    if (attachment) fd.append('attachment', attachment);
                     const res = await fetch('/api/client-email', {
                       method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        to: composingFor.email,
-                        clientId: composingFor.id,
-                        subject: emailSubject,
-                        body: emailBody,
-                        source: 'contact',
-                        projectId: null
-                      }),
+                      body: fd,
                     });
                     const data = await res.json().catch(() => ({}));
                     if (!res.ok) throw new Error(data.error || 'Failed to send email.');
                     setEmailSuccess('Email sent.');
                     setEmailSubject('');
                     setEmailBody('');
-                    window.setTimeout(() => setComposingFor(null), 1500);
+                    setAttachment(null);
+                    window.setTimeout(() => {
+                      setComposingFor(null);
+                      setAttachment(null);
+                    }, 1500);
                   } catch (err) {
                     setEmailError(err.message || 'Failed to send email.');
                   } finally {
