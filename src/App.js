@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './firebase';
-import { collection, onSnapshot, doc, setDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, query, where } from 'firebase/firestore';
 import { PIPELINE_APPS } from './data/initialData';
 import Dashboard from './components/Dashboard';
 import ASODashboard from './components/ASODashboard';
@@ -51,6 +51,8 @@ function DashboardApp() {
   const [addModalProjectType, setAddModalProjectType] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [toast, setToast] = useState('');
+  const [contactsUnread, setContactsUnread] = useState(0);
+  const [projectsUnread, setProjectsUnread] = useState({}); // { projectId: count }
 
   useEffect(() => {
     const timeoutId = setTimeout(() => setLoading(false), 8000);
@@ -103,6 +105,26 @@ function DashboardApp() {
     });
     return () => unsub();
   }, [pipelineSeeded]);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, 'clientEmails'),
+      where('source', '==', 'project'),
+      where('direction', '==', 'inbound'),
+      where('read', '==', false)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      const counts = {};
+      snap.docs.forEach(d => {
+        const projectId = d.data().projectId;
+        if (projectId) {
+          counts[projectId] = (counts[projectId] || 0) + 1;
+        }
+      });
+      setProjectsUnread(counts);
+    });
+    return () => unsub();
+  }, []);
 
   const handleSelectProject = (project) => {
     setSelectedProject(project);
@@ -162,6 +184,8 @@ function DashboardApp() {
         onLogout={logout}
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
+        contactsUnread={contactsUnread}
+        projectsUnread={projectsUnread}
       />
       <main className={`main-content ${sidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}>
         {activeView === 'dashboard' && (
@@ -170,6 +194,7 @@ function DashboardApp() {
             pipelineItems={pipelineItems}
             onSelectProject={handleSelectProject}
             onAddProject={() => openAddModal('')}
+            projectsUnread={projectsUnread}
           />
         )}
         {activeView === 'client-jobs' && (
@@ -179,7 +204,7 @@ function DashboardApp() {
             onNewClientJob={() => openAddModal('Client Job')}
           />
         )}
-        {activeView === 'contacts' && <Contacts />}
+        {activeView === 'contacts' && <Contacts onUnreadCount={setContactsUnread} />}
         {activeView === 'aso' && (
           <ASODashboard projects={projects} />
         )}

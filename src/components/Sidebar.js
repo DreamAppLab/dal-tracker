@@ -40,6 +40,8 @@ export default function Sidebar({
   onLogout,
   sidebarOpen,
   setSidebarOpen,
+  contactsUnread = 0,
+  projectsUnread = {},
 }) {
   const [sections, setSections] = useState(DEFAULT_SECTIONS);
 
@@ -78,6 +80,17 @@ export default function Sidebar({
           <AppLogo logoUrl={logoUrl} fallback={p.logo} color={p.color} size={24} />
         </span>
         <span className="sidebar-item-text">{p.name}</span>
+        {(projectsUnread[p.id] || 0) > 0 && (
+          <span style={{
+            background: 'var(--coral)',
+            color: 'white',
+            borderRadius: 10,
+            padding: '1px 6px',
+            fontSize: 11,
+            fontWeight: 700,
+            marginLeft: 'auto'
+          }}>{projectsUnread[p.id]}</span>
+        )}
         <span className="sidebar-status-dot" style={{ background: sc?.color || '#94A3B8' }} />
       </button>
     );
@@ -127,6 +140,17 @@ export default function Sidebar({
             >
               <span className="sidebar-item-icon">👥</span>
               {sidebarOpen && <span className="sidebar-item-text">Contacts</span>}
+              {contactsUnread > 0 && (
+                <span style={{
+                  background: 'var(--coral)',
+                  color: 'white',
+                  borderRadius: 10,
+                  padding: '1px 6px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  marginLeft: 'auto'
+                }}>{contactsUnread}</span>
+              )}
             </button>
             <button className={`sidebar-item ${activeView === 'aso' ? 'active' : ''}`} onClick={() => onNavigate('aso')}>
               <span className="sidebar-item-icon">📈</span>

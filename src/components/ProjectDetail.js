@@ -1,8 +1,9 @@
 // src/components/ProjectDetail.js
 import React, { useState, useRef, useEffect } from 'react';
 import { STATUS_CONFIG, PRIORITY_CONFIG } from '../data/initialData';
-import { storage } from '../firebase';
+import { storage, db } from '../firebase';
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import MilestoneModal from './MilestoneModal';
 import EditModal from './EditModal';
 import ExpenseModal from './ExpenseModal';
@@ -17,6 +18,7 @@ import BlackBox from './BlackBox';
 import { FamilyThreadAdminTab } from '../pages/FamilyThreadAdmin';
 import QuotesTab from '../tabs/QuotesTab';
 import BuildBoardTab from '../tabs/BuildBoardTab';
+import ClientTab from './ClientTab';
 import { hasPipelineTab, pipelineKindForProjectType, PROJECT_TYPE_BADGE } from '../data/projectTypes';
 import { openProjectHandoffPrint } from '../utils/projectHandoffPrint';
 
@@ -194,6 +196,7 @@ function isDalWebsiteProject(project) {
 
 export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, onDelete, onBack, onOpenProject, onToast }) {
   const [activeTab, setActiveTab] = useState('overview');
+  const [clientUnread, setClientUnread] = useState(0);
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
@@ -220,6 +223,7 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
   const isDalWebsite = isDalWebsiteProject(project);
   const TABS = [
     { key: 'overview', label: 'Overview' },
+    { key: 'client', label: 'Client', badge: clientUnread },
     ...(isDalWebsite ? [
       { key: 'quotes', label: 'Quotes' },
       { key: 'builds', label: 'Build Board' },
@@ -252,6 +256,19 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
       setActiveTab('overview');
     }
   }, [activeTab, isFamilyThread, isDalWebsite, showPipeline, project.id]);
+
+  useEffect(() => {
+    if (!project?.id) return;
+    const q = query(
+      collection(db, 'clientEmails'),
+      where('projectId', '==', project.id),
+      where('source', '==', 'project'),
+      where('direction', '==', 'inbound'),
+      where('read', '==', false)
+    );
+    const unsub = onSnapshot(q, snap => setClientUnread(snap.size));
+    return () => unsub();
+  }, [project?.id]);
 
   const toggleMilestone = (id) => {
     const milestone = project.milestones.find(m => m.id === id);
@@ -467,11 +484,18 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
           return (
             <button key={t.key} className={`tab-btn ${activeTab === t.key ? 'active' : ''}`} onClick={() => setActiveTab(t.key)}>
               {t.label}
+              {t.badge > 0 && (
+                <span style={{ background: 'var(--coral)', color: 'white', borderRadius: 10, padding: '1px 5px', fontSize: 10, fontWeight: 700, marginLeft: 6 }}>
+                  {t.badge}
+                </span>
+              )}
               {count !== null && count > 0 && <span className="tab-count">{count}</span>}
             </button>
           );
         })}
       </div>
+
+      {activeTab === 'client' && <ClientTab project={project} />}
 
       {activeTab === 'overview' && (
         <div className="data-section">

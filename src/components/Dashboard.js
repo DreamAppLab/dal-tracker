@@ -36,7 +36,7 @@ function StatusBadge({ status }) {
   );
 }
 
-function ProjectCard({ project, onClick }) {
+function ProjectCard({ project, onClick, projectsUnread = {} }) {
   const prog = getProgress(project);
   const monthlyRev = project.revenue?.monthly || 0;
   const monthlyExp = getMonthlyExpenses(project);
@@ -98,6 +98,14 @@ function ProjectCard({ project, onClick }) {
           </div>
           <div className="card-mini-stat-label">Open Edits</div>
         </div>
+        {(projectsUnread[project.id] || 0) > 0 && (
+          <div className="card-mini-stat">
+            <div className="card-mini-stat-value" style={{ color: 'var(--coral)' }}>
+              {projectsUnread[project.id]}
+            </div>
+            <div className="card-mini-stat-label">New Messages</div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -122,7 +130,7 @@ function formatDashboardMoney(amount) {
   });
 }
 
-export default function Dashboard({ projects, pipelineItems, onSelectProject, onAddProject, onShowRevenue }) {
+export default function Dashboard({ projects, pipelineItems, onSelectProject, onAddProject, onShowRevenue, projectsUnread = {} }) {
   const [dashboardSummary, setDashboardSummary] = useState(null);
   const [showAddPipelineModal, setShowAddPipelineModal] = useState(false);
   const [hoveredPipelineId, setHoveredPipelineId] = useState(null);
@@ -305,7 +313,7 @@ export default function Dashboard({ projects, pipelineItems, onSelectProject, on
           </div>
           <div className="projects-grid">
             {ownApps.map(p => (
-              <ProjectCard key={p.id} project={p} onClick={onSelectProject} />
+              <ProjectCard key={p.id} project={p} onClick={onSelectProject} projectsUnread={projectsUnread} />
             ))}
           </div>
         </>
@@ -322,7 +330,7 @@ export default function Dashboard({ projects, pipelineItems, onSelectProject, on
           </div>
           <div className="projects-grid">
             {clientProjects.map(p => (
-              <ProjectCard key={p.id} project={p} onClick={onSelectProject} />
+              <ProjectCard key={p.id} project={p} onClick={onSelectProject} projectsUnread={projectsUnread} />
             ))}
           </div>
         </>

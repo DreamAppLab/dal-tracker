@@ -1,3 +1,5 @@
+// clientEmails collection schema:
+// { clientId, projectId, source, threadId, subject, body, to, sentAt, sentBy, direction, read, parentId }
 import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '../firebase';
 import {
@@ -6,8 +8,10 @@ import {
   deleteDoc,
   doc,
   onSnapshot,
+  query,
   serverTimestamp,
   updateDoc,
+  where,
 } from 'firebase/firestore';
 
 const EMPTY_FORM = {
@@ -169,13 +173,21 @@ function ContactModal({ client, onClose, onSaved, onDelete }) {
   );
 }
 
-export default function Contacts() {
+export default function Contacts({ onUnreadCount }) {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState(null);
   const [listError, setListError] = useState('');
+  const [projectMap, setProjectMap] = useState(new Map());
+  const [composingFor, setComposingFor] = useState(null);
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailBody, setEmailBody] = useState('');
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailError, setEmailError] = useState('');
+  const [emailSuccess, setEmailSuccess] = useState('');
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -194,6 +206,43 @@ export default function Contacts() {
     );
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'projects'), (snapshot) => {
+      const map = new Map();
+      snapshot.docs.forEach((d) => {
+        const project = { id: d.id, ...d.data() };
+        const ids = Array.isArray(project.clientIds) ? project.clientIds : [];
+        if (!ids.length) return;
+        const entry = { id: project.id, name: project.name, color: project.color };
+        ids.forEach((clientId) => {
+          if (!clientId) return;
+          const list = map.get(clientId) || [];
+          list.push(entry);
+          map.set(clientId, list);
+        });
+      });
+      setProjectMap(map);
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, 'clientEmails'),
+      where('source', '==', 'contact'),
+      where('direction', '==', 'inbound'),
+      where('read', '==', false)
+    );
+    const unsub = onSnapshot(q, (snapshot) => {
+      setUnreadCount(snapshot.size);
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    if (onUnreadCount) onUnreadCount(unreadCount);
+  }, [unreadCount, onUnreadCount]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -252,7 +301,9 @@ export default function Contacts() {
         <div className="quotes-table-wrap">
           <table className="stack-table quotes-table">
             <tbody>
-              {filtered.map((client) => (
+              {filtered.map((client) => {
+                const clientProjects = projectMap.get(client.id) || [];
+                return (
                 <tr key={client.id}>
                   <td>
                     <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{client.name}</div>
@@ -262,7 +313,42 @@ export default function Contacts() {
                   </td>
                   <td>{client.email || '—'}</td>
                   <td>{client.phone || '—'}</td>
+                  <td>
+                    {clientProjects.length
+                      ? clientProjects.map((proj) => (
+                        <span
+                          key={proj.id}
+                          style={{
+                            display: 'inline-block',
+                            background: `${proj.color}22`,
+                            border: `1px solid ${proj.color}55`,
+                            color: proj.color,
+                            borderRadius: 4,
+                            padding: '2px 8px',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            marginRight: 4
+                          }}
+                        >{proj.name}</span>
+                      ))
+                      : <span className="quotes-muted">—</span>}
+                  </td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      title="Send Email"
+                      onClick={() => {
+                        setComposingFor(client);
+                        setEmailSubject('');
+                        setEmailBody('');
+                        setEmailError('');
+                        setEmailSuccess('');
+                      }}
+                      disabled={!client.email}
+                    >
+                      ✉️
+                    </button>
                     <button
                       type="button"
                       className="btn btn-ghost btn-sm"
@@ -281,7 +367,8 @@ export default function Contacts() {
                     </button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -301,6 +388,103 @@ export default function Contacts() {
           onSaved={() => setEditing(null)}
           onDelete={confirmDelete}
         />
+      ) : null}
+
+      {composingFor ? (
+        <div className="modal-overlay" onClick={() => !sendingEmail && setComposingFor(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">Email {composingFor.name}</div>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setComposingFor(null)}
+                disabled={sendingEmail}
+              >✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label className="form-label">To</label>
+                <input className="form-input" value={composingFor.email || ''} disabled />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Subject</label>
+                <input
+                  className="form-input"
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                  placeholder="Subject"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Body</label>
+                <textarea
+                  className="form-textarea"
+                  rows={8}
+                  value={emailBody}
+                  onChange={(e) => setEmailBody(e.target.value)}
+                  placeholder="Message"
+                />
+              </div>
+              {emailError ? (
+                <div style={{ color: 'var(--coral)', fontSize: 13, marginBottom: 8 }}>{emailError}</div>
+              ) : null}
+              {emailSuccess ? (
+                <div style={{ color: 'var(--green)', fontSize: 13, marginBottom: 8 }}>{emailSuccess}</div>
+              ) : null}
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={sendingEmail}
+                onClick={() => setComposingFor(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={sendingEmail}
+                onClick={async () => {
+                  if (!emailSubject.trim() || !emailBody.trim()) {
+                    setEmailError('Subject and body are required.');
+                    return;
+                  }
+                  setSendingEmail(true);
+                  setEmailError('');
+                  setEmailSuccess('');
+                  try {
+                    const res = await fetch('/api/client-email', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        to: composingFor.email,
+                        clientId: composingFor.id,
+                        subject: emailSubject,
+                        body: emailBody,
+                        source: 'contact',
+                        projectId: null
+                      }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) throw new Error(data.error || 'Failed to send email.');
+                    setEmailSuccess('Email sent.');
+                    setEmailSubject('');
+                    setEmailBody('');
+                    window.setTimeout(() => setComposingFor(null), 1500);
+                  } catch (err) {
+                    setEmailError(err.message || 'Failed to send email.');
+                  } finally {
+                    setSendingEmail(false);
+                  }
+                }}
+              >
+                Send Email
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );
