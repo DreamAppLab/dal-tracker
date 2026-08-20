@@ -31,43 +31,74 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { FormData, Blob } = await import('node-fetch');
-    const formData = new FormData();
-    formData.append('from', MAILGUN_FROM);
-    formData.append('to', to);
-    formData.append('subject', subject);
-    formData.append('text', body);
-    formData.append('h:Reply-To', 'clients@inbound.dreamapplab.com');
-
     const attachment = files.attachment?.[0];
-    if (attachment) {
+    let mgRes;
+    if (!attachment) {
+      // No attachment — use simple URLSearchParams (most reliable)
+      const params = new URLSearchParams();
+      params.append('from', MAILGUN_FROM);
+      params.append('to', to);
+      params.append('subject', subject);
+      params.append('text', body);
+      params.append('h:Reply-To', 'clients@inbound.dreamapplab.com');
+      mgRes = await fetch(
+        `https://api.mailgun.net/v3/${MAILGUN_DOMAIN}/messages`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: 'Basic ' + Buffer.from('api:' + MAILGUN_API_KEY).toString('base64'),
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: params.toString(),
+        }
+      );
+    } else {
+      // Has attachment — use native Node.js FormData (available in Node 18+)
       const fileBuffer = fs.readFileSync(attachment.filepath);
-      const blob = new Blob([fileBuffer], { type: attachment.mimetype || 'application/octet-stream' });
-      formData.append('attachment', blob, attachment.originalFilename || 'attachment');
+
+      // Build multipart manually using boundary
+      const boundary = '----FormBoundary' + Math.random().toString(36).slice(2);
+
+      const addField = (name, value) =>
+        `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`;
+
+      let bodyParts = '';
+      bodyParts += addField('from', MAILGUN_FROM);
+      bodyParts += addField('to', to);
+      bodyParts += addField('subject', subject);
+      bodyParts += addField('text', body);
+      bodyParts += addField('h:Reply-To', 'clients@inbound.dreamapplab.com');
+
+      const textBuffer = Buffer.from(bodyParts, 'utf-8');
+      const fileHeader = Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="attachment"; filename="${attachment.originalFilename || 'attachment'}"\r\nContent-Type: ${attachment.mimetype || 'application/octet-stream'}\r\n\r\n`,
+        'utf-8'
+      );
+      const closingBuffer = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf-8');
+
+      const multipartBody = Buffer.concat([textBuffer, fileHeader, fileBuffer, closingBuffer]);
+
+      mgRes = await fetch(
+        `https://api.mailgun.net/v3/${MAILGUN_DOMAIN}/messages`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: 'Basic ' + Buffer.from('api:' + MAILGUN_API_KEY).toString('base64'),
+            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+            'Content-Length': multipartBody.length,
+          },
+          body: multipartBody,
+        }
+      );
     }
-
-    const mgRes = await fetch(
-      `https://api.mailgun.net/v3/${MAILGUN_DOMAIN}/messages`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: 'Basic ' + Buffer.from('api:' + MAILGUN_API_KEY).toString('base64'),
-        },
-        body: formData,
-      }
-    );
-
     if (!mgRes.ok) {
       const err = await mgRes.text();
       return res.status(500).json({ error: err });
     }
-
     const mgData = await mgRes.json();
     const threadId = mgData.id || '';
-
     const { initializeApp, getApps, cert } = await import('firebase-admin/app');
     const { getFirestore, FieldValue } = await import('firebase-admin/firestore');
-
     if (!getApps().length) {
       initializeApp({
         credential: cert({
@@ -77,8 +108,8 @@ export default async function handler(req, res) {
         }),
       });
     }
-
     const adminDb = getFirestore();
+    const attachment2 = files.attachment?.[0];
     await adminDb.collection('clientEmails').add({
       clientId,
       projectId: projectId || null,
@@ -87,18 +118,16 @@ export default async function handler(req, res) {
       subject,
       body,
       to,
-      hasAttachment: !!attachment,
-      attachmentName: attachment?.originalFilename || null,
+      hasAttachment: !!attachment2,
+      attachmentName: attachment2?.originalFilename || null,
       sentAt: FieldValue.serverTimestamp(),
       direction: 'outbound',
       read: true,
       parentId: null,
     });
-
-    if (attachment) {
-      try { fs.unlinkSync(attachment.filepath); } catch (_) {}
+    if (attachment2) {
+      try { fs.unlinkSync(attachment2.filepath); } catch (_) {}
     }
-
     return res.status(200).json({ ok: true, threadId });
   } catch (err) {
     return res.status(500).json({ error: err.message });
