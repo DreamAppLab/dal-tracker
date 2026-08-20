@@ -121,6 +121,13 @@ export default function Sidebar({
               <span className="sidebar-item-icon">💼</span>
               {sidebarOpen && <span className="sidebar-item-text">Client Jobs</span>}
             </button>
+            <button
+              className={`sidebar-item ${activeView === 'contacts' ? 'active' : ''}`}
+              onClick={() => onNavigate('contacts')}
+            >
+              <span className="sidebar-item-icon">👥</span>
+              {sidebarOpen && <span className="sidebar-item-text">Contacts</span>}
+            </button>
             <button className={`sidebar-item ${activeView === 'aso' ? 'active' : ''}`} onClick={() => onNavigate('aso')}>
               <span className="sidebar-item-icon">📈</span>
               {sidebarOpen && <span className="sidebar-item-text">ASO</span>}
