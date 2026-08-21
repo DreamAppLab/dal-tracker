@@ -11,6 +11,12 @@ const BADGE_STYLE = {
   lesson: { label: '⚠️ Lesson Learned', color: '#FACC15', bg: 'rgba(234,179,8,0.16)' },
 };
 
+const FILTERS = [
+  { key: 'all', label: 'All' },
+  { key: 'open', label: 'Open' },
+  { key: 'closed', label: 'Closed' },
+];
+
 function isDone(completed, id) {
   return completed?.[id] === true;
 }
@@ -47,6 +53,7 @@ export default function PipelineChecklist({ projectId, pipelineDocId, data }) {
     data.phases[0] ? { [data.phases[0].id]: true } : {}
   );
   const [toggling, setToggling] = useState(null);
+  const [filter, setFilter] = useState('all');
 
   const load = useCallback(async () => {
     if (!projectId || !pipelineDocId) return;
@@ -70,6 +77,12 @@ export default function PipelineChecklist({ projectId, pipelineDocId, data }) {
     [data.phases, completed]
   );
   const pct = data.total ? Math.round((doneCount / data.total) * 100) : 0;
+
+  const taskMatchesFilter = (task) => {
+    if (filter === 'open') return !isDone(completed, task.id);
+    if (filter === 'closed') return isDone(completed, task.id);
+    return true;
+  };
 
   const toggleTask = async (taskId) => {
     if (!projectId || toggling) return;
@@ -122,7 +135,22 @@ export default function PipelineChecklist({ projectId, pipelineDocId, data }) {
         </div>
       </div>
 
+      <div className="todo-filters" style={{ marginBottom: 16 }}>
+        {FILTERS.map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            className={`todo-filter-btn ${filter === key ? 'active' : ''}`}
+            onClick={() => setFilter(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {data.phases.map((phase) => {
+        const visibleTasks = phase.tasks.filter(taskMatchesFilter);
+        if (visibleTasks.length === 0) return null;
         const phaseDone = phase.tasks.filter((t) => isDone(completed, t.id)).length;
         const open = !!openPhases[phase.id];
         return (
@@ -167,7 +195,7 @@ export default function PipelineChecklist({ projectId, pipelineDocId, data }) {
               </div>
             </button>
             {open &&
-              phase.tasks.map((task) => {
+              visibleTasks.map((task) => {
                 const done = isDone(completed, task.id);
                 return (
                   <div

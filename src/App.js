@@ -126,6 +126,22 @@ function DashboardApp() {
     return () => unsub();
   }, []);
 
+  useEffect(() => {
+    const q = query(
+      collection(db, 'clientEmails'),
+      where('direction', '==', 'inbound'),
+      where('read', '==', false)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      const count = snap.size;
+      document.title = count > 0 ? `(${count}) DAL Mission Control` : 'DAL Mission Control';
+    });
+    return () => {
+      unsub();
+      document.title = 'DAL Mission Control';
+    };
+  }, []);
+
   const handleSelectProject = (project) => {
     setSelectedProject(project);
     setActiveView('project');
