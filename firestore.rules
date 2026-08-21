@@ -5,6 +5,14 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == 'aEbUJSYaP7aXnYtnSk3A5I4iLp72';
     }
 
+    match /maintenanceSchedules/{appId} {
+      allow read, write: if isAuthorizedUser();
+    }
+
+    match /maintenanceCycles/{cycleId} {
+      allow read, write: if isAuthorizedUser();
+    }
+
     match /{document=**} {
       allow read, write: if isAuthorizedUser();
     }
