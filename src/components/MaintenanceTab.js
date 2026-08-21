@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { collection, getDocs, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, onSnapshot, doc, updateDoc, Timestamp, query, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { seedAllApps } from '../utils/seedMaintenanceTasks';
 import { generateCyclesForApp } from '../utils/generateMaintenanceCycles';
@@ -273,6 +273,8 @@ export default function MaintenanceTab() {
   const [expanded, setExpanded] = useState({});
   const [toggling, setToggling] = useState(null);
   const [selectedAppId, setSelectedAppId] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  const [syncCount, setSyncCount] = useState(null);
 
   const today = todayYmd();
 
@@ -342,6 +344,52 @@ export default function MaintenanceTab() {
     });
     return buckets;
   }, [cycles, selectedSchedule, selectedAppId, today]);
+
+  const handleSyncAllToCalendar = async () => {
+    setSyncing(true);
+    setSyncCount(null);
+    try {
+      const snap = await getDocs(
+        query(collection(db, 'maintenanceCycles'), where('calendarEventId', '==', null))
+      );
+      let synced = 0;
+      for (const d of snap.docs) {
+        const cycle = { id: d.id, ...d.data() };
+        const cycleId = cycle.cycleId || d.id;
+        try {
+          const res = await fetch('/api/calendar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'create',
+              cycleId,
+              appName: cycle.appName,
+              label: cycle.label,
+              dueDate: cycle.dueDate,
+              tasks: (cycle.tasks || []).map((t) => t.label),
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.calendarEventId) {
+            console.error('Calendar sync failed for', cycleId, data.error || res.status);
+            continue;
+          }
+          await updateDoc(doc(db, 'maintenanceCycles', cycleId), {
+            calendarEventId: data.calendarEventId,
+          });
+          synced += 1;
+        } catch (err) {
+          console.error('Calendar sync failed for', cycleId, err);
+        }
+      }
+      setSyncCount(synced);
+    } catch (err) {
+      console.error('Calendar backfill failed:', err);
+      setSyncCount(0);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const handleInit = async () => {
     setInitializing(true);
@@ -431,6 +479,40 @@ export default function MaintenanceTab() {
             App maintenance schedules and recurring tasks
           </p>
         </div>
+        {!showInit && (
+          <div className="page-actions">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={handleSyncAllToCalendar}
+              disabled={syncing}
+            >
+              {syncing ? 'Syncing…' : 'Sync All to Calendar'}
+            </button>
+            {syncing && (
+              <>
+                <span
+                  style={{
+                    width: 16,
+                    height: 16,
+                    border: '2px solid var(--border)',
+                    borderTopColor: '#4cc1f3',
+                    borderRadius: '50%',
+                    display: 'inline-block',
+                    animation: 'maint-cal-spin 0.8s linear infinite',
+                  }}
+                  aria-hidden="true"
+                />
+                <style>{`@keyframes maint-cal-spin { to { transform: rotate(360deg); } }`}</style>
+              </>
+            )}
+            {!syncing && syncCount !== null && (
+              <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+                {syncCount} synced
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {showInit && (
