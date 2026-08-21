@@ -1,4 +1,4 @@
-import { collection, doc, getDocs, query, setDoc, Timestamp, where } from 'firebase/firestore';
+import { collection, doc, getDocs, query, setDoc, Timestamp, updateDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 
 export const CYCLE_START = '2026-09-01';
@@ -165,11 +165,12 @@ export async function generateCyclesForApp(appId, schedule) {
       if (matchingDue.some((d) => d.data().frequency === group.frequency)) return;
 
       const cycleId = cycleDocId(appId, group.frequency, group.dueDate);
+      const label = cycleLabel(group.dueDate, group.frequency);
       await setDoc(doc(db, 'maintenanceCycles', cycleId), {
         cycleId,
         appId,
         appName,
-        label: cycleLabel(group.dueDate, group.frequency),
+        label,
         frequency: group.frequency,
         dueDate: group.dueDate,
         tasks: group.tasks,
@@ -178,6 +179,30 @@ export async function generateCyclesForApp(appId, schedule) {
         createdAt,
       });
       created += 1;
+
+      try {
+        const res = await fetch('/api/calendar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'create',
+            cycleId,
+            appName,
+            label,
+            dueDate: group.dueDate,
+            tasks: group.tasks.map((t) => t.label),
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        const calendarEventId = data.calendarEventId;
+        if (res.ok && calendarEventId) {
+          await updateDoc(doc(db, 'maintenanceCycles', cycleId), { calendarEventId });
+        } else {
+          console.error('Calendar create failed:', data.error || res.status);
+        }
+      } catch (err) {
+        console.error('Calendar create failed:', err);
+      }
     })
   );
 
