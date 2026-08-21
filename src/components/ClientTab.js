@@ -72,8 +72,6 @@ export default function ClientTab({ project }) {
       where('source', '==', 'project')
     );
     const unsub = onSnapshot(q, (snap) => {
-      console.log('ClientTab emails snapshot:', snap.size, 'docs');
-      snap.docs.forEach(d => console.log('email doc:', d.id, d.data()));
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       data.sort((a, b) => {
         const aTime = a.sentAt?.toMillis?.() || 0;
@@ -353,6 +351,17 @@ export default function ClientTab({ project }) {
                 </div>
                 <div style={{ fontWeight: 700, marginBottom: 6 }}>{email.subject}</div>
                 <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.5 }}>{email.body}</div>
+                {email.hasAttachment === true && email.attachmentUrl ? (
+                  <a
+                    href={email.attachmentUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="quotes-muted"
+                    style={{ display: 'inline-block', marginTop: 8, fontSize: 12 }}
+                  >
+                    📎 {email.attachmentName}
+                  </a>
+                ) : null}
               </div>
             );
           })}

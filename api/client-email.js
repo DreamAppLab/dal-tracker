@@ -40,8 +40,9 @@ export default async function handler(req, res) {
     formData.append('h:Reply-To', 'clients@inbound.dreamapplab.com');
 
     const attachment = files.attachment?.[0];
+    let fileBuffer = null;
     if (attachment) {
-      const fileBuffer = fs.readFileSync(attachment.filepath);
+      fileBuffer = fs.readFileSync(attachment.filepath);
       const blob = new Blob([fileBuffer], { type: attachment.mimetype || 'application/octet-stream' });
       formData.append('attachment', blob, attachment.originalFilename || 'attachment');
     }
@@ -68,18 +69,22 @@ export default async function handler(req, res) {
     const { initializeApp, getApps, cert } = await import('firebase-admin/app');
     const { getFirestore, FieldValue } = await import('firebase-admin/firestore');
 
+    const projectIdEnv = process.env.FIREBASE_PROJECT_ID;
     if (!getApps().length) {
       initializeApp({
         credential: cert({
-          projectId: process.env.FIREBASE_PROJECT_ID,
+          projectId: projectIdEnv,
           clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
           privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
         }),
+        storageBucket:
+          process.env.FIREBASE_STORAGE_BUCKET ||
+          (projectIdEnv ? projectIdEnv + '.firebasestorage.app' : undefined),
       });
     }
 
     const adminDb = getFirestore();
-    await adminDb.collection('clientEmails').add({
+    const emailRef = await adminDb.collection('clientEmails').add({
       clientId,
       projectId: projectId || null,
       source: source || 'contact',
@@ -94,6 +99,19 @@ export default async function handler(req, res) {
       read: true,
       parentId: null,
     });
+
+    if (attachment && fileBuffer) {
+      const { getStorage, getDownloadURL } = await import('firebase-admin/storage');
+      const attachmentName = attachment.originalFilename || 'attachment';
+      const storagePath = `clientAttachments/${clientId}/${emailRef.id}/${attachmentName}`;
+      const file = getStorage().bucket().file(storagePath);
+      await file.save(fileBuffer, {
+        contentType: attachment.mimetype || 'application/octet-stream',
+        resumable: false,
+      });
+      const attachmentUrl = await getDownloadURL(file);
+      await emailRef.update({ attachmentUrl });
+    }
 
     if (attachment) {
       try { fs.unlinkSync(attachment.filepath); } catch (_) {}
