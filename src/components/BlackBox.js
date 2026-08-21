@@ -22,6 +22,10 @@ function slugify(name) {
     .replace(/^_+|_+$/g, '') || `custom_${Date.now()}`;
 }
 
+function byServiceLabel(a, b) {
+  return String(a.label || '').localeCompare(String(b.label || ''), undefined, { sensitivity: 'base' });
+}
+
 function groupByCategory(services) {
   const order = [];
   const map = {};
@@ -33,7 +37,10 @@ function groupByCategory(services) {
     }
     map[cat].push(svc);
   });
-  return order.map((cat) => ({ category: cat, services: map[cat] }));
+  return order.map((cat) => ({
+    category: cat,
+    services: map[cat].slice().sort(byServiceLabel),
+  }));
 }
 
 const pillBase = {
@@ -314,7 +321,7 @@ export default function BlackBox({ project }) {
         seen.add(s.key);
         return true;
       });
-      setAllServices(deduped);
+      setAllServices(deduped.slice().sort(byServiceLabel));
 
       const enabled = configSnap.exists() ? configSnap.data().enabledServices || [] : [];
       setEnabledServices(enabled);
@@ -499,6 +506,15 @@ export default function BlackBox({ project }) {
     const entry = { key, label, fields, category: 'Custom' };
 
     try {
+      const nextCatalog = allServices.some((s) => s.key === key)
+        ? allServices
+        : [...allServices, { ...entry, isCustom: true }].sort(byServiceLabel);
+      const nextEnabled = [...new Set([...enabledServices, key])]
+        .map((k) => nextCatalog.find((s) => s.key === k) || (k === key ? { key, label } : null))
+        .filter(Boolean)
+        .sort(byServiceLabel)
+        .map((s) => s.key);
+
       await setDoc(
         doc(db, 'blackbox_global', 'custom_services'),
         { customServices: arrayUnion(entry) },
@@ -507,16 +523,12 @@ export default function BlackBox({ project }) {
 
       await setDoc(
         doc(db, 'projects', projectId, 'blackbox', 'services_config'),
-        { enabledServices: arrayUnion(key) },
+        { enabledServices: nextEnabled },
         { merge: true }
       );
 
-      setAllServices((prev) =>
-        prev.some((s) => s.key === key)
-          ? prev
-          : [...prev, { ...entry, isCustom: true }]
-      );
-      setEnabledServices((prev) => (prev.includes(key) ? prev : [...prev, key]));
+      setAllServices(nextCatalog);
+      setEnabledServices(nextEnabled);
       setServiceData((prev) => ({
         ...prev,
         [key]: { fields: {}, customFields: [], notes: '' },
@@ -547,7 +559,8 @@ export default function BlackBox({ project }) {
   const categories = groupByCategory(allServices);
   const enabledOrdered = enabledServices
     .map((key) => allServices.find((s) => s.key === key))
-    .filter(Boolean);
+    .filter(Boolean)
+    .sort(byServiceLabel);
 
   if (loading) {
     return (

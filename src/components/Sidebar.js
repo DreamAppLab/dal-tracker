@@ -3,7 +3,13 @@ import { STATUS_CONFIG } from '../data/initialData';
 import AppLogo from './AppLogo';
 
 const STORAGE_KEY = 'dal-mc-sidebar-sections';
-const DEFAULT_SECTIONS = { navigation: true, apps: true, websites: true };
+const DEFAULT_SECTIONS = {
+  home: true,
+  clients: true,
+  utilities: true,
+  apps: true,
+  websites: true,
+};
 
 function loadSections() {
   try {
@@ -15,7 +21,28 @@ function loadSections() {
   }
 }
 
-function SectionHeader({ label, open, onToggle }) {
+function byName(a, b) {
+  return String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+}
+
+function UnreadBadge({ count }) {
+  if (!count) return null;
+  return (
+    <span style={{
+      background: 'var(--coral)',
+      color: 'white',
+      borderRadius: 10,
+      padding: '1px 6px',
+      fontSize: 11,
+      fontWeight: 700,
+      marginLeft: 'auto',
+    }}>
+      {count}
+    </span>
+  );
+}
+
+function SectionHeader({ label, open, onToggle, badge = 0 }) {
   return (
     <button
       type="button"
@@ -23,8 +50,24 @@ function SectionHeader({ label, open, onToggle }) {
       onClick={onToggle}
       aria-expanded={open}
     >
-      <span className="sidebar-section-label">{label}</span>
-      <span className="sidebar-section-chevron" aria-hidden="true">{open ? '▾' : '▸'}</span>
+      <span
+        className="sidebar-section-label"
+        style={{
+          fontSize: 11,
+          letterSpacing: '0.08em',
+          color: 'var(--text-muted)',
+          textTransform: 'uppercase',
+          paddingLeft: 10,
+        }}
+      >
+        {label}
+      </span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 6, paddingRight: 8 }}>
+        {badge > 0 && <UnreadBadge count={badge} />}
+        <span className="sidebar-section-chevron" aria-hidden="true" style={{ paddingRight: 0 }}>
+          {open ? '▾' : '▸'}
+        </span>
+      </span>
     </button>
   );
 }
@@ -41,6 +84,7 @@ export default function Sidebar({
   sidebarOpen,
   setSidebarOpen,
   contactsUnread = 0,
+  clientJobsUnread = 0,
   projectsUnread = {},
   maintenanceOverdue = 0,
 }) {
@@ -62,11 +106,22 @@ export default function Sidebar({
     });
   };
 
-  const showNavItems = !sidebarOpen || sections.navigation;
+  const showHome = !sidebarOpen || sections.home;
+  const showClients = !sidebarOpen || sections.clients;
+  const showUtilities = !sidebarOpen || sections.utilities;
   const showApps = sidebarOpen && sections.apps;
   const showWebsites = sidebarOpen && sections.websites;
-  const ownApps = projects.filter((p) => p.type === 'own-app' && p.projectType !== 'Client Job');
-  const webApps = projects.filter((p) => p.type !== 'own-app' && p.projectType !== 'Client Job');
+  const ownApps = projects
+    .filter((p) => p.type === 'own-app' && p.projectType !== 'Client Job')
+    .slice()
+    .sort(byName);
+  const webApps = projects
+    .filter((p) => p.type !== 'own-app' && p.projectType !== 'Client Job')
+    .slice()
+    .sort(byName);
+
+  const clientsBadge = (contactsUnread || 0) + (clientJobsUnread || 0);
+  const utilitiesBadge = maintenanceOverdue > 0 ? maintenanceOverdue : 0;
 
   const renderProject = (p) => {
     const sc = STATUS_CONFIG[p.status];
@@ -81,17 +136,7 @@ export default function Sidebar({
           <AppLogo logoUrl={logoUrl} fallback={p.logo} color={p.color} size={24} />
         </span>
         <span className="sidebar-item-text">{p.name}</span>
-        {(projectsUnread[p.id] || 0) > 0 && (
-          <span style={{
-            background: 'var(--coral)',
-            color: 'white',
-            borderRadius: 10,
-            padding: '1px 6px',
-            fontSize: 11,
-            fontWeight: 700,
-            marginLeft: 'auto'
-          }}>{projectsUnread[p.id]}</span>
-        )}
+        <UnreadBadge count={projectsUnread[p.id] || 0} />
         <span className="sidebar-status-dot" style={{ background: sc?.color || '#94A3B8' }} />
       </button>
     );
@@ -114,12 +159,12 @@ export default function Sidebar({
       <nav className="sidebar-nav">
         {sidebarOpen && (
           <SectionHeader
-            label="Navigation"
-            open={sections.navigation}
-            onToggle={() => toggleSection('navigation')}
+            label="Home"
+            open={sections.home}
+            onToggle={() => toggleSection('home')}
           />
         )}
-        {showNavItems && (
+        {showHome && (
           <>
             <button
               className={`sidebar-item ${activeView === 'dashboard' ? 'active' : ''}`}
@@ -129,72 +174,11 @@ export default function Sidebar({
               {sidebarOpen && <span className="sidebar-item-text">Dashboard</span>}
             </button>
             <button
-              className={`sidebar-item ${activeView === 'maintenance' ? 'active' : ''}`}
-              onClick={() => onNavigate('maintenance')}
+              className={`sidebar-item ${activeView === 'hq' ? 'active' : ''}`}
+              onClick={() => onNavigate('hq')}
             >
-              <span className="sidebar-item-icon">🛠️</span>
-              {sidebarOpen && <span className="sidebar-item-text">Maintenance</span>}
-              {maintenanceOverdue > 0 && (
-                <span style={{
-                  background: 'var(--coral)',
-                  color: 'white',
-                  borderRadius: 10,
-                  padding: '1px 6px',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  marginLeft: 'auto'
-                }}>{maintenanceOverdue}</span>
-              )}
-            </button>
-            <button
-              className={`sidebar-item ${activeView === 'client-jobs' ? 'active' : ''}`}
-              onClick={() => onNavigate('client-jobs')}
-            >
-              <span className="sidebar-item-icon">💼</span>
-              {sidebarOpen && <span className="sidebar-item-text">Client Jobs</span>}
-            </button>
-            <button
-              className={`sidebar-item ${activeView === 'contacts' ? 'active' : ''}`}
-              onClick={() => onNavigate('contacts')}
-            >
-              <span className="sidebar-item-icon">👥</span>
-              {sidebarOpen && <span className="sidebar-item-text">Contacts</span>}
-              {contactsUnread > 0 && (
-                <span style={{
-                  background: 'var(--coral)',
-                  color: 'white',
-                  borderRadius: 10,
-                  padding: '1px 6px',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  marginLeft: 'auto'
-                }}>{contactsUnread}</span>
-              )}
-            </button>
-            <button className={`sidebar-item ${activeView === 'aso' ? 'active' : ''}`} onClick={() => onNavigate('aso')}>
-              <span className="sidebar-item-icon">📈</span>
-              {sidebarOpen && <span className="sidebar-item-text">ASO</span>}
-            </button>
-            <button
-              className={`sidebar-item ${activeView === 'revenue' ? 'active' : ''}`}
-              onClick={() => onNavigate('revenue')}
-            >
-              <span className="sidebar-item-icon">💰</span>
-              {sidebarOpen && <span className="sidebar-item-text">Revenue</span>}
-            </button>
-            <button
-              className={`sidebar-item ${activeView === 'expenses' ? 'active' : ''}`}
-              onClick={() => onNavigate('expenses')}
-            >
-              <span className="sidebar-item-icon">🧾</span>
-              {sidebarOpen && <span className="sidebar-item-text">Expenses</span>}
-            </button>
-            <button
-              className={`sidebar-item ${activeView === 'subscriptions' ? 'active' : ''}`}
-              onClick={() => onNavigate('subscriptions')}
-            >
-              <span className="sidebar-item-icon">💳</span>
-              {sidebarOpen && <span className="sidebar-item-text">Subscriptions</span>}
+              <span className="sidebar-item-icon">🏢</span>
+              {sidebarOpen && <span className="sidebar-item-text">DAL HQ</span>}
             </button>
             <button
               className={`sidebar-item ${activeView === 'calendar' ? 'active' : ''}`}
@@ -204,11 +188,75 @@ export default function Sidebar({
               {sidebarOpen && <span className="sidebar-item-text">Calendar</span>}
             </button>
             <button
-              className={`sidebar-item ${activeView === 'todos' ? 'active' : ''}`}
-              onClick={() => onNavigate('todos')}
+              className={`sidebar-item ${activeView === 'expenses' ? 'active' : ''}`}
+              onClick={() => onNavigate('expenses')}
             >
-              <span className="sidebar-item-icon">✅</span>
-              {sidebarOpen && <span className="sidebar-item-text">To Do</span>}
+              <span className="sidebar-item-icon">🧾</span>
+              {sidebarOpen && <span className="sidebar-item-text">Expenses</span>}
+            </button>
+            <button
+              className={`sidebar-item ${activeView === 'revenue' ? 'active' : ''}`}
+              onClick={() => onNavigate('revenue')}
+            >
+              <span className="sidebar-item-icon">💰</span>
+              {sidebarOpen && <span className="sidebar-item-text">Revenue</span>}
+            </button>
+            <button
+              className={`sidebar-item ${activeView === 'subscriptions' ? 'active' : ''}`}
+              onClick={() => onNavigate('subscriptions')}
+            >
+              <span className="sidebar-item-icon">💳</span>
+              {sidebarOpen && <span className="sidebar-item-text">Subscriptions</span>}
+            </button>
+          </>
+        )}
+
+        {sidebarOpen && (
+          <SectionHeader
+            label="Clients"
+            open={sections.clients}
+            onToggle={() => toggleSection('clients')}
+            badge={clientsBadge}
+          />
+        )}
+        {showClients && (
+          <>
+            <button
+              className={`sidebar-item ${activeView === 'client-jobs' ? 'active' : ''}`}
+              onClick={() => onNavigate('client-jobs')}
+            >
+              <span className="sidebar-item-icon">💼</span>
+              {sidebarOpen && <span className="sidebar-item-text">Client Jobs</span>}
+              <UnreadBadge count={clientJobsUnread} />
+            </button>
+            <button
+              className={`sidebar-item ${activeView === 'contacts' ? 'active' : ''}`}
+              onClick={() => onNavigate('contacts')}
+            >
+              <span className="sidebar-item-icon">👥</span>
+              {sidebarOpen && <span className="sidebar-item-text">Contacts</span>}
+              <UnreadBadge count={contactsUnread} />
+            </button>
+          </>
+        )}
+
+        {sidebarOpen && (
+          <SectionHeader
+            label="Utilities"
+            open={sections.utilities}
+            onToggle={() => toggleSection('utilities')}
+            badge={utilitiesBadge}
+          />
+        )}
+        {showUtilities && (
+          <>
+            <button
+              className={`sidebar-item ${activeView === 'maintenance' ? 'active' : ''}`}
+              onClick={() => onNavigate('maintenance')}
+            >
+              <span className="sidebar-item-icon">🛠️</span>
+              {sidebarOpen && <span className="sidebar-item-text">Maintenance</span>}
+              <UnreadBadge count={maintenanceOverdue} />
             </button>
             <button
               className={`sidebar-item ${activeView === 'review-requests' ? 'active' : ''}`}
@@ -218,18 +266,11 @@ export default function Sidebar({
               {sidebarOpen && <span className="sidebar-item-text">Review Requests</span>}
             </button>
             <button
-              className={`sidebar-item ${activeView === 'hq' ? 'active' : ''}`}
-              onClick={() => onNavigate('hq')}
+              className={`sidebar-item ${activeView === 'todos' ? 'active' : ''}`}
+              onClick={() => onNavigate('todos')}
             >
-              <span className="sidebar-item-icon">🏢</span>
-              {sidebarOpen && <span className="sidebar-item-text">DAL HQ</span>}
-            </button>
-            <button
-              className={`sidebar-item ${activeView === 'blog' ? 'active' : ''}`}
-              onClick={() => onNavigate('blog')}
-            >
-              <span className="sidebar-item-icon">📝</span>
-              {sidebarOpen && <span className="sidebar-item-text">Blog</span>}
+              <span className="sidebar-item-icon">✅</span>
+              {sidebarOpen && <span className="sidebar-item-text">To Do</span>}
             </button>
             <button
               className={`sidebar-item ${activeView === 'tools' ? 'active' : ''}`}

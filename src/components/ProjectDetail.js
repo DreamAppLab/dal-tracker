@@ -21,6 +21,7 @@ import BuildBoardTab from '../tabs/BuildBoardTab';
 import ClientTab from './ClientTab';
 import { hasPipelineTab, pipelineKindForProjectType, PROJECT_TYPE_BADGE } from '../data/projectTypes';
 import { openProjectHandoffPrint } from '../utils/projectHandoffPrint';
+import BlogAdmin from '../pages/BlogAdmin';
 
 function getProgress(project) {
   const allTasks = [...(project.milestones || []), ...(project.edits || [])];
@@ -230,6 +231,7 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
     ] : []),
     ...(isFamilyThread ? [{ key: 'admin', label: 'Admin Panel' }] : []),
     ...(showPipeline ? [{ key: 'pipeline', label: 'Pipeline' }] : []),
+    ...(project.hasBlog === true ? [{ key: 'blog', label: 'Blog' }] : []),
     ...BASE_TABS.filter((t) => t.key !== 'overview'),
     ...(isApp ? [{ key: 'checklist', label: 'Checklists' }] : []),
   ];
@@ -255,7 +257,10 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
     if (activeTab === 'pipeline' && !showPipeline) {
       setActiveTab('overview');
     }
-  }, [activeTab, isFamilyThread, isDalWebsite, showPipeline, project.id]);
+    if (activeTab === 'blog' && project.hasBlog !== true) {
+      setActiveTab('overview');
+    }
+  }, [activeTab, isFamilyThread, isDalWebsite, showPipeline, project.hasBlog, project.id]);
 
   useEffect(() => {
     if (!project?.id) return;
@@ -953,6 +958,10 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
 
       {activeTab === 'checklist' && isApp && (
         <AppChecklist project={project} />
+      )}
+
+      {activeTab === 'blog' && project.hasBlog === true && (
+        <BlogAdmin />
       )}
 
       {activeTab === 'vault' && (

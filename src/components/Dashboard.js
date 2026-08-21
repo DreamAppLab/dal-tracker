@@ -200,8 +200,10 @@ export default function Dashboard({ projects, pipelineItems, onSelectProject, on
     return s + all.filter(t => t.completed).length;
   }, 0);
 
-  const ownApps = projects.filter(p => p.type === 'own-app');
-  const clientProjects = projects.filter(p => p.type !== 'own-app');
+  const byName = (a, b) =>
+    String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+  const ownApps = projects.filter(p => p.type === 'own-app').slice().sort(byName);
+  const clientProjects = projects.filter(p => p.type !== 'own-app').slice().sort(byName);
 
   const handleMoveToProject = async (item) => {
     setMovingPipelineId(item.id);

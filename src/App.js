@@ -53,8 +53,10 @@ function DashboardApp() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [toast, setToast] = useState('');
   const [contactsUnread, setContactsUnread] = useState(0);
+  const [clientJobsUnread, setClientJobsUnread] = useState(0);
   const [projectsUnread, setProjectsUnread] = useState({}); // { projectId: count }
   const [maintenanceOverdue, setMaintenanceOverdue] = useState(0);
+  const [websitesSeeded, setWebsitesSeeded] = useState(false);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => setLoading(false), 8000);
@@ -127,6 +129,74 @@ function DashboardApp() {
     });
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    const jobIds = new Set(
+      projects.filter((p) => p.projectType === 'Client Job').map((p) => p.id)
+    );
+    const q = query(
+      collection(db, 'clientEmails'),
+      where('source', '==', 'project'),
+      where('direction', '==', 'inbound'),
+      where('read', '==', false)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      let count = 0;
+      snap.docs.forEach((d) => {
+        if (jobIds.has(d.data().projectId)) count += 1;
+      });
+      setClientJobsUnread(count);
+    });
+    return () => unsub();
+  }, [projects]);
+
+  useEffect(() => {
+    if (loading || websitesSeeded) return undefined;
+    const seeds = [
+      { id: 'dal-website', name: 'Dream App Lab', hasBlog: true },
+      { id: 'my-class-log', name: 'My Class Log', hasBlog: true },
+      { id: 'my-rv-vault', name: 'My RV Vault', hasBlog: true },
+      { id: 'ten-miles-ahead', name: 'Ten Miles Ahead', hasBlog: true },
+      { id: 'the-shady-duck', name: 'The Shady Duck', hasBlog: false },
+    ];
+    let cancelled = false;
+    (async () => {
+      await Promise.all(
+        seeds.map((seed) => {
+          const existing = projects.find(
+            (p) =>
+              p.id === seed.id ||
+              String(p.name || '').toLowerCase() === seed.name.toLowerCase()
+          );
+          if (existing) {
+            return setDoc(doc(db, 'projects', existing.id), { hasBlog: seed.hasBlog }, { merge: true });
+          }
+          return setDoc(
+            doc(db, 'projects', seed.id),
+            {
+              id: seed.id,
+              name: seed.name,
+              type: 'website',
+              projectType: 'Website',
+              platform: 'web',
+              hasBlog: seed.hasBlog,
+              status: 'live',
+              logo: '🌐',
+              color: '#F59E0B',
+              tagline: '',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            },
+            { merge: true }
+          );
+        })
+      );
+      if (!cancelled) setWebsitesSeeded(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, projects, websitesSeeded]);
 
   useEffect(() => {
     const q = query(
@@ -225,6 +295,7 @@ function DashboardApp() {
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
         contactsUnread={contactsUnread}
+        clientJobsUnread={clientJobsUnread}
         projectsUnread={projectsUnread}
         maintenanceOverdue={maintenanceOverdue}
       />
