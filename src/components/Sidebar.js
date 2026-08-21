@@ -42,6 +42,7 @@ export default function Sidebar({
   setSidebarOpen,
   contactsUnread = 0,
   projectsUnread = {},
+  maintenanceOverdue = 0,
 }) {
   const [sections, setSections] = useState(DEFAULT_SECTIONS);
 
@@ -126,6 +127,24 @@ export default function Sidebar({
             >
               <span className="sidebar-item-icon">📊</span>
               {sidebarOpen && <span className="sidebar-item-text">Dashboard</span>}
+            </button>
+            <button
+              className={`sidebar-item ${activeView === 'maintenance' ? 'active' : ''}`}
+              onClick={() => onNavigate('maintenance')}
+            >
+              <span className="sidebar-item-icon">🛠️</span>
+              {sidebarOpen && <span className="sidebar-item-text">Maintenance</span>}
+              {maintenanceOverdue > 0 && (
+                <span style={{
+                  background: 'var(--coral)',
+                  color: 'white',
+                  borderRadius: 10,
+                  padding: '1px 6px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  marginLeft: 'auto'
+                }}>{maintenanceOverdue}</span>
+              )}
             </button>
             <button
               className={`sidebar-item ${activeView === 'client-jobs' ? 'active' : ''}`}

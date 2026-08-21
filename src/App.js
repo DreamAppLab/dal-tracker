@@ -15,6 +15,7 @@ import ToolsHub from './pages/ToolsHub';
 import ExpensesTab from './tabs/ExpensesTab';
 import ProjectDetail from './components/ProjectDetail';
 import ClientJobsDashboard from './components/ClientJobsDashboard';
+import MaintenanceTab from './components/MaintenanceTab';
 import Contacts from './components/Contacts';
 import Sidebar from './components/Sidebar';
 import AddProjectModal from './components/AddProjectModal';
@@ -53,6 +54,7 @@ function DashboardApp() {
   const [toast, setToast] = useState('');
   const [contactsUnread, setContactsUnread] = useState(0);
   const [projectsUnread, setProjectsUnread] = useState({}); // { projectId: count }
+  const [maintenanceOverdue, setMaintenanceOverdue] = useState(0);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => setLoading(false), 8000);
@@ -122,6 +124,28 @@ function DashboardApp() {
         }
       });
       setProjectsUnread(counts);
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, 'maintenanceCycles'),
+      where('completedAt', '==', null)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      const now = new Date();
+      const today = [
+        now.getFullYear(),
+        String(now.getMonth() + 1).padStart(2, '0'),
+        String(now.getDate()).padStart(2, '0'),
+      ].join('-');
+      let count = 0;
+      snap.docs.forEach((d) => {
+        const dueDate = d.data().dueDate;
+        if (dueDate && dueDate < today) count += 1;
+      });
+      setMaintenanceOverdue(count);
     });
     return () => unsub();
   }, []);
@@ -202,6 +226,7 @@ function DashboardApp() {
         setSidebarOpen={setSidebarOpen}
         contactsUnread={contactsUnread}
         projectsUnread={projectsUnread}
+        maintenanceOverdue={maintenanceOverdue}
       />
       <main className={`main-content ${sidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}>
         {activeView === 'dashboard' && (
@@ -213,6 +238,7 @@ function DashboardApp() {
             projectsUnread={projectsUnread}
           />
         )}
+        {activeView === 'maintenance' && <MaintenanceTab />}
         {activeView === 'client-jobs' && (
           <ClientJobsDashboard
             projects={projects}
