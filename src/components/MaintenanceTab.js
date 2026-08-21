@@ -377,6 +377,26 @@ export default function MaintenanceTab() {
         tasks,
         completedAt: allDone ? Timestamp.now() : null,
       });
+      if (allDone && cycle.calendarEventId) {
+        try {
+          const res = await fetch('/api/calendar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'update',
+              calendarEventId: cycle.calendarEventId,
+              appName: cycle.appName,
+              label: cycle.label,
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.error) {
+            console.error('Calendar update failed:', data.error || res.status);
+          }
+        } catch (calErr) {
+          console.error('Calendar update failed:', calErr);
+        }
+      }
     } catch (err) {
       console.error('Failed to update maintenance task:', err);
     } finally {
