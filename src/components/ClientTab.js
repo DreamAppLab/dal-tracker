@@ -72,8 +72,6 @@ export default function ClientTab({ project }) {
       where('source', '==', 'project')
     );
     const unsub = onSnapshot(q, (snap) => {
-      console.log('ClientTab emails snapshot:', snap.size, 'docs');
-      snap.docs.forEach(d => console.log('email doc:', d.id, d.data()));
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       data.sort((a, b) => {
         const aTime = a.sentAt?.toMillis?.() || 0;
