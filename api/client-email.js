@@ -31,32 +31,66 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { FormData, Blob } = await import('node-fetch');
-    const formData = new FormData();
-    formData.append('from', MAILGUN_FROM);
-    formData.append('to', to);
-    formData.append('subject', subject);
-    formData.append('text', body);
-    formData.append('h:Reply-To', 'clients@inbound.dreamapplab.com');
-
     const attachment = files.attachment?.[0];
     let fileBuffer = null;
     if (attachment) {
       fileBuffer = fs.readFileSync(attachment.filepath);
-      const blob = new Blob([fileBuffer], { type: attachment.mimetype || 'application/octet-stream' });
-      formData.append('attachment', blob, attachment.originalFilename || 'attachment');
     }
 
-    const mgRes = await fetch(
-      `https://api.mailgun.net/v3/${MAILGUN_DOMAIN}/messages`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: 'Basic ' + Buffer.from('api:' + MAILGUN_API_KEY).toString('base64'),
-        },
-        body: formData,
-      }
-    );
+    let mgRes;
+    if (!attachment) {
+      const params = new URLSearchParams();
+      params.append('from', MAILGUN_FROM);
+      params.append('to', to);
+      params.append('subject', subject);
+      params.append('text', body);
+      params.append('h:Reply-To', 'clients@inbound.dreamapplab.com');
+      mgRes = await fetch(
+        `https://api.mailgun.net/v3/${MAILGUN_DOMAIN}/messages`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: 'Basic ' + Buffer.from('api:' + MAILGUN_API_KEY).toString('base64'),
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: params.toString(),
+        }
+      );
+    } else {
+      const boundary = '----FormBoundary' + Math.random().toString(36).slice(2);
+
+      const addField = (name, value) =>
+        `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`;
+
+      let bodyParts = '';
+      bodyParts += addField('from', MAILGUN_FROM);
+      bodyParts += addField('to', to);
+      bodyParts += addField('subject', subject);
+      bodyParts += addField('text', body);
+      bodyParts += addField('h:Reply-To', 'clients@inbound.dreamapplab.com');
+
+      const textBuffer = Buffer.from(bodyParts, 'utf-8');
+      const fileHeader = Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="attachment"; filename="${attachment.originalFilename || 'attachment'}"\r\nContent-Type: ${attachment.mimetype || 'application/octet-stream'}\r\n\r\n`,
+        'utf-8'
+      );
+      const closingBuffer = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf-8');
+
+      const multipartBody = Buffer.concat([textBuffer, fileHeader, fileBuffer, closingBuffer]);
+
+      mgRes = await fetch(
+        `https://api.mailgun.net/v3/${MAILGUN_DOMAIN}/messages`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: 'Basic ' + Buffer.from('api:' + MAILGUN_API_KEY).toString('base64'),
+            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+            'Content-Length': multipartBody.length,
+          },
+          body: multipartBody,
+        }
+      );
+    }
 
     if (!mgRes.ok) {
       const err = await mgRes.text();
