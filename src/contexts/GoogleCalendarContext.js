@@ -1,23 +1,29 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { auth, db } from '../firebase';
+import { calendarAuth, db } from '../firebase';
 import { useAuth } from './AuthContext';
 import {
   GoogleAuthProvider,
   signInWithPopup,
   signOut,
 } from 'firebase/auth';
-import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
+import {
+  arrayRemove,
+  doc,
+  onSnapshot,
+  setDoc,
+  Timestamp,
+  updateDoc,
+} from 'firebase/firestore';
 import { assignAccountColor } from '../data/calendarColors';
 
 const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
-const TOKEN_STORAGE_KEY = 'dal-google-calendar-token';
 
 const GoogleCalendarContext = createContext(null);
 
 function createGoogleCalendarProvider() {
   const provider = new GoogleAuthProvider();
   provider.addScope(GOOGLE_CALENDAR_SCOPE);
-  provider.setCustomParameters({ prompt: 'consent', access_type: 'online' });
+  provider.setCustomParameters({ prompt: 'consent', access_type: 'offline' });
   return provider;
 }
 
@@ -29,34 +35,57 @@ function extractOAuthAccessToken(result) {
   return result?._tokenResponse?.oauthAccessToken || null;
 }
 
+function extractOAuthRefreshToken(result) {
+  return (
+    result?._tokenResponse?.oauthRefreshToken ||
+    result?._tokenResponse?.refreshToken ||
+    ''
+  );
+}
+
+function tokensRef(userId) {
+  return doc(db, 'calendarTokens', userId);
+}
+
 export function GoogleCalendarProvider({ children }) {
-  const { relogin } = useAuth();
+  const { user } = useAuth();
   const [connectedAccounts, setConnectedAccounts] = useState([]);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'connectedCalendars'), (snapshot) => {
-      const accounts = snapshot.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => (a.connectedAt || '').localeCompare(b.connectedAt || ''));
-      setConnectedAccounts(accounts);
-    });
+    if (!user?.uid) {
+      setConnectedAccounts([]);
+      return undefined;
+    }
+    const unsub = onSnapshot(
+      tokensRef(user.uid),
+      (snapshot) => {
+        const accounts = snapshot.exists() ? snapshot.data().accounts || [] : [];
+        setConnectedAccounts(accounts);
+      },
+      (err) => {
+        setError(err.message || 'Failed to load calendar tokens');
+      }
+    );
     return () => unsub();
-  }, []);
+  }, [user?.uid]);
 
   const connectAccount = useCallback(async () => {
+    if (!user?.uid) {
+      setError('You must be signed in to connect a calendar.');
+      return;
+    }
     setConnecting(true);
     setError(null);
     try {
-      // Sign out first so Google re-prompts with calendar.readonly scope
-      await signOut(auth);
-      sessionStorage.removeItem(TOKEN_STORAGE_KEY);
-
       const provider = createGoogleCalendarProvider();
-      const result = await signInWithPopup(auth, provider);
+      const result = await signInWithPopup(calendarAuth, provider);
       const token = extractOAuthAccessToken(result);
+      const refreshToken = extractOAuthRefreshToken(result);
       const email = result.user?.email;
+
+      await signOut(calendarAuth);
 
       if (!token) {
         throw new Error('No OAuth access token received. Calendar scope may not have been granted.');
@@ -65,32 +94,41 @@ export function GoogleCalendarProvider({ children }) {
         throw new Error('No email received from Google sign-in.');
       }
 
-      const existing = connectedAccounts.find(a => a.email === email);
+      const existing = connectedAccounts.find((a) => a.email === email);
       const color = existing?.color ?? assignAccountColor(
-        connectedAccounts.filter(a => a.email !== email).length
+        connectedAccounts.filter((a) => a.email !== email).length
       );
-
-      await setDoc(doc(db, 'connectedCalendars', email), {
+      const nextAccount = {
         email,
         accessToken: token,
+        refreshToken: refreshToken || existing?.refreshToken || '',
         color,
-        connectedAt: existing?.connectedAt || new Date().toISOString(),
-        lastUpdated: new Date().toISOString(),
-      });
-
-      await signOut(auth);
-      await relogin();
+        connectedAt: existing?.connectedAt || Timestamp.now(),
+      };
+      const accounts = [
+        ...connectedAccounts.filter((a) => a.email !== email),
+        nextAccount,
+      ];
+      await setDoc(tokensRef(user.uid), { accounts }, { merge: true });
     } catch (err) {
+      try {
+        await signOut(calendarAuth);
+      } catch {
+        /* secondary session cleanup is best-effort */
+      }
       setError(err.message || 'Failed to connect Google Calendar');
     } finally {
       setConnecting(false);
     }
-  }, [connectedAccounts, relogin]);
+  }, [connectedAccounts, user?.uid]);
 
   const disconnectAccount = useCallback(async (email) => {
+    if (!user?.uid) return;
     setError(null);
-    await deleteDoc(doc(db, 'connectedCalendars', email));
-  }, []);
+    const account = connectedAccounts.find((a) => a.email === email);
+    if (!account) return;
+    await updateDoc(tokensRef(user.uid), { accounts: arrayRemove(account) });
+  }, [connectedAccounts, user?.uid]);
 
   return (
     <GoogleCalendarContext.Provider
@@ -116,4 +154,4 @@ export function useGoogleCalendar() {
   return ctx;
 }
 
-export { GOOGLE_CALENDAR_SCOPE, TOKEN_STORAGE_KEY, createGoogleCalendarProvider, extractOAuthAccessToken };
+export { GOOGLE_CALENDAR_SCOPE, createGoogleCalendarProvider, extractOAuthAccessToken };
