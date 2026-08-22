@@ -215,6 +215,8 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
   const [printBusy, setPrintBusy] = useState(false);
   const editImageInputRef = useRef(null);
   const pendingEditIdRef = useRef(null);
+  const logoInputRef = useRef(null);
+  const [logoUploading, setLogoUploading] = useState(false);
 
   const isApp = isAppProject(project) || project.projectType === 'Own App' || project.projectType === 'Client App';
   const showPipeline = hasPipelineTab(project.projectType);
@@ -405,6 +407,26 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
     onUpdate({ ...project, edits: updatedEdits });
   };
 
+  const handleProjectLogoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !project.id) return;
+    const ext = (file.name.split('.').pop() || 'webp').toLowerCase();
+    setLogoUploading(true);
+    try {
+      const path = `projectLogos/${project.id}/logo.${ext}`;
+      const sRef = storageRef(storage, path);
+      await uploadBytes(sRef, file, { contentType: file.type || undefined });
+      const downloadUrl = await getDownloadURL(sRef);
+      await onUpdate({ ...project, logoUrl: downloadUrl });
+      if (typeof onToast === 'function') onToast('Logo updated');
+    } catch (err) {
+      if (typeof onToast === 'function') onToast(err.message || 'Logo upload failed');
+    } finally {
+      setLogoUploading(false);
+    }
+  };
+
   const filteredEdits = getFilteredEdits(project.edits || [], editsFilter);
   const sortedEdits = [...filteredEdits].sort((a, b) => {
     const order = { high: 0, medium: 1, low: 2 };
@@ -424,11 +446,23 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
       <div className="detail-header">
         <button className="btn btn-ghost btn-sm" onClick={onBack}>Back</button>
         <div className="detail-logo">
-          <AppLogo logoUrl={revenueLogos[project.id]} fallback={project.logo} color={project.color} size={48} />
+          <AppLogo logoUrl={project.logoUrl || revenueLogos[project.id]} fallback={project.logo} color={project.color} size={48} />
         </div>
         <div style={{ flex: 1 }}>
           <div className="detail-title" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            {project.name}
+            {project.websiteUrl ? (
+              <a
+                href={project.websiteUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="detail-title-link"
+              >
+                {project.name}
+                <span className="detail-title-link-icon" aria-hidden="true">🔗</span>
+              </a>
+            ) : (
+              project.name
+            )}
             {project.projectType && typeBadge && (
               <span
                 className="status-badge"
@@ -504,6 +538,33 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
 
       {activeTab === 'overview' && (
         <div className="data-section">
+          <div className="overview-logo-area">
+            <div className="detail-logo">
+              <AppLogo logoUrl={project.logoUrl || revenueLogos[project.id]} fallback={project.logo} color={project.color} size={48} />
+            </div>
+            <input
+              ref={logoInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/jpg,image/gif,image/webp,image/svg+xml"
+              style={{ display: 'none' }}
+              onChange={handleProjectLogoUpload}
+            />
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={logoUploading}
+              onClick={() => logoInputRef.current?.click()}
+            >
+              {logoUploading ? (
+                <>
+                  <span className="logo-upload-spinner" aria-hidden="true" />
+                  Uploading…
+                </>
+              ) : (
+                'Update Logo'
+              )}
+            </button>
+          </div>
           <div className="stats-grid" style={{ marginBottom: 24 }}>
             <div className="stat-card teal">
               <div className="stat-label">Overall Progress</div>

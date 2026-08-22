@@ -56,7 +56,7 @@ function DashboardApp() {
   const [clientJobsUnread, setClientJobsUnread] = useState(0);
   const [projectsUnread, setProjectsUnread] = useState({}); // { projectId: count }
   const [maintenanceOverdue, setMaintenanceOverdue] = useState(0);
-  const [websitesSeeded, setWebsitesSeeded] = useState(false);
+  const [websitesSeedVersion, setWebsitesSeedVersion] = useState(0);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => setLoading(false), 8000);
@@ -151,52 +151,45 @@ function DashboardApp() {
   }, [projects]);
 
   useEffect(() => {
-    if (loading || websitesSeeded) return undefined;
+    if (loading || websitesSeedVersion === 2) return undefined;
     const seeds = [
-      { id: 'dal-website', name: 'Dream App Lab', hasBlog: true },
-      { id: 'my-class-log', name: 'My Class Log', hasBlog: true },
-      { id: 'my-rv-vault', name: 'My RV Vault', hasBlog: true },
-      { id: 'ten-miles-ahead', name: 'Ten Miles Ahead', hasBlog: true },
-      { id: 'the-shady-duck', name: 'The Shady Duck', hasBlog: false },
+      { id: 'dal-website', name: 'Dream App Lab', hasBlog: true, websiteUrl: 'https://dreamapplab.com' },
+      { id: 'my-class-log', name: 'My Class Log', hasBlog: true, websiteUrl: 'https://myclasslog.com' },
+      { id: 'my-rv-vault', name: 'My RV Vault', hasBlog: true, websiteUrl: 'https://myrrvault.com' },
+      { id: 'ten-miles-ahead', name: 'Ten Miles Ahead', hasBlog: true, websiteUrl: 'https://tenmilesahead.com' },
+      { id: 'the-shady-duck', name: 'The Shady Duck', hasBlog: false, websiteUrl: 'https://theshadyduck.com' },
     ];
     let cancelled = false;
     (async () => {
       await Promise.all(
         seeds.map((seed) => {
-          const existing = projects.find(
-            (p) =>
-              p.id === seed.id ||
-              String(p.name || '').toLowerCase() === seed.name.toLowerCase()
-          );
-          if (existing) {
-            return setDoc(doc(db, 'projects', existing.id), { hasBlog: seed.hasBlog }, { merge: true });
+          const existing = projects.find((p) => p.id === seed.id);
+          const payload = {
+            id: seed.id,
+            name: seed.name,
+            type: 'website',
+            projectType: 'Website',
+            platform: 'web',
+            hasBlog: seed.hasBlog,
+            websiteUrl: seed.websiteUrl,
+            updatedAt: new Date().toISOString(),
+          };
+          if (!existing) {
+            payload.status = 'live';
+            payload.logo = '🌐';
+            payload.color = '#F59E0B';
+            payload.tagline = '';
+            payload.createdAt = new Date().toISOString();
           }
-          return setDoc(
-            doc(db, 'projects', seed.id),
-            {
-              id: seed.id,
-              name: seed.name,
-              type: 'website',
-              projectType: 'Website',
-              platform: 'web',
-              hasBlog: seed.hasBlog,
-              status: 'live',
-              logo: '🌐',
-              color: '#F59E0B',
-              tagline: '',
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            },
-            { merge: true }
-          );
+          return setDoc(doc(db, 'projects', seed.id), payload, { merge: true });
         })
       );
-      if (!cancelled) setWebsitesSeeded(true);
+      if (!cancelled) setWebsitesSeedVersion(2);
     })();
     return () => {
       cancelled = true;
     };
-  }, [loading, projects, websitesSeeded]);
+  }, [loading, projects, websitesSeedVersion]);
 
   useEffect(() => {
     const q = query(
