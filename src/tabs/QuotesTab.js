@@ -241,6 +241,41 @@ function isUnread(quote) {
   return quote.readAt == null || quote.readAt === '';
 }
 
+export function countSubmittedUnreadQuotes(quotes) {
+  return (quotes || []).filter((quote) => {
+    const status = String(quote.status || 'submitted');
+    if (status === 'welcome_sent') return false;
+    return status === 'submitted' && isUnread(quote);
+  }).length;
+}
+
+export function QuotesUnreadListener({ onUnreadCount, intervalMs = 20000 }) {
+  useEffect(() => {
+    if (!onUnreadCount) return undefined;
+    let cancelled = false;
+
+    async function loadCount() {
+      try {
+        const res = await fetch('/api/quotes');
+        const data = await res.json().catch(() => ({}));
+        if (cancelled || !data.ok) return;
+        onUnreadCount(countSubmittedUnreadQuotes(data.quotes));
+      } catch {
+        /* keep last known count */
+      }
+    }
+
+    loadCount();
+    const timer = setInterval(loadCount, intervalMs);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [onUnreadCount, intervalMs]);
+
+  return null;
+}
+
 function QuoteStatusBadge({ status }) {
   const meta = STATUS_META[status] || STATUS_META.submitted;
   return (
@@ -598,6 +633,7 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
     runAction('move_job', async () => {
       const now = new Date().toISOString();
       const existing = await getDocs(query(collection(db, 'projects'), where('quoteId', '==', quote.id)));
+      let projectId;
       let created = null;
       if (!existing.empty) {
         projectId = existing.docs[0].id;
@@ -1154,7 +1190,7 @@ const EMPTY_FILTERS = {
   search: '',
 };
 
-export default function QuotesTab({ onOpenProject, onToast }) {
+export default function QuotesTab({ onOpenProject, onToast, onUnreadCount }) {
   const [quotes, setQuotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -1193,6 +1229,11 @@ export default function QuotesTab({ onOpenProject, onToast }) {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!onUnreadCount || loading) return;
+    onUnreadCount(countSubmittedUnreadQuotes(quotes));
+  }, [quotes, onUnreadCount, loading]);
 
   const filtered = useMemo(() => {
     const q = filters.search.trim().toLowerCase();

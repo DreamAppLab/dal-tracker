@@ -195,7 +195,7 @@ function isDalWebsiteProject(project) {
   return id === 'dal-website' || name.includes('dream app lab');
 }
 
-export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, onDelete, onBack, onOpenProject, onToast }) {
+export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, onDelete, onBack, onOpenProject, onToast, quotesUnread = 0, onQuotesUnread }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [clientUnread, setClientUnread] = useState(0);
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
@@ -228,7 +228,7 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
     { key: 'overview', label: 'Overview' },
     { key: 'client', label: 'Client', badge: clientUnread },
     ...(isDalWebsite ? [
-      { key: 'quotes', label: 'Quotes' },
+      { key: 'quotes', label: 'Quotes', badge: quotesUnread },
       { key: 'builds', label: 'Build Board' },
     ] : []),
     ...(isFamilyThread ? [{ key: 'admin', label: 'Admin Panel' }] : []),
@@ -628,7 +628,7 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
       {activeTab === 'admin' && isFamilyThread && <FamilyThreadAdminTab />}
 
       {activeTab === 'quotes' && isDalWebsite && (
-        <QuotesTab onOpenProject={onOpenProject} onToast={onToast} />
+        <QuotesTab onOpenProject={onOpenProject} onToast={onToast} onUnreadCount={onQuotesUnread} />
       )}
 
       {activeTab === 'pipeline' && showPipeline && pipelineKind === 'app' && (
