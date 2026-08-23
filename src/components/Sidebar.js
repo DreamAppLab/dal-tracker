@@ -25,6 +25,12 @@ function byName(a, b) {
   return String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
 }
 
+function isDalWebsite(project) {
+  const id = String(project.id || '').toLowerCase();
+  const name = String(project.name || '').toLowerCase();
+  return id === 'dal-website' || name.includes('dream app lab');
+}
+
 function UnreadBadge({ count }) {
   if (!count) return null;
   return (
@@ -55,7 +61,6 @@ function SectionHeader({ label, open, onToggle, badge = 0 }) {
         style={{
           fontSize: 11,
           letterSpacing: '0.08em',
-          color: 'var(--text-muted)',
           textTransform: 'uppercase',
           paddingLeft: 10,
         }}
@@ -87,6 +92,7 @@ export default function Sidebar({
   clientJobsUnread = 0,
   projectsUnread = {},
   maintenanceOverdue = 0,
+  quotesUnread = 0,
 }) {
   const [sections, setSections] = useState(DEFAULT_SECTIONS);
 
@@ -122,6 +128,7 @@ export default function Sidebar({
 
   const clientsBadge = (contactsUnread || 0) + (clientJobsUnread || 0);
   const utilitiesBadge = maintenanceOverdue > 0 ? maintenanceOverdue : 0;
+  const websitesBadge = quotesUnread || 0;
 
   const renderProject = (p) => {
     const sc = STATUS_CONFIG[p.status];
@@ -136,7 +143,9 @@ export default function Sidebar({
           <AppLogo logoUrl={logoUrl} fallback={p.logo} color={p.color} size={24} />
         </span>
         <span className="sidebar-item-text">{p.name}</span>
-        <UnreadBadge count={projectsUnread[p.id] || 0} />
+        <UnreadBadge
+          count={(projectsUnread[p.id] || 0) + (isDalWebsite(p) ? (quotesUnread || 0) : 0)}
+        />
         <span className="sidebar-status-dot" style={{ background: sc?.color || '#94A3B8' }} />
       </button>
     );
@@ -295,6 +304,7 @@ export default function Sidebar({
               label="Websites / Web Apps"
               open={sections.websites}
               onToggle={() => toggleSection('websites')}
+              badge={websitesBadge}
             />
             {showWebsites && webApps.map(renderProject)}
           </>

@@ -18,6 +18,7 @@ import ClientJobsDashboard from './components/ClientJobsDashboard';
 import MaintenanceTab from './components/MaintenanceTab';
 import Contacts from './components/Contacts';
 import Sidebar from './components/Sidebar';
+import { QuotesUnreadListener } from './tabs/QuotesTab';
 import AddProjectModal from './components/AddProjectModal';
 import LoginScreen from './components/LoginScreen';
 import AuthLoadingScreen from './components/AuthLoadingScreen';
@@ -56,6 +57,7 @@ function DashboardApp() {
   const [clientJobsUnread, setClientJobsUnread] = useState(0);
   const [projectsUnread, setProjectsUnread] = useState({}); // { projectId: count }
   const [maintenanceOverdue, setMaintenanceOverdue] = useState(0);
+  const [quotesUnread, setQuotesUnread] = useState(0);
   const [websitesSeedVersion, setWebsitesSeedVersion] = useState(0);
 
   useEffect(() => {
@@ -291,6 +293,7 @@ function DashboardApp() {
         clientJobsUnread={clientJobsUnread}
         projectsUnread={projectsUnread}
         maintenanceOverdue={maintenanceOverdue}
+        quotesUnread={quotesUnread}
       />
       <main className={`main-content ${sidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}>
         {activeView === 'dashboard' && (
@@ -347,9 +350,12 @@ function DashboardApp() {
             onBack={() => setActiveView('dashboard')}
             onOpenProject={handleSelectProject}
             onToast={showToast}
+            quotesUnread={quotesUnread}
+            onQuotesUnread={setQuotesUnread}
           />
         )}
       </main>
+      <QuotesUnreadListener onUnreadCount={setQuotesUnread} />
       {showAddModal && (
         <AddProjectModal
           onAdd={handleAddProject}
