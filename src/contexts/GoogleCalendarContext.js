@@ -71,6 +71,51 @@ export function GoogleCalendarProvider({ children }) {
     return () => unsub();
   }, [user?.uid]);
 
+  // Token refresh requires REACT_APP_GOOGLE_CLIENT_ID and REACT_APP_GOOGLE_CLIENT_SECRET.
+  const refreshAccessToken = useCallback(async (account) => {
+    if (!account.refreshToken) return null;
+    try {
+      const response = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: process.env.REACT_APP_GOOGLE_CLIENT_ID,
+          client_secret: process.env.REACT_APP_GOOGLE_CLIENT_SECRET,
+          refresh_token: account.refreshToken,
+          grant_type: 'refresh_token',
+        }),
+      });
+      if (!response.ok) return null;
+      const data = await response.json();
+      if (!data.access_token) return null;
+      const updatedAccount = {
+        ...account,
+        accessToken: data.access_token,
+        expiresAt: Timestamp.fromMillis(Date.now() + (data.expires_in ?? 3600) * 1000),
+      };
+      const accounts = [
+        ...connectedAccounts.filter((a) => a.email !== account.email),
+        updatedAccount,
+      ];
+      await setDoc(tokensRef(user.uid), { accounts }, { merge: true });
+      return updatedAccount.accessToken;
+    } catch {
+      return null;
+    }
+  }, [connectedAccounts, user?.uid]);
+
+  useEffect(() => {
+    if (!connectedAccounts.length) return;
+    const fiveMinutes = 5 * 60 * 1000;
+    connectedAccounts.forEach((account) => {
+      if (!account.expiresAt) return;
+      const expiresAt = account.expiresAt?.toMillis?.() ?? 0;
+      if (expiresAt - Date.now() < fiveMinutes) {
+        void refreshAccessToken(account);
+      }
+    });
+  }, [connectedAccounts, refreshAccessToken]);
+
   const connectAccount = useCallback(async () => {
     if (!user?.uid) {
       setError('You must be signed in to connect a calendar.');
@@ -99,6 +144,7 @@ export function GoogleCalendarProvider({ children }) {
         connectedAccounts.filter((a) => a.email !== email).length
       );
       const nextAccount = {
+        expiresAt: Timestamp.fromMillis(Date.now() + 3600 * 1000),
         email,
         accessToken: token,
         refreshToken: refreshToken || existing?.refreshToken || '',
@@ -139,6 +185,7 @@ export function GoogleCalendarProvider({ children }) {
         setError,
         connectAccount,
         disconnectAccount,
+        refreshAccessToken,
       }}
     >
       {children}

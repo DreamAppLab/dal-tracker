@@ -59,6 +59,26 @@ export function AuthProvider({ children }) {
     };
   }, [retryCount]);
 
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          await currentUser.getIdToken(true);
+        } else {
+          retryAuth();
+        }
+      } catch {
+        retryAuth();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [retryAuth]);
+
   const login = useCallback(async (email, password) => {
     const result = await signInWithEmailAndPassword(auth, email, password);
     credentialsRef.current = { email, password };
