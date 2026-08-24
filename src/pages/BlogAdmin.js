@@ -1,5 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { format } from 'date-fns';
+import BlogQuillEditor from '../components/BlogQuillEditor';
+import { slugFromTitle } from '../utils/blogSlug';
+import { uploadBlogImage } from '../utils/uploadBlogImage';
 
 const TABS = [
   { id: 'draft', label: 'Drafts' },
@@ -14,6 +17,9 @@ const STATUS_OPTIONS = [
   { value: 'published', label: 'Published' },
   { value: 'archived', label: 'Archived' },
 ];
+
+const META_TITLE_MAX = 60;
+const META_DESC_MAX = 160;
 
 function toDate(value) {
   if (value == null || value === '') return null;
@@ -65,12 +71,41 @@ function normalizeStatus(status) {
   return 'draft';
 }
 
+function normalizeTags(tags) {
+  if (Array.isArray(tags)) return tags.map((t) => String(t).trim()).filter(Boolean);
+  if (typeof tags === 'string' && tags.trim()) {
+    return tags.split(',').map((t) => t.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function emptyDraft() {
+  return {
+    title: '',
+    body: '',
+    status: 'draft',
+    scheduledAt: '',
+    slug: '',
+    featuredImage: '',
+    category: '',
+    tags: [],
+    metaTitle: '',
+    metaDescription: '',
+  };
+}
+
 function postToDraft(post) {
   return {
     title: post.title || '',
     body: post.body || post.content || '',
     status: normalizeStatus(post.status),
     scheduledAt: toDatetimeLocal(post.scheduledAt),
+    slug: post.slug || slugFromTitle(post.title || ''),
+    featuredImage: post.featuredImage || '',
+    category: post.category || '',
+    tags: normalizeTags(post.tags),
+    metaTitle: post.metaTitle || '',
+    metaDescription: post.metaDescription || '',
   };
 }
 
@@ -87,6 +122,15 @@ function sourceLabel(source) {
   return value;
 }
 
+function CharCount({ value, max }) {
+  const len = String(value || '').length;
+  return (
+    <span className={`blog-char-count ${len > max ? 'over' : ''}`}>
+      {len}/{max}
+    </span>
+  );
+}
+
 export default function BlogAdmin() {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -97,6 +141,10 @@ export default function BlogAdmin() {
   const [draft, setDraft] = useState(null);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState('');
+  const [tagInput, setTagInput] = useState('');
+  const [featuredBusy, setFeaturedBusy] = useState(false);
+  const slugManualRef = useRef(false);
+  const featuredInputRef = useRef(null);
 
   const loadPosts = useCallback(async (opts = {}) => {
     const silent = !!opts.silent;
@@ -161,10 +209,48 @@ export default function BlogAdmin() {
   };
 
   const selectPost = (post) => {
+    slugManualRef.current = !!post.slug;
     setSelectedId(post.id);
     setDraft(postToDraft(post));
     setDirty(false);
     setNotice('');
+    setTagInput('');
+  };
+
+  const handleTitleChange = (title) => {
+    const patch = { title };
+    if (!slugManualRef.current) patch.slug = slugFromTitle(title);
+    updateDraft(patch);
+  };
+
+  const handleSlugChange = (slug) => {
+    slugManualRef.current = true;
+    updateDraft({ slug });
+  };
+
+  const addTag = () => {
+    const tag = tagInput.trim();
+    if (!tag || !draft) return;
+    if (!draft.tags.includes(tag)) updateDraft({ tags: [...draft.tags, tag] });
+    setTagInput('');
+  };
+
+  const removeTag = (tag) => {
+    updateDraft({ tags: draft.tags.filter((t) => t !== tag) });
+  };
+
+  const handleFeaturedUpload = async (file) => {
+    if (!file) return;
+    setFeaturedBusy(true);
+    setError('');
+    try {
+      const url = await uploadBlogImage(file);
+      updateDraft({ featuredImage: url });
+    } catch (err) {
+      setError(err?.message || 'Featured image upload failed.');
+    } finally {
+      setFeaturedBusy(false);
+    }
   };
 
   const payloadFromDraft = (overrides = {}) => {
@@ -176,6 +262,12 @@ export default function BlogAdmin() {
       body: html,
       content: html,
       status,
+      slug: (draft.slug || slugFromTitle(draft.title)).trim(),
+      featuredImage: draft.featuredImage || '',
+      category: (draft.category || '').trim(),
+      tags: Array.isArray(draft.tags) ? draft.tags : [],
+      metaTitle: draft.metaTitle || '',
+      metaDescription: draft.metaDescription || '',
       ...rest,
     };
     if (status === 'scheduled') {
@@ -211,17 +303,26 @@ export default function BlogAdmin() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: '',
+          body: '',
           content: '',
           status: 'draft',
           source: 'manual',
+          slug: '',
+          featuredImage: '',
+          category: '',
+          tags: [],
+          metaTitle: '',
+          metaDescription: '',
         }),
       });
       const created = data.post || {};
       await loadPosts({ silent: true });
       setTab('draft');
+      slugManualRef.current = false;
       setSelectedId(created.id);
-      setDraft({ title: '', body: '', status: 'draft', scheduledAt: '' });
+      setDraft(emptyDraft());
       setDirty(false);
+      setTagInput('');
       setNotice('Draft created.');
     } catch (err) {
       setError(err?.message || 'Could not create draft.');
@@ -370,19 +471,46 @@ export default function BlogAdmin() {
               <div className="empty-state-text">Select a post or create a new one.</div>
             </div>
           ) : (
-            <>
-              <div className="form-group">
-                <label className="form-label">Title</label>
-                <input
-                  className="form-input"
-                  type="text"
-                  value={draft.title}
-                  onChange={(e) => updateDraft({ title: e.target.value })}
-                  placeholder="Post title"
-                />
+            <div className="blog-editor-shell">
+              <div className="blog-editor-main">
+                <div className="form-group">
+                  <label className="form-label">Title</label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    value={draft.title}
+                    onChange={(e) => handleTitleChange(e.target.value)}
+                    placeholder="Post title"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Body</label>
+                  <BlogQuillEditor
+                    key={selectedId}
+                    value={draft.body}
+                    onChange={(body) => updateDraft({ body })}
+                    onError={setError}
+                  />
+                </div>
+
+                <div className="blog-editor-actions">
+                  <button type="button" className="btn btn-primary" onClick={handleSave} disabled={!!busy}>
+                    {busy === 'save' ? 'Saving…' : 'Save'}
+                  </button>
+                  <button type="button" className="btn btn-secondary" onClick={handlePublish} disabled={!!busy}>
+                    {busy === 'publish' ? 'Publishing…' : 'Publish'}
+                  </button>
+                  <button type="button" className="btn btn-secondary" onClick={handleArchive} disabled={!!busy}>
+                    {busy === 'archive' ? 'Archiving…' : 'Archive'}
+                  </button>
+                  <button type="button" className="btn btn-danger" onClick={handleDelete} disabled={!!busy}>
+                    {busy === 'delete' ? 'Deleting…' : 'Delete'}
+                  </button>
+                </div>
               </div>
 
-              <div className="form-row">
+              <aside className="blog-meta-sidebar">
                 <div className="form-group">
                   <label className="form-label">Status</label>
                   <select
@@ -406,54 +534,129 @@ export default function BlogAdmin() {
                     />
                   </div>
                 )}
-              </div>
 
-              <div className="form-group">
-                <label className="form-label">Body / Content</label>
-                <textarea
-                  className="form-textarea blog-content-editor"
-                  value={draft.body}
-                  onChange={(e) => updateDraft({ body: e.target.value })}
-                  placeholder="<p>Write HTML here…</p>"
-                  spellCheck={false}
-                />
-              </div>
+                <div className="form-group">
+                  <label className="form-label">Featured Image</label>
+                  {draft.featuredImage ? (
+                    <img className="blog-featured-thumb" src={draft.featuredImage} alt="Featured" />
+                  ) : (
+                    <div className="blog-featured-empty">No featured image</div>
+                  )}
+                  <input
+                    ref={featuredInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    hidden
+                    onChange={(e) => {
+                      const file = e.target.files && e.target.files[0];
+                      e.target.value = '';
+                      handleFeaturedUpload(file);
+                    }}
+                  />
+                  <div className="blog-featured-actions">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      disabled={featuredBusy}
+                      onClick={() => featuredInputRef.current && featuredInputRef.current.click()}
+                    >
+                      {featuredBusy ? 'Uploading…' : 'Upload'}
+                    </button>
+                    {draft.featuredImage && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => updateDraft({ featuredImage: '' })}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
 
-              <div className="blog-editor-actions">
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={handleSave}
-                  disabled={!!busy}
-                >
-                  {busy === 'save' ? 'Saving…' : 'Save'}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={handlePublish}
-                  disabled={!!busy}
-                >
-                  {busy === 'publish' ? 'Publishing…' : 'Publish'}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={handleArchive}
-                  disabled={!!busy}
-                >
-                  {busy === 'archive' ? 'Archiving…' : 'Archive'}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-danger"
-                  onClick={handleDelete}
-                  disabled={!!busy}
-                >
-                  {busy === 'delete' ? 'Deleting…' : 'Delete'}
-                </button>
-              </div>
-            </>
+                <div className="form-group">
+                  <label className="form-label">Slug</label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    value={draft.slug}
+                    onChange={(e) => handleSlugChange(e.target.value)}
+                    placeholder="post-url-slug"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Category</label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    value={draft.category}
+                    onChange={(e) => updateDraft({ category: e.target.value })}
+                    placeholder="Category"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Tags</label>
+                  <div className="blog-tag-pills">
+                    {draft.tags.map((tag) => (
+                      <span key={tag} className="blog-tag-pill">
+                        {tag}
+                        <button
+                          type="button"
+                          className="blog-tag-remove"
+                          aria-label={`Remove ${tag}`}
+                          onClick={() => removeTag(tag)}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <input
+                    className="form-input"
+                    type="text"
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addTag();
+                      }
+                    }}
+                    placeholder="Type a tag and press Enter"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label blog-label-with-count">
+                    Meta title
+                    <CharCount value={draft.metaTitle} max={META_TITLE_MAX} />
+                  </label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    value={draft.metaTitle}
+                    onChange={(e) => updateDraft({ metaTitle: e.target.value })}
+                    placeholder="SEO title"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label blog-label-with-count">
+                    Meta description
+                    <CharCount value={draft.metaDescription} max={META_DESC_MAX} />
+                  </label>
+                  <textarea
+                    className="form-textarea"
+                    rows={4}
+                    value={draft.metaDescription}
+                    onChange={(e) => updateDraft({ metaDescription: e.target.value })}
+                    placeholder="SEO description"
+                  />
+                </div>
+              </aside>
+            </div>
           )}
         </section>
       </div>

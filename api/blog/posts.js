@@ -23,8 +23,11 @@ function getSiteDb() {
   try {
     app = getApp(appName);
   } catch (_) {
+    const storageBucket =
+      process.env.DAL_SITE_FIREBASE_STORAGE_BUCKET ||
+      (projectId ? projectId + '.firebasestorage.app' : '');
     app = initializeApp(
-      { credential: cert({ projectId, clientEmail, privateKey }) },
+      { credential: cert({ projectId, clientEmail, privateKey }), projectId, storageBucket },
       appName
     );
   }
@@ -93,11 +96,24 @@ module.exports = async (req, res) => {
     if (req.method === 'POST') {
       const body = parseBody(req);
       const now = FieldValue.serverTimestamp();
+      const html =
+        typeof body.body === 'string'
+          ? body.body
+          : typeof body.content === 'string'
+            ? body.content
+            : '';
       const data = {
         title: typeof body.title === 'string' ? body.title : '',
-        content: typeof body.content === 'string' ? body.content : '',
+        body: html,
+        content: html,
         status: body.status || 'draft',
         source: body.source || 'manual',
+        slug: typeof body.slug === 'string' ? body.slug : '',
+        featuredImage: typeof body.featuredImage === 'string' ? body.featuredImage : '',
+        category: typeof body.category === 'string' ? body.category : '',
+        tags: Array.isArray(body.tags) ? body.tags.map((t) => String(t).trim()).filter(Boolean) : [],
+        metaTitle: typeof body.metaTitle === 'string' ? body.metaTitle : '',
+        metaDescription: typeof body.metaDescription === 'string' ? body.metaDescription : '',
         createdAt: now,
         updatedAt: now,
       };

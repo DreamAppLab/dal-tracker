@@ -23,8 +23,11 @@ function getSiteDb() {
   try {
     app = getApp(appName);
   } catch (_) {
+    const storageBucket =
+      process.env.DAL_SITE_FIREBASE_STORAGE_BUCKET ||
+      (projectId ? projectId + '.firebasestorage.app' : '');
     app = initializeApp(
-      { credential: cert({ projectId, clientEmail, privateKey }) },
+      { credential: cert({ projectId, clientEmail, privateKey }), projectId, storageBucket },
       appName
     );
   }
@@ -76,10 +79,34 @@ function toTimestamp(value) {
 
 function prepareUpdate(body) {
   const update = {};
-  const allowed = ['title', 'content', 'status', 'source'];
+  const allowed = [
+    'title',
+    'content',
+    'body',
+    'status',
+    'source',
+    'slug',
+    'featuredImage',
+    'category',
+    'tags',
+    'metaTitle',
+    'metaDescription',
+  ];
   allowed.forEach((key) => {
     if (Object.prototype.hasOwnProperty.call(body, key)) update[key] = body[key];
   });
+  if (Object.prototype.hasOwnProperty.call(update, 'body') && !Object.prototype.hasOwnProperty.call(update, 'content')) {
+    update.content = update.body;
+  }
+  if (Object.prototype.hasOwnProperty.call(update, 'content') && !Object.prototype.hasOwnProperty.call(update, 'body')) {
+    update.body = update.content;
+  }
+  if (Object.prototype.hasOwnProperty.call(update, 'tags') && !Array.isArray(update.tags)) {
+    update.tags = String(update.tags || '')
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+  }
   if (Object.prototype.hasOwnProperty.call(body, 'scheduledAt')) {
     if (body.scheduledAt == null || body.scheduledAt === '') {
       update.scheduledAt = FieldValue.delete();
