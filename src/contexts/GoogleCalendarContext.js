@@ -51,7 +51,18 @@ export function GoogleCalendarProvider({ children }) {
   const { user } = useAuth();
   const [connectedAccounts, setConnectedAccounts] = useState([]);
   const [connecting, setConnecting] = useState(false);
+  const [connectTimedOut, setConnectTimedOut] = useState(false);
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!connecting) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      setConnecting(false);
+      setConnectTimedOut(true);
+      setError((prev) => prev || 'Connection timed out. Try again.');
+    }, 15000);
+    return () => window.clearTimeout(timeoutId);
+  }, [connecting]);
 
   useEffect(() => {
     if (!user?.uid) {
@@ -122,6 +133,7 @@ export function GoogleCalendarProvider({ children }) {
       return;
     }
     setConnecting(true);
+    setConnectTimedOut(false);
     setError(null);
     try {
       const provider = createGoogleCalendarProvider();
@@ -181,6 +193,7 @@ export function GoogleCalendarProvider({ children }) {
       value={{
         connectedAccounts,
         connecting,
+        connectTimedOut,
         error,
         setError,
         connectAccount,

@@ -290,6 +290,7 @@ export default function CalendarDashboard() {
   const {
     connectedAccounts,
     connecting,
+    connectTimedOut,
     error: googleError,
     setError: setGoogleError,
     connectAccount,
@@ -428,7 +429,7 @@ export default function CalendarDashboard() {
         <div className="connected-accounts-header">
           <h3 className="connected-accounts-title">Connected Accounts</h3>
           <button className="btn btn-primary btn-sm" onClick={connectAccount} disabled={connecting}>
-            {connecting ? 'Connecting...' : '+ Connect Account'}
+            {connecting ? 'Connecting...' : connectTimedOut ? 'Try again' : '+ Connect Account'}
           </button>
         </div>
         {connectedAccounts.length === 0 ? (
