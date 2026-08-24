@@ -10,6 +10,7 @@ import CalendarDashboard from './components/CalendarDashboard';
 import TodoDashboard from './components/TodoDashboard';
 import ReviewRequestsDashboard from './components/ReviewRequestsDashboard';
 import DALHeadquarters from './components/DALHeadquarters';
+import BlackBox from './components/BlackBox';
 import BlogAdmin from './pages/BlogAdmin';
 import ToolsHub from './pages/ToolsHub';
 import ExpensesTab from './tabs/ExpensesTab';
@@ -339,6 +340,7 @@ function DashboardApp() {
           <ReviewRequestsDashboard projects={projects} />
         )}
         {activeView === 'hq' && <DALHeadquarters />}
+        {activeView === 'blackbox' && <BlackBox project={currentProject} />}
         {activeView === 'blog' && <BlogAdmin />}
         {activeView === 'tools' && <ToolsHub />}
         {activeView === 'project' && currentProject && (
