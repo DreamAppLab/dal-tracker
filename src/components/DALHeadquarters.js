@@ -205,7 +205,12 @@ function groupHqServicesByCategory(services) {
     }
     map[cat].push(svc);
   });
-  return order.map((category) => ({ category, services: map[category] }));
+  return order.map((category) => ({
+    category,
+    services: map[category].slice().sort((a, b) =>
+      String(a.label || '').localeCompare(String(b.label || ''), undefined, { sensitivity: 'base' })
+    ),
+  }));
 }
 
 function HqSaveIndicator({ status }) {
@@ -595,7 +600,7 @@ function DALHQServices() {
                           style={{
                             fontSize: 11,
                             fontWeight: 600,
-                            color: 'var(--text-muted)',
+                            color: '#4cc1f3',
                             letterSpacing: '0.03em',
                           }}
                         >
@@ -622,7 +627,7 @@ function DALHQServices() {
                           style={{
                             fontSize: 11,
                             fontWeight: 600,
-                            color: 'var(--text-muted)',
+                            color: '#4cc1f3',
                             flex: 1,
                           }}
                         >
@@ -669,7 +674,7 @@ function DALHQServices() {
                   >
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                       <div>
-                        <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+                        <label style={{ fontSize: 11, color: '#4cc1f3', display: 'block', marginBottom: 4 }}>
                           Field Name
                         </label>
                         <input
@@ -680,7 +685,7 @@ function DALHQServices() {
                         />
                       </div>
                       <div>
-                        <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+                        <label style={{ fontSize: 11, color: '#4cc1f3', display: 'block', marginBottom: 4 }}>
                           Description
                         </label>
                         <input
@@ -723,7 +728,7 @@ function DALHQServices() {
                       style={{
                         fontSize: 11,
                         fontWeight: 600,
-                        color: 'var(--text-muted)',
+                        color: '#4cc1f3',
                       }}
                     >
                       Notes
