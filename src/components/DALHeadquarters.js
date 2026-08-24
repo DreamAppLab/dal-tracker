@@ -591,6 +591,66 @@ function DALHQServices() {
 
             {isExpanded && (
               <div style={{ padding: '0 14px 14px', borderTop: '1px solid var(--border)' }}>
+                {addingFieldFor === svc.key && (
+                  <div
+                    style={{
+                      marginTop: 14,
+                      padding: 12,
+                      background: 'var(--bg-elevated)',
+                      borderRadius: 8,
+                      border: '1px dashed var(--border)',
+                    }}
+                  >
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      <div>
+                        <label style={{ fontSize: 11, color: '#4cc1f3', display: 'block', marginBottom: 4 }}>
+                          Field Name
+                        </label>
+                        <input
+                          className="form-input"
+                          value={newFieldDraft.fieldName}
+                          onChange={(e) => setNewFieldDraft({ ...newFieldDraft, fieldName: e.target.value })}
+                          placeholder="e.g. Staging URL"
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, color: '#4cc1f3', display: 'block', marginBottom: 4 }}>
+                          Description
+                        </label>
+                        <input
+                          className="form-input"
+                          value={newFieldDraft.fieldDescription}
+                          onChange={(e) =>
+                            setNewFieldDraft({ ...newFieldDraft, fieldDescription: e.target.value })
+                          }
+                          placeholder="Hint text for this field"
+                        />
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        style={{ background: '#4F8EF7', borderColor: '#4F8EF7', color: '#fff' }}
+                        disabled={!newFieldDraft.fieldName.trim()}
+                        onClick={() => confirmAddField(svc.key)}
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => {
+                          setAddingFieldFor(null);
+                          setNewFieldDraft({ fieldName: '', fieldDescription: '' });
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {Object.keys(fields).map((fieldName) => {
                   const fieldId = `${svc.key}:field:${fieldName}`;
                   return (
@@ -661,66 +721,6 @@ function DALHQServices() {
                     </div>
                   );
                 })}
-
-                {addingFieldFor === svc.key && (
-                  <div
-                    style={{
-                      marginTop: 14,
-                      padding: 12,
-                      background: 'var(--bg-elevated)',
-                      borderRadius: 8,
-                      border: '1px dashed var(--border)',
-                    }}
-                  >
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                      <div>
-                        <label style={{ fontSize: 11, color: '#4cc1f3', display: 'block', marginBottom: 4 }}>
-                          Field Name
-                        </label>
-                        <input
-                          className="form-input"
-                          value={newFieldDraft.fieldName}
-                          onChange={(e) => setNewFieldDraft({ ...newFieldDraft, fieldName: e.target.value })}
-                          placeholder="e.g. Staging URL"
-                        />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: 11, color: '#4cc1f3', display: 'block', marginBottom: 4 }}>
-                          Description
-                        </label>
-                        <input
-                          className="form-input"
-                          value={newFieldDraft.fieldDescription}
-                          onChange={(e) =>
-                            setNewFieldDraft({ ...newFieldDraft, fieldDescription: e.target.value })
-                          }
-                          placeholder="Hint text for this field"
-                        />
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        style={{ background: '#4F8EF7', borderColor: '#4F8EF7', color: '#fff' }}
-                        disabled={!newFieldDraft.fieldName.trim()}
-                        onClick={() => confirmAddField(svc.key)}
-                      >
-                        Confirm
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => {
-                          setAddingFieldFor(null);
-                          setNewFieldDraft({ fieldName: '', fieldDescription: '' });
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
 
                 <div style={{ marginTop: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   doc,
   getDoc,
@@ -120,53 +120,6 @@ function ServiceCard({
 
       {expanded && (
         <div style={{ padding: '0 14px 14px', borderTop: '1px solid var(--border)' }}>
-          {(service.fields || []).map((f) => (
-            <div key={f.fieldName} style={{ marginTop: 12 }}>
-              <label
-                style={{
-                  display: 'block',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: '#4cc1f3',
-                  marginBottom: 4,
-                  letterSpacing: '0.03em',
-                }}
-              >
-                {f.fieldName}
-              </label>
-              <input
-                className="form-input"
-                value={fields[f.fieldName] ?? ''}
-                placeholder={f.fieldDescription}
-                onChange={(e) => onFieldChange(f.fieldName, e.target.value)}
-                onBlur={onSave}
-              />
-            </div>
-          ))}
-
-          {customFields.map((cf, idx) => (
-            <div key={`custom-${cf.fieldName}-${idx}`} style={{ marginTop: 12 }}>
-              <label
-                style={{
-                  display: 'block',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: '#4cc1f3',
-                  marginBottom: 4,
-                }}
-              >
-                {cf.fieldName}
-              </label>
-              <input
-                className="form-input"
-                value={cf.value ?? ''}
-                placeholder={cf.fieldDescription || ''}
-                onChange={(e) => onFieldChange(`__custom__:${idx}`, e.target.value, true)}
-                onBlur={onSave}
-              />
-            </div>
-          ))}
-
           {addingField && (
             <div
               style={{
@@ -219,6 +172,53 @@ function ServiceCard({
               </div>
             </div>
           )}
+
+          {(service.fields || []).map((f) => (
+            <div key={f.fieldName} style={{ marginTop: 12 }}>
+              <label
+                style={{
+                  display: 'block',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: '#4cc1f3',
+                  marginBottom: 4,
+                  letterSpacing: '0.03em',
+                }}
+              >
+                {f.fieldName}
+              </label>
+              <input
+                className="form-input"
+                value={fields[f.fieldName] ?? ''}
+                placeholder={f.fieldDescription}
+                onChange={(e) => onFieldChange(f.fieldName, e.target.value)}
+                onBlur={onSave}
+              />
+            </div>
+          ))}
+
+          {customFields.map((cf, idx) => (
+            <div key={`custom-${cf.fieldName}-${idx}`} style={{ marginTop: 12 }}>
+              <label
+                style={{
+                  display: 'block',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: '#4cc1f3',
+                  marginBottom: 4,
+                }}
+              >
+                {cf.fieldName}
+              </label>
+              <input
+                className="form-input"
+                value={cf.value ?? ''}
+                placeholder={cf.fieldDescription || ''}
+                onChange={(e) => onFieldChange(`__custom__:${idx}`, e.target.value, true)}
+                onBlur={onSave}
+              />
+            </div>
+          ))}
 
           <div style={{ marginTop: 14 }}>
             <label
@@ -276,6 +276,8 @@ export default function BlackBox({ project }) {
   const [serviceData, setServiceData] = useState({});
   const [expanded, setExpanded] = useState({});
   const [notesDirty, setNotesDirty] = useState({});
+  const serviceDataRef = useRef({});
+  const notesDirtyRef = useRef({});
   const [savingKey, setSavingKey] = useState(null);
   const [savedKey, setSavedKey] = useState(null);
   const [addingFieldFor, setAddingFieldFor] = useState(null);
@@ -343,7 +345,9 @@ export default function BlackBox({ project }) {
         })
       );
       setServiceData(dataMap);
+      serviceDataRef.current = dataMap;
       setNotesDirty({});
+      notesDirtyRef.current = {};
     } catch (err) {
       console.error('Black Box load failed:', err);
     } finally {
@@ -372,19 +376,27 @@ export default function BlackBox({ project }) {
         const snap = await getDoc(doc(db, 'projects', projectId, 'blackbox', key));
         if (snap.exists()) {
           const d = snap.data();
-          setServiceData((prev) => ({
-            ...prev,
-            [key]: {
-              fields: d.fields || {},
-              customFields: d.customFields || [],
-              notes: d.notes ?? '',
-            },
-          }));
+          setServiceData((prev) => {
+            const next = {
+              ...prev,
+              [key]: {
+                fields: d.fields || {},
+                customFields: d.customFields || [],
+                notes: d.notes ?? '',
+              },
+            };
+            serviceDataRef.current = next;
+            return next;
+          });
         } else {
-          setServiceData((prev) => ({
-            ...prev,
-            [key]: prev[key] || { fields: {}, customFields: [], notes: '' },
-          }));
+          setServiceData((prev) => {
+            const next = {
+              ...prev,
+              [key]: prev[key] || { fields: {}, customFields: [], notes: '' },
+            };
+            serviceDataRef.current = next;
+            return next;
+          });
         }
         setExpanded((prev) => ({ ...prev, [key]: true }));
       }
@@ -398,28 +410,35 @@ export default function BlackBox({ project }) {
   const updateField = (serviceKey, fieldName, value, isCustomIndex = false) => {
     setServiceData((prev) => {
       const current = prev[serviceKey] || { fields: {}, customFields: [], notes: '' };
+      let next;
       if (isCustomIndex || String(fieldName).startsWith('__custom__:')) {
         const idx = parseInt(String(fieldName).replace('__custom__:', ''), 10);
         const customFields = (current.customFields || []).map((cf, i) =>
           i === idx ? { ...cf, value } : cf
         );
-        return { ...prev, [serviceKey]: { ...current, customFields } };
+        next = { ...prev, [serviceKey]: { ...current, customFields } };
+      } else {
+        next = {
+          ...prev,
+          [serviceKey]: {
+            ...current,
+            fields: { ...current.fields, [fieldName]: value },
+          },
+        };
       }
-      return {
-        ...prev,
-        [serviceKey]: {
-          ...current,
-          fields: { ...current.fields, [fieldName]: value },
-        },
-      };
+      serviceDataRef.current = next;
+      return next;
     });
   };
 
   const updateNotes = (serviceKey, value) => {
+    notesDirtyRef.current = { ...notesDirtyRef.current, [serviceKey]: true };
     setNotesDirty((prev) => ({ ...prev, [serviceKey]: true }));
     setServiceData((prev) => {
       const current = prev[serviceKey] || { fields: {}, customFields: [], notes: '' };
-      return { ...prev, [serviceKey]: { ...current, notes: value } };
+      const next = { ...prev, [serviceKey]: { ...current, notes: value } };
+      serviceDataRef.current = next;
+      return next;
     });
   };
 
@@ -427,7 +446,7 @@ export default function BlackBox({ project }) {
     if (!projectId) return;
     setSavingKey(serviceKey);
     try {
-      const data = serviceData[serviceKey] || { fields: {}, customFields: [], notes: '' };
+      const data = serviceDataRef.current[serviceKey] || { fields: {}, customFields: [], notes: '' };
       const ref = doc(db, 'projects', projectId, 'blackbox', serviceKey);
 
       // Read-merge fields so we never drop keys present in Firestore but absent locally
@@ -444,14 +463,15 @@ export default function BlackBox({ project }) {
       }
 
       // CRITICAL: only write notes if user typed in this session
-      if (notesDirty[serviceKey]) {
+      if (notesDirtyRef.current[serviceKey]) {
         payload.notes = data.notes ?? '';
       }
 
       await setDoc(ref, payload, { merge: true });
       setSavedKey(serviceKey);
       setTimeout(() => setSavedKey((k) => (k === serviceKey ? null : k)), 2000);
-      if (notesDirty[serviceKey]) {
+      if (notesDirtyRef.current[serviceKey]) {
+        notesDirtyRef.current = { ...notesDirtyRef.current, [serviceKey]: false };
         setNotesDirty((prev) => ({ ...prev, [serviceKey]: false }));
       }
     } catch (err) {
@@ -477,13 +497,15 @@ export default function BlackBox({ project }) {
       );
       setServiceData((prev) => {
         const current = prev[serviceKey] || { fields: {}, customFields: [], notes: '' };
-        return {
+        const next = {
           ...prev,
           [serviceKey]: {
             ...current,
             customFields: [...(current.customFields || []), entry],
           },
         };
+        serviceDataRef.current = next;
+        return next;
       });
       setAddingFieldFor(null);
       setNewFieldDraft({ fieldName: '', fieldDescription: '' });
@@ -529,10 +551,14 @@ export default function BlackBox({ project }) {
 
       setAllServices(nextCatalog);
       setEnabledServices(nextEnabled);
-      setServiceData((prev) => ({
-        ...prev,
-        [key]: { fields: {}, customFields: [], notes: '' },
-      }));
+      setServiceData((prev) => {
+        const next = {
+          ...prev,
+          [key]: { fields: {}, customFields: [], notes: '' },
+        };
+        serviceDataRef.current = next;
+        return next;
+      });
       setExpanded((prev) => ({ ...prev, [key]: true }));
       setShowCustomModal(false);
       setCustomServiceName('');
