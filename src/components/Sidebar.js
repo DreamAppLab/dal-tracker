@@ -190,6 +190,13 @@ export default function Sidebar({
               {sidebarOpen && <span className="sidebar-item-text">DAL HQ</span>}
             </button>
             <button
+              className={`sidebar-item ${activeView === 'blackbox' ? 'active' : ''}`}
+              onClick={() => onNavigate('blackbox')}
+            >
+              <span className="sidebar-item-icon">🔒</span>
+              {sidebarOpen && <span className="sidebar-item-text">Black Box</span>}
+            </button>
+            <button
               className={`sidebar-item ${activeView === 'calendar' ? 'active' : ''}`}
               onClick={() => onNavigate('calendar')}
             >
