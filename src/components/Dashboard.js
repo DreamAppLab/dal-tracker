@@ -130,7 +130,7 @@ function formatDashboardMoney(amount) {
   });
 }
 
-export default function Dashboard({ projects, pipelineItems, onSelectProject, onAddProject, onShowRevenue, projectsUnread = {} }) {
+const Dashboard = React.memo(function Dashboard({ projects, pipelineItems, onSelectProject, onAddProject, onShowRevenue, projectsUnread = {} }) {
   const [dashboardSummary, setDashboardSummary] = useState(null);
   const [showAddPipelineModal, setShowAddPipelineModal] = useState(false);
   const [hoveredPipelineId, setHoveredPipelineId] = useState(null);
@@ -387,4 +387,6 @@ export default function Dashboard({ projects, pipelineItems, onSelectProject, on
       )}
     </div>
   );
-}
+});
+
+export default Dashboard;

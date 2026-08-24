@@ -473,7 +473,7 @@ function SortableRevenueCard({
   );
 }
 
-export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
+const RevenueDashboard = React.memo(function RevenueDashboard({ projects = [], onLogoUpdated }) {
   const revenueEntries = useMemo(() => getRevenueEntries(projects), [projects]);
   const revenueAppIds = useMemo(() => revenueEntries.map(e => e.appId), [revenueEntries]);
 
@@ -1019,4 +1019,6 @@ export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
       )}
     </div>
   );
-}
+});
+
+export default RevenueDashboard;
