@@ -18,18 +18,6 @@ const BLACK_BOX_SERVICES = [
     ]
   },
   {
-    key: 'google_play',
-    label: 'Google Play Console',
-    category: 'App Store / Distribution',
-    fields: [
-      { fieldName: 'Package Name', fieldDescription: 'e.g. com.dreamapplab.appname' },
-      { fieldName: 'Play Store Listing URL', fieldDescription: 'Full URL to Play Store listing' },
-      { fieldName: 'Service Account JSON Location', fieldDescription: 'Local path to service account JSON' },
-      { fieldName: 'Upload Key Alias', fieldDescription: 'Keystore alias used for upload key' },
-      { fieldName: 'Keystore Location', fieldDescription: 'Local path to .jks or .keystore file' },
-    ]
-  },
-  {
     key: 'expo_eas',
     label: 'Expo / EAS',
     category: 'App Store / Distribution',
@@ -41,8 +29,30 @@ const BLACK_BOX_SERVICES = [
       { fieldName: 'Branch', fieldDescription: 'main or master' },
     ]
   },
+  {
+    key: 'google_play',
+    label: 'Google Play Console',
+    category: 'App Store / Distribution',
+    fields: [
+      { fieldName: 'Package Name', fieldDescription: 'e.g. com.dreamapplab.appname' },
+      { fieldName: 'Play Store Listing URL', fieldDescription: 'Full URL to Play Store listing' },
+      { fieldName: 'Service Account JSON Location', fieldDescription: 'Local path to service account JSON' },
+      { fieldName: 'Upload Key Alias', fieldDescription: 'Keystore alias used for upload key' },
+      { fieldName: 'Keystore Location', fieldDescription: 'Local path to .jks or .keystore file' },
+    ]
+  },
 
   // ── AUTHENTICATION & IDENTITY ─────────────────────────────
+  {
+    key: 'apple_signin',
+    label: 'Apple Sign-In',
+    category: 'Authentication & Identity',
+    fields: [
+      { fieldName: 'Service ID', fieldDescription: 'Apple Services ID for Sign In with Apple' },
+      { fieldName: 'Return URL', fieldDescription: 'Redirect URL registered with Apple' },
+      { fieldName: 'Key ID', fieldDescription: 'Key ID from Apple Developer account' },
+    ]
+  },
   {
     key: 'firebase',
     label: 'Firebase / Firestore',
@@ -71,18 +81,19 @@ const BLACK_BOX_SERVICES = [
       { fieldName: 'Authorized Domains', fieldDescription: 'Comma-separated list of authorized domains' },
     ]
   },
-  {
-    key: 'apple_signin',
-    label: 'Apple Sign-In',
-    category: 'Authentication & Identity',
-    fields: [
-      { fieldName: 'Service ID', fieldDescription: 'Apple Services ID for Sign In with Apple' },
-      { fieldName: 'Return URL', fieldDescription: 'Redirect URL registered with Apple' },
-      { fieldName: 'Key ID', fieldDescription: 'Key ID from Apple Developer account' },
-    ]
-  },
 
   // ── SUBSCRIPTIONS & PAYMENTS ──────────────────────────────
+  {
+    key: 'apple_iap',
+    label: 'Apple IAP',
+    category: 'Subscriptions & Payments',
+    fields: [
+      { fieldName: 'Shared Secret', fieldDescription: 'App-specific shared secret from App Store Connect' },
+      { fieldName: 'IAP Key ID', fieldDescription: 'Key ID for p8 In-App Purchase key' },
+      { fieldName: 'IAP Issuer ID', fieldDescription: 'Issuer ID for IAP key' },
+      { fieldName: 'IAP Key File Location', fieldDescription: 'Local path to SubscriptionKey_XXXXX.p8 file' },
+    ]
+  },
   {
     key: 'revenuecat',
     label: 'RevenueCat',
@@ -109,19 +120,19 @@ const BLACK_BOX_SERVICES = [
       { fieldName: 'Stripe Connect', fieldDescription: 'yes or no — marketplace payments' },
     ]
   },
-  {
-    key: 'apple_iap',
-    label: 'Apple IAP',
-    category: 'Subscriptions & Payments',
-    fields: [
-      { fieldName: 'Shared Secret', fieldDescription: 'App-specific shared secret from App Store Connect' },
-      { fieldName: 'IAP Key ID', fieldDescription: 'Key ID for p8 In-App Purchase key' },
-      { fieldName: 'IAP Issuer ID', fieldDescription: 'Issuer ID for IAP key' },
-      { fieldName: 'IAP Key File Location', fieldDescription: 'Local path to SubscriptionKey_XXXXX.p8 file' },
-    ]
-  },
 
   // ── EMAIL & MESSAGING ─────────────────────────────────────
+  {
+    key: 'brevo',
+    label: 'Brevo',
+    category: 'Email & Messaging',
+    fields: [
+      { fieldName: 'API Key Env Var', fieldDescription: 'Name of env var — migrating to Mailgun' },
+      { fieldName: 'Sender Email', fieldDescription: 'From address used in sends' },
+      { fieldName: 'Sender Name', fieldDescription: 'From name used in sends' },
+      { fieldName: 'Migration Status', fieldDescription: 'in progress — moving to Mailgun' },
+    ]
+  },
   {
     key: 'mailgun',
     label: 'Mailgun',
@@ -134,17 +145,6 @@ const BLACK_BOX_SERVICES = [
       { fieldName: 'Webhook Signing Key Env Var', fieldDescription: 'Env var name for webhook signing key' },
       { fieldName: 'MX Records Verified', fieldDescription: 'yes or no' },
       { fieldName: 'DKIM Verified', fieldDescription: 'yes or no' },
-    ]
-  },
-  {
-    key: 'brevo',
-    label: 'Brevo',
-    category: 'Email & Messaging',
-    fields: [
-      { fieldName: 'API Key Env Var', fieldDescription: 'Name of env var — migrating to Mailgun' },
-      { fieldName: 'Sender Email', fieldDescription: 'From address used in sends' },
-      { fieldName: 'Sender Name', fieldDescription: 'From name used in sends' },
-      { fieldName: 'Migration Status', fieldDescription: 'in progress — moving to Mailgun' },
     ]
   },
   {
@@ -163,6 +163,17 @@ const BLACK_BOX_SERVICES = [
 
   // ── HOSTING & DEPLOYMENT ──────────────────────────────────
   {
+    key: 'github',
+    label: 'GitHub',
+    category: 'Hosting & Deployment',
+    fields: [
+      { fieldName: 'Repo Name', fieldDescription: 'Repository name under DreamAppLab org' },
+      { fieldName: 'Org', fieldDescription: 'DreamAppLab' },
+      { fieldName: 'Default Branch', fieldDescription: 'main or master' },
+      { fieldName: 'Repo URL', fieldDescription: 'Full GitHub repo URL' },
+    ]
+  },
+  {
     key: 'vercel',
     label: 'Vercel',
     category: 'Hosting & Deployment',
@@ -175,28 +186,8 @@ const BLACK_BOX_SERVICES = [
       { fieldName: 'Team', fieldDescription: 'dream-app-lab' },
     ]
   },
-  {
-    key: 'github',
-    label: 'GitHub',
-    category: 'Hosting & Deployment',
-    fields: [
-      { fieldName: 'Repo Name', fieldDescription: 'Repository name under DreamAppLab org' },
-      { fieldName: 'Org', fieldDescription: 'DreamAppLab' },
-      { fieldName: 'Default Branch', fieldDescription: 'main or master' },
-      { fieldName: 'Repo URL', fieldDescription: 'Full GitHub repo URL' },
-    ]
-  },
 
   // ── ANALYTICS & MONITORING ────────────────────────────────
-  {
-    key: 'vercel_analytics',
-    label: 'Vercel Analytics',
-    category: 'Analytics & Monitoring',
-    fields: [
-      { fieldName: 'Status', fieldDescription: 'enabled or disabled' },
-      { fieldName: 'Dashboard URL', fieldDescription: 'URL to analytics in Vercel dashboard' },
-    ]
-  },
   {
     key: 'plausible',
     label: 'Plausible',
@@ -214,6 +205,15 @@ const BLACK_BOX_SERVICES = [
       { fieldName: 'DSN', fieldDescription: 'Sentry DSN URL for this app' },
       { fieldName: 'Project Name', fieldDescription: 'Project name in Sentry dashboard' },
       { fieldName: 'Org Slug', fieldDescription: 'Organization slug in Sentry' },
+    ]
+  },
+  {
+    key: 'vercel_analytics',
+    label: 'Vercel Analytics',
+    category: 'Analytics & Monitoring',
+    fields: [
+      { fieldName: 'Status', fieldDescription: 'enabled or disabled' },
+      { fieldName: 'Dashboard URL', fieldDescription: 'URL to analytics in Vercel dashboard' },
     ]
   },
 

@@ -127,7 +127,7 @@ function ServiceCard({
                   display: 'block',
                   fontSize: 11,
                   fontWeight: 600,
-                  color: 'var(--text-muted)',
+                  color: '#4cc1f3',
                   marginBottom: 4,
                   letterSpacing: '0.03em',
                 }}
@@ -151,7 +151,7 @@ function ServiceCard({
                   display: 'block',
                   fontSize: 11,
                   fontWeight: 600,
-                  color: 'var(--text-muted)',
+                  color: '#4cc1f3',
                   marginBottom: 4,
                 }}
               >
@@ -179,7 +179,7 @@ function ServiceCard({
             >
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
-                  <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+                  <label style={{ fontSize: 11, color: '#4cc1f3', display: 'block', marginBottom: 4 }}>
                     Field Name
                   </label>
                   <input
@@ -190,7 +190,7 @@ function ServiceCard({
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+                  <label style={{ fontSize: 11, color: '#4cc1f3', display: 'block', marginBottom: 4 }}>
                     Description / placeholder
                   </label>
                   <input
@@ -226,7 +226,7 @@ function ServiceCard({
                 display: 'block',
                 fontSize: 11,
                 fontWeight: 600,
-                color: 'var(--text-muted)',
+                color: '#4cc1f3',
                 marginBottom: 4,
               }}
             >
@@ -829,7 +829,7 @@ export default function BlackBox({ project }) {
                 style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}
               >
                 <div>
-                  <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+                  <label style={{ fontSize: 11, color: '#4cc1f3', display: 'block', marginBottom: 4 }}>
                     Field Name
                   </label>
                   <input
@@ -843,7 +843,7 @@ export default function BlackBox({ project }) {
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+                  <label style={{ fontSize: 11, color: '#4cc1f3', display: 'block', marginBottom: 4 }}>
                     Description
                   </label>
                   <input
