@@ -14,6 +14,10 @@ import {
   getPipelineProgressSeedStatus,
   runSeedPipelineProgress,
 } from '../scripts/seedPipelineProgress';
+import {
+  getMissingBlackBoxAppsStatus,
+  runSeedMissingBlackBoxApps,
+} from '../scripts/seedMissingBlackBoxApps';
 
 const COLLECTION = 'blackbox';
 const DOCUMENT = 'dal_wide';
@@ -1028,6 +1032,7 @@ export default function DALHeadquarters() {
       </div>
 
       <SeedProjectTypesPanel />
+      <SeedMissingBlackBoxAppsPanel />
       <SeedPipelineProgressPanel />
       <DalOpsChecklist />
     </div>
@@ -1073,6 +1078,58 @@ function SeedProjectTypesPanel() {
       {!seeded && (
         <button type="button" className="btn btn-secondary" disabled={running} onClick={handleRun}>
           {running ? 'Seeding…' : 'Seed project types'}
+        </button>
+      )}
+      {error ? <div className="quotes-error" style={{ marginTop: 12 }}>{error}</div> : null}
+      {logs.length > 0 && (
+        <pre style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'pre-wrap' }}>
+          {logs.join('\n')}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function SeedMissingBlackBoxAppsPanel() {
+  const [seeded, setSeeded] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [logs, setLogs] = useState([]);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    getMissingBlackBoxAppsStatus()
+      .then((status) => setSeeded(!!status?.seeded))
+      .catch(() => setSeeded(false));
+  }, []);
+
+  if (seeded && logs.length === 0) return null;
+
+  const handleRun = async () => {
+    setRunning(true);
+    setError('');
+    try {
+      const result = await runSeedMissingBlackBoxApps();
+      setLogs(result.logs || []);
+      setSeeded(true);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || 'Seed failed');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="data-section">
+      <div className="section-label" style={{ marginBottom: 8 }}>One-time: seed missing Black Box apps</div>
+      <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+        Writes Black Box credentials for FamilyThread, TravelWhirl, and The Shady Duck
+        when those <code>projects/*/blackbox</code> docs are missing.
+        This button disappears after a successful run.
+      </p>
+      {!seeded && (
+        <button type="button" className="btn btn-secondary" disabled={running} onClick={handleRun}>
+          {running ? 'Seeding…' : 'Seed missing Black Box apps'}
         </button>
       )}
       {error ? <div className="quotes-error" style={{ marginTop: 12 }}>{error}</div> : null}
