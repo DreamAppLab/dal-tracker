@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { db } from '../firebase';
 import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
 import {
@@ -64,6 +64,685 @@ const DEFAULTS = {
   asoMonthlyCost: '$39',
   notes: '',
 };
+
+const SERVICES_DOCUMENT = 'dal_hq_services';
+
+const hqPillBase = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  padding: '6px 12px',
+  borderRadius: 999,
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: 'pointer',
+  border: '1px solid transparent',
+  transition: 'background 0.15s, border-color 0.15s, color 0.15s',
+  fontFamily: 'inherit',
+};
+
+function slugifyServiceName(name) {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '') || `custom_${Date.now()}`;
+}
+
+function emptyFields(names) {
+  return Object.fromEntries(names.map((name) => [name, '']));
+}
+
+function makeHqService({ key, label, category, fields, helper }) {
+  return {
+    key,
+    label,
+    category,
+    enabled: true,
+    fields: emptyFields(fields),
+    customFields: [],
+    notes: '',
+    ...(helper ? { helper } : {}),
+  };
+}
+
+const DAL_HQ_SEED_SERVICES = [
+  makeHqService({
+    key: 'expo_eas',
+    label: 'Expo / EAS',
+    category: 'App Store / Distribution',
+    fields: ['Account Username', 'Account Email'],
+  }),
+  makeHqService({
+    key: 'revenuecat',
+    label: 'RevenueCat',
+    category: 'Subscriptions & Payments',
+    fields: ['Account Email', 'Project Name'],
+    helper: "Per-app API keys are in each app's Black Box entry",
+  }),
+  makeHqService({
+    key: 'stripe',
+    label: 'Stripe',
+    category: 'Subscriptions & Payments',
+    fields: ['Public Key', 'Secret Key', 'Webhook Secret'],
+  }),
+  makeHqService({
+    key: 'google_oauth_dal',
+    label: 'Google OAuth (DAL)',
+    category: 'Authentication & Identity',
+    fields: ['Client ID', 'Client Secret'],
+    helper: 'Used for Mission Control Google Calendar integration',
+  }),
+  makeHqService({
+    key: 'mailgun',
+    label: 'Mailgun',
+    category: 'Email & Messaging',
+    fields: ['API Key', 'Domain', 'From Email'],
+  }),
+  makeHqService({
+    key: 'twilio',
+    label: 'Twilio',
+    category: 'Email & Messaging',
+    fields: ['Account SID', 'Auth Token', 'Phone Number'],
+    helper: 'Toll-free +18443522180 — registration in review',
+  }),
+  makeHqService({
+    key: 'sentry',
+    label: 'Sentry',
+    category: 'Analytics & Monitoring',
+    fields: ['Org Slug', 'Auth Token'],
+    helper: "Per-app DSNs are in each app's Black Box entry",
+  }),
+  makeHqService({
+    key: 'vercel_dal',
+    label: 'Vercel',
+    category: 'Hosting & Deployment',
+    fields: ['Account Email', 'Team Name', 'Team URL'],
+  }),
+  makeHqService({
+    key: 'aso_dev',
+    label: 'ASO.dev',
+    category: 'ASO & Marketing',
+    fields: ['Account Email', 'Plan', 'Monthly Cost'],
+  }),
+  makeHqService({
+    key: 'massblogger',
+    label: 'MassBlogger',
+    category: 'ASO & Marketing',
+    fields: ['Account Email', 'Webhook URL'],
+  }),
+  makeHqService({
+    key: 'crisp_dal',
+    label: 'Crisp',
+    category: 'Custom',
+    fields: ['Account Email', 'DAL Website ID'],
+    helper: "Per-app Website IDs are in each app's Black Box entry",
+  }),
+];
+
+const HQ_CATEGORY_FALLBACK = [
+  'App Store / Distribution',
+  'Subscriptions & Payments',
+  'Authentication & Identity',
+  'Email & Messaging',
+  'Analytics & Monitoring',
+  'Hosting & Deployment',
+  'ASO & Marketing',
+  'Custom',
+];
+
+function groupHqServicesByCategory(services) {
+  const order = [];
+  const map = {};
+  services.forEach((svc) => {
+    const cat = svc.category || 'Custom';
+    if (!map[cat]) {
+      map[cat] = [];
+      order.push(cat);
+    }
+    map[cat].push(svc);
+  });
+  return order.map((category) => ({ category, services: map[category] }));
+}
+
+function HqSaveIndicator({ status }) {
+  if (!status) return null;
+  return (
+    <span style={{
+      fontSize: 11,
+      marginLeft: 8,
+      color: status === 'saved' ? 'var(--teal, #4CAF50)' : status === 'error' ? 'var(--coral, #f44336)' : 'var(--text-muted)',
+    }}>
+      {status === 'saving' ? 'Saving…' : status === 'saved' ? '✓ Saved' : '✗ Error'}
+    </span>
+  );
+}
+
+function DALHQServices() {
+  const [services, setServices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saveStatus, setSaveStatus] = useState({});
+  const [expanded, setExpanded] = useState({});
+  const [addingFieldFor, setAddingFieldFor] = useState(null);
+  const [newFieldDraft, setNewFieldDraft] = useState({ fieldName: '', fieldDescription: '' });
+  const [showAddService, setShowAddService] = useState(false);
+  const [newServiceName, setNewServiceName] = useState('');
+  const [newServiceCategory, setNewServiceCategory] = useState('Custom');
+  const servicesRef = useRef([]);
+
+  const persistServices = useCallback(async (next, fieldId) => {
+    servicesRef.current = next;
+    setServices(next);
+    if (fieldId) {
+      setSaveStatus((prev) => ({ ...prev, [fieldId]: 'saving' }));
+    }
+    try {
+      await setDoc(doc(db, COLLECTION, SERVICES_DOCUMENT), { services: next }, { merge: true });
+      if (fieldId) {
+        setSaveStatus((prev) => ({ ...prev, [fieldId]: 'saved' }));
+        setTimeout(() => {
+          setSaveStatus((prev) => ({ ...prev, [fieldId]: null }));
+        }, 2000);
+      }
+    } catch (err) {
+      console.error('DAL HQ services save failed:', err);
+      if (fieldId) {
+        setSaveStatus((prev) => ({ ...prev, [fieldId]: 'error' }));
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const ref = doc(db, COLLECTION, SERVICES_DOCUMENT);
+    getDoc(ref).then(async (snapshot) => {
+      if (!snapshot.exists()) {
+        await setDoc(ref, { services: DAL_HQ_SEED_SERVICES }, { merge: true });
+        servicesRef.current = DAL_HQ_SEED_SERVICES;
+        setServices(DAL_HQ_SEED_SERVICES);
+        setExpanded(
+          Object.fromEntries(DAL_HQ_SEED_SERVICES.filter((s) => s.enabled).map((s) => [s.key, true]))
+        );
+      } else {
+        const loaded = snapshot.data().services || [];
+        servicesRef.current = loaded;
+        setServices(loaded);
+        setExpanded(
+          Object.fromEntries(loaded.filter((s) => s.enabled).map((s) => [s.key, true]))
+        );
+      }
+      setLoading(false);
+    }).catch((err) => {
+      console.error('DAL HQ services load failed:', err);
+      setLoading(false);
+    });
+  }, []);
+
+  const patchService = (key, updater) => {
+    const next = servicesRef.current.map((svc) =>
+      svc.key === key ? updater(svc) : svc
+    );
+    return next;
+  };
+
+  const toggleService = (key) => {
+    const next = patchService(key, (svc) => ({ ...svc, enabled: !svc.enabled }));
+    const toggled = next.find((s) => s.key === key);
+    if (toggled?.enabled) {
+      setExpanded((prev) => ({ ...prev, [key]: true }));
+    }
+    void persistServices(next, `${key}:enabled`);
+  };
+
+  const handleFieldChange = (key, fieldName, value) => {
+    const next = patchService(key, (svc) => ({
+      ...svc,
+      fields: { ...(svc.fields || {}), [fieldName]: value },
+    }));
+    servicesRef.current = next;
+    setServices(next);
+  };
+
+  const handleCustomFieldChange = (key, idx, value) => {
+    const next = patchService(key, (svc) => ({
+      ...svc,
+      customFields: (svc.customFields || []).map((cf, i) =>
+        i === idx ? { ...cf, value } : cf
+      ),
+    }));
+    servicesRef.current = next;
+    setServices(next);
+  };
+
+  const handleNotesChange = (key, value) => {
+    const next = patchService(key, (svc) => ({ ...svc, notes: value }));
+    servicesRef.current = next;
+    setServices(next);
+  };
+
+  const handleFieldBlur = (fieldId) => {
+    void persistServices(servicesRef.current, fieldId);
+  };
+
+  const confirmAddField = (key) => {
+    const fieldName = newFieldDraft.fieldName.trim();
+    if (!fieldName) return;
+    const entry = {
+      fieldName,
+      fieldDescription: newFieldDraft.fieldDescription.trim(),
+      value: '',
+    };
+    const next = patchService(key, (svc) => ({
+      ...svc,
+      customFields: [...(svc.customFields || []), entry],
+    }));
+    setAddingFieldFor(null);
+    setNewFieldDraft({ fieldName: '', fieldDescription: '' });
+    void persistServices(next, `${key}:custom:${entry.fieldName}`);
+  };
+
+  const deleteCustomField = (key, idx) => {
+    const next = patchService(key, (svc) => ({
+      ...svc,
+      customFields: (svc.customFields || []).filter((_, i) => i !== idx),
+    }));
+    void persistServices(next, `${key}:custom-delete`);
+  };
+
+  const addCustomService = () => {
+    const label = newServiceName.trim();
+    if (!label) return;
+    let key = slugifyServiceName(label);
+    const existing = new Set(servicesRef.current.map((s) => s.key));
+    if (existing.has(key)) {
+      key = `${key}_${Date.now()}`;
+    }
+    const entry = {
+      key,
+      label,
+      category: newServiceCategory || 'Custom',
+      enabled: true,
+      fields: {},
+      customFields: [],
+      notes: '',
+    };
+    const next = [...servicesRef.current, entry];
+    setShowAddService(false);
+    setNewServiceName('');
+    setNewServiceCategory('Custom');
+    setExpanded((prev) => ({ ...prev, [key]: true }));
+    void persistServices(next, `${key}:create`);
+  };
+
+  const categoryOptions = Array.from(new Set([
+    ...HQ_CATEGORY_FALLBACK,
+    ...services.map((s) => s.category).filter(Boolean),
+    'Custom',
+  ]));
+
+  const categories = groupHqServicesByCategory(services);
+  const enabledServices = services.filter((s) => s.enabled);
+
+  if (loading) {
+    return (
+      <div className="data-section">
+        <div className="section-label" style={{ marginBottom: 8 }}>Services & Platforms</div>
+        <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading services…</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="data-section">
+      <div
+        style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 16,
+          fontWeight: 700,
+          color: 'var(--text-primary)',
+          marginBottom: 4,
+        }}
+      >
+        Services & Platforms
+        <span
+          style={{
+            fontFamily: 'var(--font-body)',
+            fontSize: 12,
+            fontWeight: 500,
+            color: 'var(--text-muted)',
+            marginLeft: 8,
+          }}
+        >
+          ({enabledServices.length} enabled)
+        </span>
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 18 }}>
+        Organization-wide accounts and credentials. Toggle a service on or off. Values auto-save on blur.
+      </div>
+
+      {categories.map(({ category, services: list }) => (
+        <div key={category} style={{ marginBottom: 14 }}>
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: 'var(--text-muted)',
+              marginBottom: 8,
+            }}
+          >
+            {category}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {list.map((svc) => {
+              const on = !!svc.enabled;
+              return (
+                <button
+                  key={svc.key}
+                  type="button"
+                  onClick={() => toggleService(svc.key)}
+                  style={{
+                    ...hqPillBase,
+                    background: on ? '#4F8EF7' : 'transparent',
+                    color: on ? '#fff' : 'var(--text-secondary)',
+                    borderColor: on ? '#4F8EF7' : 'var(--border)',
+                  }}
+                >
+                  {svc.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+
+      <button
+        type="button"
+        className="btn btn-secondary btn-sm"
+        style={{ marginTop: 8, marginBottom: 20 }}
+        onClick={() => setShowAddService(true)}
+      >
+        + Add Custom Service
+      </button>
+
+      {showAddService && (
+        <div
+          style={{
+            marginBottom: 20,
+            padding: 12,
+            background: 'var(--bg-elevated, var(--bg-card))',
+            borderRadius: 8,
+            border: '1px dashed var(--border)',
+          }}
+        >
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+                Service Name
+              </label>
+              <input
+                className="form-input"
+                value={newServiceName}
+                onChange={(e) => setNewServiceName(e.target.value)}
+                placeholder="e.g. Cloudflare"
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+                Category
+              </label>
+              <select
+                className="form-input"
+                value={newServiceCategory}
+                onChange={(e) => setNewServiceCategory(e.target.value)}
+              >
+                {categoryOptions.map((cat) => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              style={{ background: '#4F8EF7', borderColor: '#4F8EF7', color: '#fff' }}
+              disabled={!newServiceName.trim()}
+              onClick={addCustomService}
+            >
+              Confirm
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => {
+                setShowAddService(false);
+                setNewServiceName('');
+                setNewServiceCategory('Custom');
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {enabledServices.map((svc) => {
+        const isExpanded = expanded[svc.key] !== false;
+        const fields = svc.fields || {};
+        const customFields = svc.customFields || [];
+        return (
+          <div
+            key={svc.key}
+            style={{
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              marginBottom: 12,
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '12px 14px',
+                cursor: 'pointer',
+                userSelect: 'none',
+              }}
+              onClick={() => setExpanded((prev) => ({ ...prev, [svc.key]: !isExpanded }))}
+            >
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 650, fontSize: 14, color: 'var(--text-primary)' }}>
+                  {svc.label}
+                </div>
+                {svc.helper ? (
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                    {svc.helper}
+                  </div>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                style={{ fontSize: 11, padding: '4px 8px' }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setAddingFieldFor(svc.key);
+                  setNewFieldDraft({ fieldName: '', fieldDescription: '' });
+                  setExpanded((prev) => ({ ...prev, [svc.key]: true }));
+                }}
+              >
+                ＋ Add Field
+              </button>
+              <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                {isExpanded ? '▾' : '▸'}
+              </span>
+            </div>
+
+            {isExpanded && (
+              <div style={{ padding: '0 14px 14px', borderTop: '1px solid var(--border)' }}>
+                {Object.keys(fields).map((fieldName) => {
+                  const fieldId = `${svc.key}:field:${fieldName}`;
+                  return (
+                    <div key={fieldName} style={{ marginTop: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+                        <label
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: 'var(--text-muted)',
+                            letterSpacing: '0.03em',
+                          }}
+                        >
+                          {fieldName}
+                        </label>
+                        <HqSaveIndicator status={saveStatus[fieldId]} />
+                      </div>
+                      <input
+                        className="form-input"
+                        value={fields[fieldName] ?? ''}
+                        onChange={(e) => handleFieldChange(svc.key, fieldName, e.target.value)}
+                        onBlur={() => handleFieldBlur(fieldId)}
+                      />
+                    </div>
+                  );
+                })}
+
+                {customFields.map((cf, idx) => {
+                  const fieldId = `${svc.key}:custom:${idx}`;
+                  return (
+                    <div key={`custom-${cf.fieldName}-${idx}`} style={{ marginTop: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+                        <label
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: 'var(--text-muted)',
+                            flex: 1,
+                          }}
+                        >
+                          {cf.fieldName}
+                        </label>
+                        <HqSaveIndicator status={saveStatus[fieldId]} />
+                        <button
+                          type="button"
+                          aria-label={`Remove ${cf.fieldName}`}
+                          onClick={() => deleteCustomField(svc.key, idx)}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'var(--text-muted)',
+                            cursor: 'pointer',
+                            fontSize: 16,
+                            lineHeight: 1,
+                            padding: '0 4px',
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <input
+                        className="form-input"
+                        value={cf.value ?? ''}
+                        placeholder={cf.fieldDescription || ''}
+                        onChange={(e) => handleCustomFieldChange(svc.key, idx, e.target.value)}
+                        onBlur={() => handleFieldBlur(fieldId)}
+                      />
+                    </div>
+                  );
+                })}
+
+                {addingFieldFor === svc.key && (
+                  <div
+                    style={{
+                      marginTop: 14,
+                      padding: 12,
+                      background: 'var(--bg-elevated)',
+                      borderRadius: 8,
+                      border: '1px dashed var(--border)',
+                    }}
+                  >
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      <div>
+                        <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+                          Field Name
+                        </label>
+                        <input
+                          className="form-input"
+                          value={newFieldDraft.fieldName}
+                          onChange={(e) => setNewFieldDraft({ ...newFieldDraft, fieldName: e.target.value })}
+                          placeholder="e.g. Staging URL"
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+                          Description
+                        </label>
+                        <input
+                          className="form-input"
+                          value={newFieldDraft.fieldDescription}
+                          onChange={(e) =>
+                            setNewFieldDraft({ ...newFieldDraft, fieldDescription: e.target.value })
+                          }
+                          placeholder="Hint text for this field"
+                        />
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        style={{ background: '#4F8EF7', borderColor: '#4F8EF7', color: '#fff' }}
+                        disabled={!newFieldDraft.fieldName.trim()}
+                        onClick={() => confirmAddField(svc.key)}
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => {
+                          setAddingFieldFor(null);
+                          setNewFieldDraft({ fieldName: '', fieldDescription: '' });
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+                    <label
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: 'var(--text-muted)',
+                      }}
+                    >
+                      Notes
+                    </label>
+                    <HqSaveIndicator status={saveStatus[`${svc.key}:notes`]} />
+                  </div>
+                  <textarea
+                    className="form-input"
+                    style={{ minHeight: 72, resize: 'vertical', width: '100%', boxSizing: 'border-box' }}
+                    value={svc.notes ?? ''}
+                    placeholder="Additional notes for this service..."
+                    onChange={(e) => handleNotesChange(svc.key, e.target.value)}
+                    onBlur={() => handleFieldBlur(`${svc.key}:notes`)}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function Field({ label, fieldKey, value, onChange, onBlur, type = 'text', placeholder = '' }) {
   return (
@@ -160,7 +839,7 @@ export default function DALHeadquarters() {
       <div className="page-header">
         <div>
           <h1 className="page-title">DAL HQ</h1>
-          <p className="page-subtitle">Organisation-wide settings & credentials — auto-saves on blur</p>
+          <p className="page-subtitle">Organization-wide settings & credentials — auto-saves on blur</p>
         </div>
       </div>
 
@@ -329,6 +1008,8 @@ export default function DALHeadquarters() {
           ))}
         </div>
       </div>
+
+      <DALHQServices />
 
       <div className="data-section">
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
