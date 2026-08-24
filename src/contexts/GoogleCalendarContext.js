@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { calendarAuth, db } from '../firebase';
 import { useAuth } from './AuthContext';
 import {
@@ -49,6 +49,7 @@ function tokensRef(userId) {
 
 export function GoogleCalendarProvider({ children }) {
   const { user } = useAuth();
+  const refreshingRef = useRef(new Set());
   const [connectedAccounts, setConnectedAccounts] = useState([]);
   const [connecting, setConnecting] = useState(false);
   const [connectTimedOut, setConnectTimedOut] = useState(false);
@@ -122,7 +123,11 @@ export function GoogleCalendarProvider({ children }) {
       if (!account.expiresAt) return;
       const expiresAt = account.expiresAt?.toMillis?.() ?? 0;
       if (expiresAt - Date.now() < fiveMinutes) {
-        void refreshAccessToken(account);
+        if (refreshingRef.current.has(account.email)) return;
+        refreshingRef.current.add(account.email);
+        void refreshAccessToken(account).finally(() => {
+          refreshingRef.current.delete(account.email);
+        });
       }
     });
   }, [connectedAccounts, refreshAccessToken]);

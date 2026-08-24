@@ -265,7 +265,7 @@ function AppCycleList({ cycles, today, expanded, setExpanded, onToggleTask, togg
   ));
 }
 
-export default function MaintenanceTab() {
+const MaintenanceTab = React.memo(function MaintenanceTab() {
   const [subView, setSubView] = useState('this-month');
   const [schedules, setSchedules] = useState(null);
   const [cycles, setCycles] = useState([]);
@@ -631,4 +631,6 @@ export default function MaintenanceTab() {
       )}
     </div>
   );
-}
+});
+
+export default MaintenanceTab;

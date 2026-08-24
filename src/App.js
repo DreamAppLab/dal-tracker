@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db } from './firebase';
 import { collection, onSnapshot, doc, setDoc, query, where } from 'firebase/firestore';
 import { PIPELINE_APPS } from './data/initialData';
@@ -60,6 +60,7 @@ function DashboardApp() {
   const [maintenanceOverdue, setMaintenanceOverdue] = useState(0);
   const [quotesUnread, setQuotesUnread] = useState(0);
   const [websitesSeedVersion, setWebsitesSeedVersion] = useState(0);
+  const jobIdsRef = useRef(new Set());
 
   useEffect(() => {
     const timeoutId = setTimeout(() => setLoading(false), 8000);
@@ -134,9 +135,12 @@ function DashboardApp() {
   }, []);
 
   useEffect(() => {
-    const jobIds = new Set(
+    jobIdsRef.current = new Set(
       projects.filter((p) => p.projectType === 'Client Job').map((p) => p.id)
     );
+  }, [projects]);
+
+  useEffect(() => {
     const q = query(
       collection(db, 'clientEmails'),
       where('source', '==', 'project'),
@@ -146,12 +150,12 @@ function DashboardApp() {
     const unsub = onSnapshot(q, (snap) => {
       let count = 0;
       snap.docs.forEach((d) => {
-        if (jobIds.has(d.data().projectId)) count += 1;
+        if (jobIdsRef.current.has(d.data().projectId)) count += 1;
       });
       setClientJobsUnread(count);
     });
     return () => unsub();
-  }, [projects]);
+  }, []);
 
   useEffect(() => {
     if (loading || websitesSeedVersion === 2) return undefined;
@@ -192,7 +196,7 @@ function DashboardApp() {
     return () => {
       cancelled = true;
     };
-  }, [loading, projects, websitesSeedVersion]);
+  }, [loading, websitesSeedVersion]);
 
   useEffect(() => {
     const q = query(
