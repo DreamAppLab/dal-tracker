@@ -348,6 +348,24 @@ export default function BlogAdmin() {
     });
   };
 
+  const handleSchedule = () => {
+    if (!draft.scheduledAt) {
+      setError('Set a scheduled date and time before scheduling.');
+      return;
+    }
+    return runAction('schedule', async () => {
+      await apiJson('/api/blog/post/' + encodeURIComponent(selectedId), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payloadFromDraft({ status: 'scheduled' })),
+      });
+      await loadPosts({ silent: true });
+      setDraft((prev) => (prev ? { ...prev, status: 'scheduled' } : prev));
+      setTab('scheduled');
+      setNotice('Scheduled.');
+    });
+  };
+
   const handlePublish = () =>
     runAction('publish', async () => {
       await apiJson('/api/blog/post/' + encodeURIComponent(selectedId), {
@@ -499,6 +517,18 @@ export default function BlogAdmin() {
                   <button type="button" className="btn btn-primary" onClick={handleSave} disabled={!!busy}>
                     {busy === 'save' ? 'Saving…' : 'Save'}
                   </button>
+                  <div className="blog-schedule-action">
+                    <input
+                      className="form-input blog-schedule-datetime"
+                      type="datetime-local"
+                      value={draft.scheduledAt}
+                      onChange={(e) => updateDraft({ scheduledAt: e.target.value })}
+                      aria-label="Schedule date and time"
+                    />
+                    <button type="button" className="btn btn-secondary" onClick={handleSchedule} disabled={!!busy}>
+                      {busy === 'schedule' ? 'Scheduling…' : 'Schedule'}
+                    </button>
+                  </div>
                   <button type="button" className="btn btn-secondary" onClick={handlePublish} disabled={!!busy}>
                     {busy === 'publish' ? 'Publishing…' : 'Publish'}
                   </button>
