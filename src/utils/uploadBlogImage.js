@@ -1,3 +1,5 @@
+import { compressBlogImage } from './compressBlogImage';
+
 const MAX_BYTES = 2.5 * 1024 * 1024;
 const ALLOWED = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
 
@@ -20,17 +22,19 @@ export async function uploadBlogImage(file) {
   if (type && !ALLOWED.includes(type)) {
     throw new Error('Use a JPG, PNG, GIF, or WebP image.');
   }
-  if (file.size > MAX_BYTES) {
+
+  const compressed = await compressBlogImage(file);
+  if (compressed.size > MAX_BYTES) {
     throw new Error('Image must be 2.5MB or smaller.');
   }
 
-  const data = await fileToBase64(file);
+  const data = await fileToBase64(compressed);
   const res = await fetch('/api/blog/upload', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      filename: file.name,
-      contentType: file.type || 'image/jpeg',
+      filename: compressed.name,
+      contentType: 'image/jpeg',
       data,
     }),
   });
