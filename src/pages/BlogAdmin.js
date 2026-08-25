@@ -245,7 +245,8 @@ export default function BlogAdmin() {
     setError('');
     try {
       const url = await uploadBlogImage(file);
-      updateDraft({ featuredImage: url });
+      setDraft((prev) => (prev ? { ...prev, featuredImage: url } : prev));
+      setDirty(true);
     } catch (err) {
       setError(err?.message || 'Featured image upload failed.');
     } finally {

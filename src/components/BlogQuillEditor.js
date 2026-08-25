@@ -33,11 +33,19 @@ class StyledImage extends BaseImage {
 
 Quill.register({ 'formats/image': StyledImage }, true);
 
+const Delta = Quill.import('delta');
+
 function applyImageStyles(root) {
   if (!root) return;
   root.querySelectorAll('img').forEach((img) => {
     if (!img.getAttribute('style')) img.setAttribute('style', IMG_STYLE);
   });
+}
+
+function insertIndex(quill, savedIndex) {
+  const maxIndex = Math.max(0, quill.getLength() - 1);
+  if (typeof savedIndex !== 'number' || savedIndex < 0) return maxIndex;
+  return Math.min(savedIndex, maxIndex);
 }
 
 export default function BlogQuillEditor({ value, onChange, onError }) {
@@ -47,6 +55,7 @@ export default function BlogQuillEditor({ value, onChange, onError }) {
   const quillRef = useRef(null);
   const onChangeRef = useRef(onChange);
   const onErrorRef = useRef(onError);
+  const insertAtRef = useRef(0);
   const [htmlMode, setHtmlMode] = useState(false);
   const [htmlSource, setHtmlSource] = useState(value || '');
   const [uploading, setUploading] = useState(false);
@@ -55,6 +64,9 @@ export default function BlogQuillEditor({ value, onChange, onError }) {
   onErrorRef.current = onError;
 
   const pickAndInsertImage = (quill) => {
+    const sel = quill.getSelection();
+    insertAtRef.current = sel ? sel.index : Math.max(0, quill.getLength() - 1);
+
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/jpeg,image/png,image/gif,image/webp';
@@ -64,13 +76,14 @@ export default function BlogQuillEditor({ value, onChange, onError }) {
       setUploading(true);
       try {
         const url = await uploadBlogImage(file);
-        const range = quill.getSelection(true) || { index: quill.getLength(), length: 0 };
-        quill.insertEmbed(range.index, 'image', url, 'user');
-        const [leaf] = quill.getLeaf(range.index);
+        const index = insertIndex(quill, insertAtRef.current);
+        // Retain+insert only — never delete the current selection / rest of the doc.
+        quill.updateContents(new Delta().retain(index).insert({ image: url }), 'user');
+        const [leaf] = quill.getLeaf(index);
         if (leaf && leaf.domNode && leaf.domNode.setAttribute) {
           leaf.domNode.setAttribute('style', IMG_STYLE);
         }
-        quill.setSelection(range.index + 1, 0, 'user');
+        quill.setSelection(index + 1, 0, 'user');
       } catch (err) {
         if (onErrorRef.current) onErrorRef.current(err?.message || 'Image upload failed.');
       } finally {
@@ -171,8 +184,8 @@ export default function BlogQuillEditor({ value, onChange, onError }) {
             {'</>'}
           </button>
         </span>
-        {uploading && <span className="blog-quill-uploading">Uploading image…</span>}
       </div>
+      {uploading && <span className="blog-quill-uploading">Uploading image…</span>}
       <div ref={editorRef} className="blog-quill-surface" />
       {htmlMode && (
         <textarea
