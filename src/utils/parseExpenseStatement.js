@@ -65,9 +65,6 @@ async function extractLinesFromPdf(file) {
   const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
   const lines = [];
 
-  console.log('=== PDF PAGE COUNT ===');
-  console.log(`Total pages: ${pdf.numPages}`);
-
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum += 1) {
     const page = await pdf.getPage(pageNum);
     const content = await page.getTextContent();
@@ -82,21 +79,13 @@ async function extractLinesFromPdf(file) {
       rows.get(y).push({ x, str });
     });
 
-    const pageLines = [];
     Array.from(rows.entries())
       .sort((a, b) => b[0] - a[0])
       .forEach(([, parts]) => {
         parts.sort((a, b) => a.x - b.x);
         const text = parts.map((p) => p.str).join(' ').replace(/\s+/g, ' ').trim();
-        if (text) pageLines.push(text);
+        if (text) lines.push(text);
       });
-
-    const pageText = pageLines.join('\n');
-    console.log(`=== PAGE ${pageNum} ===`);
-    console.log(pageText);
-    console.log(`=== END PAGE ${pageNum} ===`);
-
-    lines.push(...pageLines);
   }
 
   return lines;
@@ -162,13 +151,96 @@ function detectStatementYear(lines) {
   return { year, endYear: year };
 }
 
-function yearForMonth(month, info) {
-  const endYear = info.endYear || info.year;
-  const startYear = info.startYear;
-  if (startYear && startYear !== endYear && info.startMonth && info.endMonth) {
-    return month >= info.startMonth ? startYear : endYear;
-  }
-  return info.year || endYear || new Date().getFullYear();
+function detectCapOneYear(lines) {
+  const text = lines.join('\n');
+  const period = text.match(/[A-Za-z]{3}\s+\d{1,2},\s+\d{4}\s*[-–]\s*[A-Za-z]{3}\s+\d{1,2},\s+\d{4}/);
+  const hay = period ? period[0] : text;
+  const yearMatch = hay.match(/(\d{4})/);
+  const year = yearMatch ? Number(yearMatch[1]) : new Date().getFullYear();
+  return Number.isFinite(year) ? year : new Date().getFullYear();
+}
+
+function transDateToIso(transDate, year) {
+  const parsed = new Date(`${transDate} ${year}`);
+  if (Number.isNaN(parsed.getTime())) return '';
+  const y = parsed.getFullYear();
+  const m = String(parsed.getMonth() + 1).padStart(2, '0');
+  const d = String(parsed.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function isCapOneSummaryLine(line) {
+  return /Total|Trans Date|Fees|Interest|Additional Information/i.test(line);
+}
+
+function isFxContinuationLine(line) {
+  const t = String(line || '').replace(/\s+/g, ' ').trim();
+  if (!t) return true;
+  if (/exchange rate/i.test(t)) return true;
+  if (/^[A-Z]{3}$/.test(t)) return true;
+  if (/^\$?[\d,]+\.?\d*$/.test(t)) return true;
+  return false;
+}
+
+const CAP_ONE_TX = /^([A-Za-z]{3}\s+\d{1,2})\s+([A-Za-z]{3}\s+\d{1,2})\s+(.+?)\s+\$?([\d,]+\.\d{2})$/;
+
+/** Capital One multi-cardholder: "Mar 2 Mar 3 VENDOR $10.00" under ": Transactions" sections. */
+export function parseTransactions(lines) {
+  const year = detectCapOneYear(lines);
+  let inTransactions = false;
+  const transactions = [];
+  const seen = new Set();
+
+  lines.forEach((raw) => {
+    const line = String(raw || '').replace(/\s+/g, ' ').trim();
+    if (!line) return;
+
+    if (/:\s*Transactions$/i.test(line)) {
+      inTransactions = true;
+      return;
+    }
+    if (/:\s*Payments, Credits and Adjustments$/i.test(line)) {
+      inTransactions = false;
+      return;
+    }
+    if (/:\s*Total Transactions/i.test(line)) {
+      inTransactions = false;
+      return;
+    }
+
+    if (!inTransactions) return;
+    if (isCapOneSummaryLine(line)) return;
+    if (isFxContinuationLine(line)) return;
+
+    const m = line.match(CAP_ONE_TX);
+    if (!m) return;
+
+    const vendor = String(m[3] || '').replace(/\s+/g, ' ').trim();
+    if (!vendor || /Trans Date/i.test(vendor)) return;
+
+    const amount = Number(String(m[4] || '').replace(/,/g, ''));
+    if (!Number.isFinite(amount) || amount === 0) return;
+
+    const date = transDateToIso(m[1], year);
+    if (!date) return;
+
+    const key = `${date}|${amount}|${vendor.toLowerCase()}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+
+    transactions.push({
+      date,
+      vendor,
+      amount,
+      category: categorizeVendor(vendor),
+      appId: DEFAULT_APP,
+      taxYear: taxYearFromDate(date),
+      selected: true,
+    });
+  });
+
+  console.log(`Capital One parser found ${transactions.length} transactions`, transactions);
+  return transactions;
 }
 
 function toIsoDate(month, day, year) {
@@ -267,119 +339,10 @@ function shouldSkipPurchaseLine(vendor) {
   return false;
 }
 
-function toRow(dateIso, vendor, amount) {
-  const cleaned = cleanVendorName(vendor);
-  if (!cleaned || cleaned.length < 2) return null;
-  if (shouldSkipPurchaseLine(cleaned)) return null;
-  return {
-    date: dateIso,
-    vendor: cleaned,
-    amount,
-    category: categorizeVendor(cleaned),
-    appId: DEFAULT_APP,
-    taxYear: taxYearFromDate(dateIso),
-    selected: true,
-  };
-}
-
-function parseCapOneLine(raw, yearInfo) {
-  const line = String(raw || '').replace(/\s+/g, ' ').trim();
-  if (!line) return null;
-
-  const lastToken = line.split(' ').pop() || '';
-  if (/^[-+(]/.test(lastToken) || /^-/.test(lastToken.replace('$', ''))) return null;
-
-  const normalized = line.replace(/\$/g, '').replace(/,/g, '').replace(/\s+/g, ' ').trim();
-  const capOne = normalized.match(/^(\d{1,2}\/\d{1,2})\s+(.+?)\s+(\d+\.\d{2})$/);
-  if (capOne) {
-    const [month, day] = capOne[1].split('/').map(Number);
-    const amount = Number(capOne[3]);
-    if (!Number.isFinite(amount) || amount <= 0) return null;
-    const iso = toIsoDate(month, day, yearForMonth(month, yearInfo));
-    return toRow(iso, capOne[2], amount);
-  }
-
-  const withYear = normalized.match(/^(\d{1,2}\/\d{1,2})\/(\d{2,4})\s+(.+?)\s+(\d+\.\d{2})$/);
-  if (withYear) {
-    const [month, day] = withYear[1].split('/').map(Number);
-    const amount = Number(withYear[4]);
-    if (!Number.isFinite(amount) || amount <= 0) return null;
-    const iso = toIsoDate(month, day, withYear[2]);
-    return toRow(iso, withYear[3], amount);
-  }
-
-  const twoDates = normalized.match(/^(\d{1,2}\/\d{1,2})(?:\/\d{2,4})?\s+(\d{1,2}\/\d{1,2})(?:\/\d{2,4})?\s+(.+?)\s+(\d+\.\d{2})$/);
-  if (twoDates) {
-    const [month, day] = twoDates[1].split('/').map(Number);
-    const amount = Number(twoDates[4]);
-    if (!Number.isFinite(amount) || amount <= 0) return null;
-    const iso = toIsoDate(month, day, yearForMonth(month, yearInfo));
-    return toRow(iso, twoDates[3], amount);
-  }
-
-  return null;
-}
-
-function sectionFromLine(line) {
-  const text = String(line || '').trim();
-  if (/^purchases?\b/i.test(text) || /\bpurchases\s+and\s+adjustments\b/i.test(text)) return 'purchases';
-  if (/^credits?\b/i.test(text) || /^payments?\b/i.test(text) || /\bpayments?\s+and\s+credits\b/i.test(text)) return 'skip';
-  return null;
-}
-
-function stitchCapOneLines(lines) {
-  const out = [];
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = String(lines[i] || '').replace(/\s+/g, ' ').trim();
-    const next = String(lines[i + 1] || '').replace(/\s+/g, ' ').trim();
-    if (/^\d{1,2}\/\d{1,2}(?:\/\d{2,4})?$/.test(line) && next) {
-      out.push(`${line} ${next}`);
-      i += 1;
-      continue;
-    }
-    const stripped = line.replace(/\$/g, '').replace(/,/g, '').trim();
-    if (/^\d{1,2}\/\d{1,2}/.test(stripped) && !/\d+\.\d{2}$/.test(stripped) && /^\(?[+-]?\$?\d[\d,]*\.\d{2}\)?$/.test(next)) {
-      out.push(`${line} ${next}`);
-      i += 1;
-      continue;
-    }
-    out.push(line);
-  }
-  return out;
-}
-
-/** Capital One–first parser: MM/DD + vendor + amount, statement-year dates, skip credits/payments. */
-export function parseTransactions(lines) {
-  const yearInfo = detectStatementYear(lines);
-  const seen = new Set();
-  const rows = [];
-  let section = 'purchases';
-
-  stitchCapOneLines(lines).forEach((raw) => {
-    const line = String(raw || '').replace(/\s+/g, ' ').trim();
-    if (!line) return;
-    const nextSection = sectionFromLine(line);
-    if (nextSection) {
-      section = nextSection;
-      return;
-    }
-    if (section === 'skip') return;
-    if (looksLikeHeader(line)) return;
-
-    const row = parseCapOneLine(line, yearInfo);
-    if (!row) return;
-    const key = `${row.date}|${row.amount}|${row.vendor.toLowerCase()}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    rows.push(row);
-  });
-
-  return rows;
-}
-
 export function parseStatementLines(lines) {
   const capOne = parseTransactions(lines);
-  if (capOne.length) return capOne;
+  const hasCapOneSections = lines.some((l) => /:\s*Transactions$/i.test(String(l || '').trim()));
+  if (hasCapOneSections || capOne.length) return capOne;
 
   const yearInfo = detectStatementYear(lines);
   const year = yearInfo.year;
