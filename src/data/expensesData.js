@@ -39,6 +39,7 @@ export const SOURCE_META = {
   pdf: { icon: '📄', label: 'PDF' },
   image: { icon: '🖼️', label: 'Image' },
   import: { icon: '📥', label: 'Import' },
+  'excel-import': { icon: '📊', label: 'Excel import' },
 };
 
 export const CATEGORY_BADGE = {

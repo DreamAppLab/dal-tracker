@@ -1184,7 +1184,7 @@ export default function ExpensesTab() {
             Export
           </button>
           <button className="btn btn-secondary" onClick={() => setShowImport(true)}>
-            Import Statement
+            Import Statement or Invoice Export
           </button>
           <button className="btn btn-primary" onClick={() => { setEditing(null); setShowForm(true); }}>
             + Add Expense

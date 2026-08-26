@@ -1,8 +1,42 @@
 import React, { useMemo, useState } from 'react';
 import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
-import { EXPENSE_APPS, EXPENSE_CATEGORIES, formatMoney } from '../data/expensesData';
+import { EXPENSE_APPS, EXPENSE_CATEGORIES, formatMoney, taxYearFromDate } from '../data/expensesData';
 import { parseStatementPdf } from '../utils/parseExpenseStatement';
+
+const FIVERR_CATEGORIES = ['Design', 'Development', 'Office', 'Uncategorized', 'Professional Services'];
+const IMPORT_CATEGORIES = Array.from(new Set([...EXPENSE_CATEGORIES, ...FIVERR_CATEGORIES]));
+const IMPORT_APPS = Array.from(new Set([...EXPENSE_APPS, 'DAL']));
+
+const SERVICE_CATEGORY_MAP = {
+  'logo design': 'Design',
+  'website development': 'Development',
+  'mobile app development': 'Development',
+  'software development': 'Development',
+  'data entry': 'Professional Services',
+  'data formatting': 'Professional Services',
+  'voice over': 'Professional Services',
+  office: 'Office',
+};
+
+const PROJECT_APP_MAP = {
+  travelwhirl: 'TravelWhirl',
+  'family thread': 'FamilyThread',
+  familythread: 'FamilyThread',
+  'my class log': 'MyClassLog',
+  myclasslog: 'MyClassLog',
+  'rv vault': 'RV Vault',
+  'ten miles ahead': 'Ten Miles Ahead',
+  dal: 'DAL',
+};
+
+function fileKind(file) {
+  const name = String(file && file.name ? file.name : '').toLowerCase();
+  if (name.endsWith('.pdf') || (file && file.type === 'application/pdf')) return 'pdf';
+  if (name.endsWith('.xlsx') || name.endsWith('.xls')) return 'excel';
+  if (name.endsWith('.csv')) return 'csv';
+  return '';
+}
 
 async function statementIdFromFile(file) {
   const buf = await file.arrayBuffer();
@@ -15,6 +49,16 @@ async function statementIdFromFile(file) {
   return `${file.name}-${file.size}-${file.lastModified}`;
 }
 
+function excelStatementId(invoiceNumbers) {
+  const first = invoiceNumbers
+    .map((n) => String(n || '').trim())
+    .filter(Boolean)
+    .slice(0, 8)
+    .map((n) => n.replace(/[^\w-]/g, ''));
+  if (!first.length) return '';
+  return `excel_${first.join('_')}`;
+}
+
 function isDuplicateExpense(existing, transaction) {
   return existing.some((e) => (
     e.date === transaction.date
@@ -23,9 +67,154 @@ function isDuplicateExpense(existing, transaction) {
   ));
 }
 
+function loadScriptOnce(src) {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) {
+      if (window.XLSX) {
+        resolve();
+        return;
+      }
+      existing.addEventListener('load', () => resolve());
+      existing.addEventListener('error', () => reject(new Error('Could not load Excel parser.')));
+      return;
+    }
+    const el = document.createElement('script');
+    el.src = src;
+    el.async = true;
+    el.onload = () => resolve();
+    el.onerror = () => reject(new Error('Could not load Excel parser.'));
+    document.head.appendChild(el);
+  });
+}
+
+async function loadSheetJs() {
+  if (window.XLSX) return window.XLSX;
+  await loadScriptOnce('https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js');
+  if (!window.XLSX) throw new Error('Could not load Excel parser.');
+  return window.XLSX;
+}
+
+function mapServiceToCategory(service) {
+  const key = String(service || '').trim().toLowerCase();
+  return SERVICE_CATEGORY_MAP[key] || 'Uncategorized';
+}
+
+function mapProjectToApp(project) {
+  const key = String(project || '').trim().toLowerCase();
+  return PROJECT_APP_MAP[key] || 'DAL';
+}
+
+function parseImportDate(value, XLSX) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  if (typeof value === 'number' && XLSX && XLSX.SSF && typeof XLSX.SSF.parse_date_code === 'function') {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (parsed && parsed.y) {
+      const m = String(parsed.m).padStart(2, '0');
+      const d = String(parsed.d).padStart(2, '0');
+      return `${parsed.y}-${m}-${d}`;
+    }
+  }
+  const s = String(value == null ? '' : value).trim();
+  const match = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!match) return '';
+  return `${match[3]}-${match[1].padStart(2, '0')}-${match[2].padStart(2, '0')}`;
+}
+
+function parseImportAmount(total, documentType) {
+  const raw = String(total == null ? '' : total).replace(/,/g, '').trim();
+  let n = parseFloat(raw);
+  if (!Number.isFinite(n)) return null;
+  const isCredit = String(documentType || '').trim().toLowerCase() === 'credit invoice';
+  if (isCredit && n > 0) n = -n;
+  return n;
+}
+
+function mapInvoiceRows(rawRows, XLSX) {
+  const dataRows = rawRows.slice(1);
+  const out = [];
+  dataRows.forEach((cols) => {
+    const cells = Array.isArray(cols) ? cols : [];
+    if (!cells.length || cells.every((c) => c == null || String(c).trim() === '')) return;
+    const documentType = cells[1];
+    const invoiceNumber = cells[2] == null ? '' : String(cells[2]).trim();
+    const service = cells[3] == null ? '' : String(cells[3]).trim();
+    const project = cells[4] == null ? '' : String(cells[4]).trim();
+    const date = parseImportDate(cells[0], XLSX);
+    const amount = parseImportAmount(cells[5], documentType);
+    if (!date || amount == null) return;
+    out.push({
+      date,
+      vendor: 'Fiverr',
+      amount,
+      category: mapServiceToCategory(service),
+      appId: mapProjectToApp(project),
+      notes: invoiceNumber,
+      description: invoiceNumber,
+      taxYear: taxYearFromDate(date),
+      source: 'excel-import',
+      service,
+      project,
+      isCredit: amount < 0,
+      selected: true,
+    });
+  });
+  return out;
+}
+
+async function parseExcelFile(file) {
+  const XLSX = await loadSheetJs();
+  const buf = await file.arrayBuffer();
+  const workbook = XLSX.read(buf, { type: 'array' });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  if (!sheet) throw new Error('This spreadsheet has no sheets.');
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+  return mapInvoiceRows(rows, XLSX);
+}
+
+function splitCsvLine(line) {
+  if (line.includes('\t')) return line.split('\t');
+  const cells = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === ',' && !inQuotes) {
+      cells.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  cells.push(current);
+  return cells;
+}
+
+async function parseCsvFile(file) {
+  const text = await file.text();
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
+    .map((l) => l.trimEnd())
+    .filter((l) => l.trim());
+  const rows = lines.map(splitCsvLine);
+  return mapInvoiceRows(rows, null);
+}
+
 export default function ImportStatementModal({ onClose, onImported, onManualEntry }) {
   const [step, setStep] = useState('upload');
   const [file, setFile] = useState(null);
+  const [kind, setKind] = useState('');
   const [rows, setRows] = useState([]);
   const [error, setError] = useState('');
   const [progress, setProgress] = useState({ current: 0, total: 0 });
@@ -36,19 +225,23 @@ export default function ImportStatementModal({ onClose, onImported, onManualEntr
   const selected = useMemo(() => rows.filter((r) => r.selected), [rows]);
   const selectedTotal = selected.reduce((sum, r) => sum + Number(r.amount || 0), 0);
   const duplicateCount = rows.filter((r) => r.isDuplicate).length;
+  const creditCount = rows.filter((r) => Number(r.amount) < 0).length;
+  const isExcelKind = kind === 'excel' || kind === 'csv';
 
   const handleFile = (next) => {
     setError('');
     if (!next) {
       setFile(null);
+      setKind('');
       return;
     }
-    const isPdf = next.type === 'application/pdf' || /\.pdf$/i.test(next.name);
-    if (!isPdf) {
-      setError('Please upload a PDF statement.');
+    const detected = fileKind(next);
+    if (!detected) {
+      setError('Please upload a PDF, Excel, or CSV file.');
       return;
     }
     setFile(next);
+    setKind(detected);
     setRows([]);
     setStatementId('');
     setStep('upload');
@@ -59,13 +252,26 @@ export default function ImportStatementModal({ onClose, onImported, onManualEntr
     setError('');
     setStep('parsing');
     try {
-      const parsed = await parseStatementPdf(file);
+      let parsed = [];
+      let id = '';
+      if (kind === 'pdf') {
+        parsed = await parseStatementPdf(file);
+        id = await statementIdFromFile(file);
+      } else if (kind === 'excel') {
+        parsed = await parseExcelFile(file);
+        id = excelStatementId(parsed.map((r) => r.notes));
+        if (!id) id = `excel_${await statementIdFromFile(file)}`;
+      } else if (kind === 'csv') {
+        parsed = await parseCsvFile(file);
+        id = excelStatementId(parsed.map((r) => r.notes));
+        if (!id) id = `excel_${await statementIdFromFile(file)}`;
+      }
+
       if (!parsed.length) {
         setStep('unparsed');
         return;
       }
 
-      const id = await statementIdFromFile(file);
       setStatementId(id);
       const stmtSnap = await getDoc(doc(db, 'importedStatements', id));
       if (stmtSnap.exists()) {
@@ -101,7 +307,7 @@ export default function ImportStatementModal({ onClose, onImported, onManualEntr
       }));
       setStep('preview');
     } catch (err) {
-      setError(err.message || 'Could not parse this PDF.');
+      setError(err.message || 'Could not parse this file.');
       setStep('upload');
     }
   };
@@ -137,9 +343,10 @@ export default function ImportStatementModal({ onClose, onImported, onManualEntr
             appId: row.appId,
             app: row.appId,
             taxYear: row.taxYear,
-            source: 'import',
+            source: row.source || (isExcelKind ? 'excel-import' : 'import'),
             statementId: statementId || '',
-            description: '',
+            notes: row.notes || '',
+            description: row.notes || row.description || '',
             parsedByAI: false,
             needsReview: false,
             createdAt: serverTimestamp(),
@@ -180,26 +387,29 @@ export default function ImportStatementModal({ onClose, onImported, onManualEntr
     <div className="modal-overlay expenses-import-overlay" onClick={() => !busy && onClose()}>
       <div className="modal expenses-import-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <div className="modal-title">Import Statement</div>
+          <div className="modal-title">Import Expenses</div>
           <button className="btn btn-ghost btn-sm" onClick={onClose} disabled={busy}>✕</button>
         </div>
 
         <div className="modal-body">
           {step === 'upload' && (
             <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="form-label">Upload your credit card or bank statement PDF</label>
+              <label className="form-label">Upload a statement or invoice export</label>
               <input
                 className="form-input"
                 type="file"
-                accept="application/pdf,.pdf"
+                accept=".pdf,.xlsx,.xls,.csv,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
                 onChange={(e) => handleFile(e.target.files && e.target.files[0])}
               />
+              <div className="expenses-file-name" style={{ marginTop: 8 }}>
+                Supports Capital One PDF statements and Excel/CSV invoice exports (Fiverr, and other tab-separated formats)
+              </div>
               {file && <div className="expenses-file-name">{file.name}</div>}
             </div>
           )}
 
           {step === 'parsing' && (
-            <div className="expenses-import-status">Parsing statement…</div>
+            <div className="expenses-import-status">Parsing file…</div>
           )}
 
           {step === 'importing' && (
@@ -229,6 +439,14 @@ export default function ImportStatementModal({ onClose, onImported, onManualEntr
 
           {step === 'preview' && (
             <>
+              {creditCount > 0 && (
+                <div
+                  className="expenses-review-banner"
+                  style={{ background: 'rgba(59,130,246,0.16)', borderColor: 'rgba(59,130,246,0.35)', color: '#93C5FD' }}
+                >
+                  {creditCount} credit/refund row{creditCount === 1 ? '' : 's'} detected — these will import as negative expenses to offset the original charge.
+                </div>
+              )}
               {duplicateCount > 0 && (
                 <div className="expenses-review-banner">
                   {duplicateCount} transaction{duplicateCount === 1 ? '' : 's'} may already be imported (unchecked). Review before importing.
@@ -248,9 +466,12 @@ export default function ImportStatementModal({ onClose, onImported, onManualEntr
                       </th>
                       <th>Date</th>
                       <th>Vendor</th>
-                      <th className="expenses-amount-col">Amount</th>
+                      {isExcelKind && <th>Service</th>}
                       <th>Category</th>
+                      {isExcelKind && <th>Project</th>}
                       <th>App</th>
+                      <th className="expenses-amount-col">Amount</th>
+                      {isExcelKind && <th>Notes</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -277,29 +498,32 @@ export default function ImportStatementModal({ onClose, onImported, onManualEntr
                             <span className="expenses-review-badge">Already imported</span>
                           )}
                         </td>
-                        <td className="expenses-amount-col">{formatMoney(row.amount)}</td>
+                        {isExcelKind && <td>{row.service || '—'}</td>}
                         <td>
                           <select
                             className="form-select"
                             value={row.category}
                             onChange={(e) => patchRow(row.id, { category: e.target.value })}
                           >
-                            {EXPENSE_CATEGORIES.map((c) => (
+                            {IMPORT_CATEGORIES.map((c) => (
                               <option key={c} value={c}>{c}</option>
                             ))}
                           </select>
                         </td>
+                        {isExcelKind && <td>{row.project || '—'}</td>}
                         <td>
                           <select
                             className="form-select"
                             value={row.appId}
                             onChange={(e) => patchRow(row.id, { appId: e.target.value })}
                           >
-                            {EXPENSE_APPS.map((a) => (
+                            {IMPORT_APPS.map((a) => (
                               <option key={a} value={a}>{a}</option>
                             ))}
                           </select>
                         </td>
+                        <td className="expenses-amount-col">{formatMoney(row.amount)}</td>
+                        {isExcelKind && <td>{row.notes || '—'}</td>}
                       </tr>
                     ))}
                   </tbody>
