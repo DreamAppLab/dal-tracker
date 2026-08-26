@@ -549,10 +549,10 @@ async function downloadWordReport(type, rows, report) {
           children: [
             new Paragraph({
               children: [
-                new TextRun({ text: 'Dream App Lab LLC — Confidential', size: 16, font: 'Calibri', color: '445' }),
-                new TextRun({ text: '     Page ', size: 16, font: 'Calibri', color: '445' }),
-                new TextRun({ children: [PageNumber.CURRENT], size: 16, font: 'Calibri', color: '445' }),
-                new TextRun({ text: `     ${generated}`, size: 16, font: 'Calibri', color: '445' }),
+                new TextRun({ text: 'Dream App Lab LLC — Confidential', size: 16, font: 'Calibri', color: '444455' }),
+                new TextRun({ text: '     Page ', size: 16, font: 'Calibri', color: '444455' }),
+                new TextRun({ children: [PageNumber.CURRENT], size: 16, font: 'Calibri', color: '444455' }),
+                new TextRun({ text: `     ${generated}`, size: 16, font: 'Calibri', color: '444455' }),
               ],
             }),
           ],
