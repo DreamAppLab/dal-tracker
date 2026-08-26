@@ -91,6 +91,7 @@ function prepareUpdate(body) {
     'tags',
     'metaTitle',
     'metaDescription',
+    'publishedAt',
   ];
   allowed.forEach((key) => {
     if (Object.prototype.hasOwnProperty.call(body, key)) update[key] = body[key];
@@ -106,6 +107,10 @@ function prepareUpdate(body) {
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean);
+  }
+  if (Object.prototype.hasOwnProperty.call(update, 'publishedAt')) {
+    const published = toTimestamp(update.publishedAt);
+    update.publishedAt = published || FieldValue.serverTimestamp();
   }
   if (Object.prototype.hasOwnProperty.call(body, 'scheduledAt')) {
     if (body.scheduledAt == null || body.scheduledAt === '') {
@@ -135,7 +140,12 @@ module.exports = async (req, res) => {
     if (req.method === 'PATCH') {
       const existing = await ref.get();
       if (!existing.exists) return res.status(404).json({ error: 'Post not found' });
-      const update = prepareUpdate(parseBody(req));
+      const body = parseBody(req);
+      const update = prepareUpdate(body);
+      const prev = existing.data() || {};
+      if (update.status === 'published' && (!prev.publishedAt || Object.prototype.hasOwnProperty.call(body, 'publishedAt'))) {
+        update.publishedAt = FieldValue.serverTimestamp();
+      }
       await ref.update(update);
       const updated = await ref.get();
       return res.status(200).json({ ok: true, post: serializeDoc(updated) });

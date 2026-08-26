@@ -116,6 +116,7 @@ module.exports = async (req, res) => {
         metaDescription: typeof body.metaDescription === 'string' ? body.metaDescription : '',
         createdAt: now,
         updatedAt: now,
+        publishedAt: (body.status || 'draft') === 'published' ? now : null,
       };
       if (body.scheduledAt) {
         const scheduled = toTimestamp(body.scheduledAt);

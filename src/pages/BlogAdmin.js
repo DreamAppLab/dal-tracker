@@ -276,6 +276,9 @@ export default function BlogAdmin() {
     } else if (status === 'published' || clearSchedule) {
       next.scheduledAt = null;
     }
+    if (rest.status === 'published') {
+      next.publishedAt = new Date().toISOString();
+    }
     return next;
   };
 
