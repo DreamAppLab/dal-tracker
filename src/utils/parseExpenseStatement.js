@@ -412,5 +412,9 @@ export function parseStatementLines(lines) {
 
 export async function parseStatementPdf(file) {
   const lines = await extractLinesFromPdf(file);
+  const fullText = lines.join('\n');
+  console.log('=== RAW PDF TEXT ===');
+  console.log(fullText);
+  console.log('=== END RAW TEXT ===');
   return parseStatementLines(lines);
 }
