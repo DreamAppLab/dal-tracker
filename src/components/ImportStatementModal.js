@@ -4,7 +4,7 @@ import { db } from '../firebase';
 import { EXPENSE_APPS, EXPENSE_CATEGORIES, formatMoney } from '../data/expensesData';
 import { parseStatementPdf } from '../utils/parseExpenseStatement';
 
-export default function ImportStatementModal({ onClose, onImported }) {
+export default function ImportStatementModal({ onClose, onImported, onManualEntry }) {
   const [step, setStep] = useState('upload');
   const [file, setFile] = useState(null);
   const [rows, setRows] = useState([]);
@@ -38,8 +38,7 @@ export default function ImportStatementModal({ onClose, onImported }) {
     try {
       const parsed = await parseStatementPdf(file);
       if (!parsed.length) {
-        setError('No transactions found in this PDF. Try a different statement export.');
-        setStep('upload');
+        setStep('unparsed');
         return;
       }
       setRows(parsed.map((row, i) => ({ ...row, id: `row-${i}` })));
@@ -141,6 +140,19 @@ export default function ImportStatementModal({ onClose, onImported }) {
             </div>
           )}
 
+          {step === 'unparsed' && (
+            <div className="expenses-import-status" style={{ display: 'flex', flexDirection: 'column', gap: 16, alignItems: 'center' }}>
+              <p style={{ margin: 0, maxWidth: 520 }}>
+                Could not parse this statement format. Try copying and pasting transactions manually or contact support.
+              </p>
+              {onManualEntry && (
+                <button className="btn btn-primary" type="button" onClick={onManualEntry}>
+                  Add Expense Manually
+                </button>
+              )}
+            </div>
+          )}
+
           {step === 'preview' && (
             <>
               <div className="expenses-import-table-wrap">
@@ -223,6 +235,11 @@ export default function ImportStatementModal({ onClose, onImported }) {
           {step === 'preview' && (
             <button className="btn btn-primary" onClick={importSelected} disabled={!selected.length}>
               Import Selected
+            </button>
+          )}
+          {step === 'unparsed' && onManualEntry && (
+            <button className="btn btn-primary" type="button" onClick={onManualEntry}>
+              Add Expense Manually
             </button>
           )}
         </div>

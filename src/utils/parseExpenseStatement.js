@@ -91,16 +91,73 @@ async function extractLinesFromPdf(file) {
   return lines;
 }
 
-function inferYear(lines) {
+const MONTH_NAME = {
+  january: 1, jan: 1, february: 2, feb: 2, march: 3, mar: 3, april: 4, apr: 4,
+  may: 5, june: 6, jun: 6, july: 7, jul: 7, august: 8, aug: 8, september: 9,
+  sep: 9, sept: 9, october: 10, oct: 10, november: 11, nov: 11, december: 12, dec: 12,
+};
+
+function monthFromName(name) {
+  return MONTH_NAME[String(name || '').toLowerCase().replace(/\./g, '')] || 0;
+}
+
+function detectStatementYear(lines) {
+  const header = lines.slice(0, 80).join(' ');
+  const month = 'January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec';
+
+  const labeledPeriod = header.match(
+    new RegExp(
+      `(?:statement\\s+period|billing\\s+period|for\\s+the\\s+period|closing\\s+date)[:\\s]+[\\s\\S]{0,80}?\\b(${month})\\.?\\s+(\\d{1,2})(?:\\s*[-–]\\s*(${month})\\.?\\s+(\\d{1,2}))?,?\\s+(20\\d{2})`,
+      'i'
+    )
+  );
+  if (labeledPeriod) {
+    return {
+      year: Number(labeledPeriod[5]),
+      startMonth: monthFromName(labeledPeriod[1]),
+      endMonth: monthFromName(labeledPeriod[3] || labeledPeriod[1]),
+      endYear: Number(labeledPeriod[5]),
+    };
+  }
+
+  const range = header.match(
+    new RegExp(`\\b(${month})\\.?\\s+(\\d{1,2})\\s*[-–]\\s*(${month})\\.?\\s+(\\d{1,2}),?\\s+(20\\d{2})`, 'i')
+  );
+  if (range) {
+    const endYear = Number(range[5]);
+    const startMonth = monthFromName(range[1]);
+    const endMonth = monthFromName(range[3]);
+    const startYear = startMonth > endMonth ? endYear - 1 : endYear;
+    return { year: endYear, startMonth, endMonth, startYear, endYear };
+  }
+
+  const closingNumeric = header.match(/closing\s+date[:\s]+(\d{1,2})\/(\d{1,2})\/(\d{2,4})/i);
+  if (closingNumeric) {
+    let year = Number(closingNumeric[3]);
+    if (year < 100) year += 2000;
+    return { year, endMonth: Number(closingNumeric[1]), endYear: year };
+  }
+
+  const monthYear = header.match(new RegExp(`\\b(${month})\\.?\\s+(20\\d{2})\\b`, 'i'));
+  if (monthYear) return { year: Number(monthYear[2]), endMonth: monthFromName(monthYear[1]), endYear: Number(monthYear[2]) };
+
   const years = [];
   const re = /\b(20[2-3]\d)\b/g;
-  lines.forEach((line) => {
-    let m;
-    while ((m = re.exec(line))) years.push(Number(m[1]));
-  });
-  if (!years.length) return new Date().getFullYear();
+  let m;
+  while ((m = re.exec(header))) years.push(Number(m[1]));
+  if (!years.length) return { year: new Date().getFullYear() };
   years.sort((a, b) => a - b);
-  return years[Math.floor(years.length / 2)];
+  const year = years[Math.floor(years.length / 2)];
+  return { year, endYear: year };
+}
+
+function yearForMonth(month, info) {
+  const endYear = info.endYear || info.year;
+  const startYear = info.startYear;
+  if (startYear && startYear !== endYear && info.startMonth && info.endMonth) {
+    return month >= info.startMonth ? startYear : endYear;
+  }
+  return info.year || endYear || new Date().getFullYear();
 }
 
 function toIsoDate(month, day, year) {
@@ -182,23 +239,158 @@ function looksLikeHeader(line) {
   return false;
 }
 
+function cleanVendorName(vendor) {
+  return String(vendor || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[\s#*·•\-]+[A-Z0-9]{4,}\s*$/i, '')
+    .replace(/\s+\d{4,}\s*$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function shouldSkipPurchaseLine(vendor) {
+  const text = String(vendor || '');
+  if (/\b(payment|credit|balance|minimum|interest)\b/i.test(text)) return true;
+  if (/\bfee\b/i.test(text) && !/\b(annual|membership|foreign|late)\b/i.test(text)) return true;
+  return false;
+}
+
+function toRow(dateIso, vendor, amount) {
+  const cleaned = cleanVendorName(vendor);
+  if (!cleaned || cleaned.length < 2) return null;
+  if (shouldSkipPurchaseLine(cleaned)) return null;
+  return {
+    date: dateIso,
+    vendor: cleaned,
+    amount,
+    category: categorizeVendor(cleaned),
+    appId: DEFAULT_APP,
+    taxYear: taxYearFromDate(dateIso),
+    selected: true,
+  };
+}
+
+function parseCapOneLine(raw, yearInfo) {
+  const line = String(raw || '').replace(/\s+/g, ' ').trim();
+  if (!line) return null;
+
+  const lastToken = line.split(' ').pop() || '';
+  if (/^[-+(]/.test(lastToken) || /^-/.test(lastToken.replace('$', ''))) return null;
+
+  const normalized = line.replace(/\$/g, '').replace(/,/g, '').replace(/\s+/g, ' ').trim();
+  const capOne = normalized.match(/^(\d{1,2}\/\d{1,2})\s+(.+?)\s+(\d+\.\d{2})$/);
+  if (capOne) {
+    const [month, day] = capOne[1].split('/').map(Number);
+    const amount = Number(capOne[3]);
+    if (!Number.isFinite(amount) || amount <= 0) return null;
+    const iso = toIsoDate(month, day, yearForMonth(month, yearInfo));
+    return toRow(iso, capOne[2], amount);
+  }
+
+  const withYear = normalized.match(/^(\d{1,2}\/\d{1,2})\/(\d{2,4})\s+(.+?)\s+(\d+\.\d{2})$/);
+  if (withYear) {
+    const [month, day] = withYear[1].split('/').map(Number);
+    const amount = Number(withYear[4]);
+    if (!Number.isFinite(amount) || amount <= 0) return null;
+    const iso = toIsoDate(month, day, withYear[2]);
+    return toRow(iso, withYear[3], amount);
+  }
+
+  const twoDates = normalized.match(/^(\d{1,2}\/\d{1,2})(?:\/\d{2,4})?\s+(\d{1,2}\/\d{1,2})(?:\/\d{2,4})?\s+(.+?)\s+(\d+\.\d{2})$/);
+  if (twoDates) {
+    const [month, day] = twoDates[1].split('/').map(Number);
+    const amount = Number(twoDates[4]);
+    if (!Number.isFinite(amount) || amount <= 0) return null;
+    const iso = toIsoDate(month, day, yearForMonth(month, yearInfo));
+    return toRow(iso, twoDates[3], amount);
+  }
+
+  return null;
+}
+
+function sectionFromLine(line) {
+  const text = String(line || '').trim();
+  if (/^purchases?\b/i.test(text) || /\bpurchases\s+and\s+adjustments\b/i.test(text)) return 'purchases';
+  if (/^credits?\b/i.test(text) || /^payments?\b/i.test(text) || /\bpayments?\s+and\s+credits\b/i.test(text)) return 'skip';
+  return null;
+}
+
+function stitchCapOneLines(lines) {
+  const out = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = String(lines[i] || '').replace(/\s+/g, ' ').trim();
+    const next = String(lines[i + 1] || '').replace(/\s+/g, ' ').trim();
+    if (/^\d{1,2}\/\d{1,2}(?:\/\d{2,4})?$/.test(line) && next) {
+      out.push(`${line} ${next}`);
+      i += 1;
+      continue;
+    }
+    const stripped = line.replace(/\$/g, '').replace(/,/g, '').trim();
+    if (/^\d{1,2}\/\d{1,2}/.test(stripped) && !/\d+\.\d{2}$/.test(stripped) && /^\(?[+-]?\$?\d[\d,]*\.\d{2}\)?$/.test(next)) {
+      out.push(`${line} ${next}`);
+      i += 1;
+      continue;
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+/** Capital One–first parser: MM/DD + vendor + amount, statement-year dates, skip credits/payments. */
+export function parseTransactions(lines) {
+  const yearInfo = detectStatementYear(lines);
+  const seen = new Set();
+  const rows = [];
+  let section = 'purchases';
+
+  stitchCapOneLines(lines).forEach((raw) => {
+    const line = String(raw || '').replace(/\s+/g, ' ').trim();
+    if (!line) return;
+    const nextSection = sectionFromLine(line);
+    if (nextSection) {
+      section = nextSection;
+      return;
+    }
+    if (section === 'skip') return;
+    if (looksLikeHeader(line)) return;
+
+    const row = parseCapOneLine(line, yearInfo);
+    if (!row) return;
+    const key = `${row.date}|${row.amount}|${row.vendor.toLowerCase()}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    rows.push(row);
+  });
+
+  return rows;
+}
+
 export function parseStatementLines(lines) {
-  const year = inferYear(lines);
+  const capOne = parseTransactions(lines);
+  if (capOne.length) return capOne;
+
+  const yearInfo = detectStatementYear(lines);
+  const year = yearInfo.year;
   const seen = new Set();
   const rows = [];
 
   lines.forEach((line) => {
     if (!line || looksLikeHeader(line)) return;
+    if (shouldSkipPurchaseLine(line)) return;
     const dates = extractDates(line, year);
     const amounts = extractAmounts(line);
     if (!dates.length || !amounts.length) return;
 
     const date = dates[0];
+    const lastRaw = String(line).trim().split(/\s+/).pop() || '';
+    if (/^[-+(]/.test(lastRaw) || /^-/.test(lastRaw.replace('$', ''))) return;
+
     const dollarPref = amounts.filter((a) => /\$/.test(a.raw));
     const amountHit = (dollarPref.length ? dollarPref : amounts)[0];
-    const vendor = cleanVendor(line, dates, amounts);
+    const vendor = cleanVendorName(cleanVendor(line, dates, amounts));
     if (!vendor || vendor.length < 2) return;
-    if (/^(total|subtotal|balance|interest)$/i.test(vendor)) return;
+    if (shouldSkipPurchaseLine(vendor)) return;
 
     const key = `${date.iso}|${amountHit.amount}|${vendor.toLowerCase()}`;
     if (seen.has(key)) return;

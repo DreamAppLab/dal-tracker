@@ -575,7 +575,14 @@ export default function ExpensesTab() {
       )}
 
       {showImport && (
-        <ImportStatementModal onClose={() => setShowImport(false)} />
+        <ImportStatementModal
+          onClose={() => setShowImport(false)}
+          onManualEntry={() => {
+            setShowImport(false);
+            setEditing(null);
+            setShowForm(true);
+          }}
+        />
       )}
 
       {pendingDelete && (
