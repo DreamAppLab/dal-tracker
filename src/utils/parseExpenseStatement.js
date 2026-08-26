@@ -65,6 +65,9 @@ async function extractLinesFromPdf(file) {
   const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
   const lines = [];
 
+  console.log('=== PDF PAGE COUNT ===');
+  console.log(`Total pages: ${pdf.numPages}`);
+
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum += 1) {
     const page = await pdf.getPage(pageNum);
     const content = await page.getTextContent();
@@ -79,13 +82,21 @@ async function extractLinesFromPdf(file) {
       rows.get(y).push({ x, str });
     });
 
+    const pageLines = [];
     Array.from(rows.entries())
       .sort((a, b) => b[0] - a[0])
       .forEach(([, parts]) => {
         parts.sort((a, b) => a.x - b.x);
         const text = parts.map((p) => p.str).join(' ').replace(/\s+/g, ' ').trim();
-        if (text) lines.push(text);
+        if (text) pageLines.push(text);
       });
+
+    const pageText = pageLines.join('\n');
+    console.log(`=== PAGE ${pageNum} ===`);
+    console.log(pageText);
+    console.log(`=== END PAGE ${pageNum} ===`);
+
+    lines.push(...pageLines);
   }
 
   return lines;
@@ -412,9 +423,5 @@ export function parseStatementLines(lines) {
 
 export async function parseStatementPdf(file) {
   const lines = await extractLinesFromPdf(file);
-  const fullText = lines.join('\n');
-  console.log('=== RAW PDF TEXT ===');
-  console.log(fullText);
-  console.log('=== END RAW TEXT ===');
   return parseStatementLines(lines);
 }
