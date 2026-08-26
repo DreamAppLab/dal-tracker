@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { format, parseISO } from 'date-fns';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import ImportStatementModal from '../components/ImportStatementModal';
 import {
@@ -38,6 +38,7 @@ function emptyForm() {
     date: todayISO(),
     category: EXPENSE_CATEGORIES[0],
     appId: EXPENSE_APPS[0],
+    notes: '',
     description: '',
   };
 }
@@ -82,7 +83,8 @@ function ExpenseFormModal({ expense, onClose, onSaved }) {
       date: expense.date || todayISO(),
       category: expense.category || EXPENSE_CATEGORIES[0],
       appId: expense.appId || EXPENSE_APPS[0],
-      description: expense.description || '',
+      notes: expense.notes || expense.description || '',
+      description: expense.description || expense.notes || '',
     };
   });
   const [file, setFile] = useState(null);
@@ -132,13 +134,15 @@ function ExpenseFormModal({ expense, onClose, onSaved }) {
     setSaving(true);
     setError('');
     try {
+      const notes = (form.notes || form.description || '').trim();
       const payload = {
         vendor,
         amount,
         date: form.date,
         category: form.category,
         appId: form.appId,
-        description: form.description.trim(),
+        notes,
+        description: notes,
         taxYear: taxYearFromDate(form.date),
       };
 
@@ -149,11 +153,17 @@ function ExpenseFormModal({ expense, onClose, onSaved }) {
       }
 
       if (isEdit) {
-        payload.needsReview = false;
-        await apiJson(`/api/expenses?id=${encodeURIComponent(expense.id)}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+        await updateDoc(doc(db, 'expenses', expense.id), {
+          vendor: payload.vendor,
+          amount: payload.amount,
+          date: payload.date,
+          category: payload.category,
+          appId: payload.appId,
+          notes: payload.notes,
+          description: payload.description,
+          taxYear: payload.taxYear,
+          needsReview: false,
+          updatedAt: serverTimestamp(),
         });
       } else {
         payload.source = 'manual';
@@ -186,6 +196,68 @@ function ExpenseFormModal({ expense, onClose, onSaved }) {
               This expense was parsed from email and needs review. Confirm the fields and save.
             </div>
           )}
+          {isEdit ? (
+            <>
+              <div className="form-group">
+                <label className="form-label">Date *</label>
+                <input
+                  className="form-input"
+                  type="date"
+                  value={form.date}
+                  onChange={(e) => set('date', e.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Vendor *</label>
+                <input
+                  className="form-input"
+                  value={form.vendor}
+                  onChange={(e) => set('vendor', e.target.value)}
+                  placeholder="e.g. Firebase, Apple Developer, Starbucks"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Amount *</label>
+                <input
+                  className="form-input"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.amount}
+                  onChange={(e) => set('amount', e.target.value)}
+                  placeholder="25.00"
+                />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Category *</label>
+                  <select className="form-select" value={form.category} onChange={(e) => set('category', e.target.value)}>
+                    {EXPENSE_CATEGORIES.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">App *</label>
+                  <select className="form-select" value={form.appId} onChange={(e) => set('appId', e.target.value)}>
+                    {EXPENSE_APPS.map((a) => (
+                      <option key={a} value={a}>{a}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Notes</label>
+                <input
+                  className="form-input"
+                  value={form.notes}
+                  onChange={(e) => set('notes', e.target.value)}
+                  placeholder="Optional note"
+                />
+              </div>
+            </>
+          ) : (
+            <>
           <div className="form-group">
             <label className="form-label">Vendor *</label>
             <input
@@ -260,12 +332,14 @@ function ExpenseFormModal({ expense, onClose, onSaved }) {
               </a>
             )}
           </div>
+            </>
+          )}
           {error && <div className="ft-error">{error}</div>}
         </div>
         <div className="modal-footer">
           <button className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
           <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving…' : 'Save'}
+            {saving ? 'Saving…' : (isEdit ? 'Save Changes' : 'Save')}
           </button>
         </div>
       </div>
@@ -369,12 +443,12 @@ export default function ExpensesTab() {
     URL.revokeObjectURL(url);
   };
 
-  const confirmDelete = async () => {
-    if (!pendingDelete) return;
+  const confirmDelete = async (row) => {
+    if (!row || !row.id) return;
     setDeleting(true);
     setDeleteError('');
     try {
-      await apiJson(`/api/expenses?id=${encodeURIComponent(pendingDelete.id)}`, { method: 'DELETE' });
+      await deleteDoc(doc(db, 'expenses', row.id));
       setPendingDelete(null);
     } catch (err) {
       setDeleteError(err.message || 'Could not delete expense.');
@@ -541,22 +615,47 @@ export default function ExpensesTab() {
                       </span>
                     </td>
                     <td>
-                      <div className="item-actions">
-                        <button
-                          className="icon-btn"
-                          title="Edit"
-                          onClick={() => { setEditing(row); setShowForm(true); }}
-                        >
-                          ✎
-                        </button>
-                        <button
-                          className="icon-btn danger"
-                          title="Delete"
-                          onClick={() => { setDeleteError(''); setPendingDelete(row); }}
-                        >
-                          🗑
-                        </button>
-                      </div>
+                      {pendingDelete && pendingDelete.id === row.id ? (
+                        <div className="item-actions" style={{ flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                            Delete this expense?
+                          </span>
+                          <button
+                            className="btn btn-sm btn-danger"
+                            disabled={deleting}
+                            onClick={() => confirmDelete(row)}
+                          >
+                            {deleting ? 'Deleting…' : 'Yes, Delete'}
+                          </button>
+                          <button
+                            className="btn btn-sm btn-secondary"
+                            disabled={deleting}
+                            onClick={() => { setPendingDelete(null); setDeleteError(''); }}
+                          >
+                            Cancel
+                          </button>
+                          {deleteError && (
+                            <span className="ft-error" style={{ width: '100%', margin: 0 }}>{deleteError}</span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="item-actions">
+                          <button
+                            className="icon-btn"
+                            title="Edit"
+                            onClick={() => { setEditing(row); setShowForm(true); }}
+                          >
+                            ✎
+                          </button>
+                          <button
+                            className="icon-btn danger"
+                            title="Delete"
+                            onClick={() => { setDeleteError(''); setPendingDelete(row); }}
+                          >
+                            🗑
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );
@@ -583,31 +682,6 @@ export default function ExpensesTab() {
             setShowForm(true);
           }}
         />
-      )}
-
-      {pendingDelete && (
-        <div className="modal-overlay" onClick={() => !deleting && setPendingDelete(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div className="modal-title">Delete expense</div>
-              <button className="btn btn-ghost btn-sm" onClick={() => setPendingDelete(null)} disabled={deleting}>✕</button>
-            </div>
-            <div className="modal-body">
-              <p>
-                Delete this expense from {pendingDelete.vendor} for {formatMoney(pendingDelete.amount)}? This cannot be undone.
-              </p>
-              {deleteError && <div className="ft-error" style={{ marginTop: 12 }}>{deleteError}</div>}
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setPendingDelete(null)} disabled={deleting}>
-                Cancel
-              </button>
-              <button className="btn btn-primary" onClick={confirmDelete} disabled={deleting}>
-                {deleting ? 'Deleting…' : 'Confirm'}
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );
