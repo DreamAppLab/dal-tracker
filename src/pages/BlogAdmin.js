@@ -20,6 +20,7 @@ const STATUS_OPTIONS = [
 
 const META_TITLE_MAX = 60;
 const META_DESC_MAX = 160;
+const EXCERPT_MAX = 300;
 
 function toDate(value) {
   if (value == null || value === '') return null;
@@ -82,6 +83,7 @@ function normalizeTags(tags) {
 function emptyDraft() {
   return {
     title: '',
+    excerpt: '',
     body: '',
     status: 'draft',
     scheduledAt: '',
@@ -97,6 +99,7 @@ function emptyDraft() {
 function postToDraft(post) {
   return {
     title: post.title || '',
+    excerpt: post.excerpt || '',
     body: post.body || post.content || '',
     status: normalizeStatus(post.status),
     scheduledAt: toDatetimeLocal(post.scheduledAt),
@@ -127,6 +130,15 @@ function CharCount({ value, max }) {
   return (
     <span className={`blog-char-count ${len > max ? 'over' : ''}`}>
       {len}/{max}
+    </span>
+  );
+}
+
+function RemainingCount({ value, max }) {
+  const remaining = Math.max(0, max - String(value || '').length);
+  return (
+    <span className={`blog-char-count ${remaining === 0 ? 'over' : ''}`}>
+      {remaining} remaining
     </span>
   );
 }
@@ -260,6 +272,7 @@ export default function BlogAdmin() {
     const html = draft.body || '';
     const next = {
       title: draft.title.trim(),
+      excerpt: String(draft.excerpt || '').trim().slice(0, EXCERPT_MAX),
       body: html,
       content: html,
       status,
@@ -307,6 +320,7 @@ export default function BlogAdmin() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: '',
+          excerpt: '',
           body: '',
           content: '',
           status: 'draft',
@@ -352,6 +366,10 @@ export default function BlogAdmin() {
   };
 
   const handleSchedule = () => {
+    if (!String(draft.excerpt || '').trim()) {
+      setError('Excerpt required before publishing');
+      return;
+    }
     if (!draft.scheduledAt) {
       setError('Set a scheduled date and time before scheduling.');
       return;
@@ -369,8 +387,12 @@ export default function BlogAdmin() {
     });
   };
 
-  const handlePublish = () =>
-    runAction('publish', async () => {
+  const handlePublish = () => {
+    if (!String(draft.excerpt || '').trim()) {
+      setError('Excerpt required before publishing');
+      return;
+    }
+    return runAction('publish', async () => {
       await apiJson('/api/blog/post/' + encodeURIComponent(selectedId), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -381,6 +403,7 @@ export default function BlogAdmin() {
       setTab('published');
       setNotice('Published.');
     });
+  };
 
   const handleArchive = () =>
     runAction('archive', async () => {
@@ -507,6 +530,27 @@ export default function BlogAdmin() {
                 </div>
 
                 <div className="form-group">
+                  <label className="form-label blog-label-with-count" htmlFor="blog-excerpt">
+                    <span>
+                      Excerpt
+                      <span className="blog-required" aria-hidden="true"> *</span>
+                    </span>
+                    <RemainingCount value={draft.excerpt} max={EXCERPT_MAX} />
+                  </label>
+                  <textarea
+                    id="blog-excerpt"
+                    className="form-textarea"
+                    rows={4}
+                    maxLength={EXCERPT_MAX}
+                    required
+                    value={draft.excerpt}
+                    onChange={(e) => updateDraft({ excerpt: e.target.value.slice(0, EXCERPT_MAX) })}
+                    placeholder="Short summary shown on the public blog"
+                    aria-required="true"
+                  />
+                </div>
+
+                <div className="form-group">
                   <label className="form-label">Body</label>
                   <BlogQuillEditor
                     key={selectedId}
@@ -528,13 +572,33 @@ export default function BlogAdmin() {
                       onChange={(e) => updateDraft({ scheduledAt: e.target.value })}
                       aria-label="Schedule date and time"
                     />
-                    <button type="button" className="btn btn-secondary" onClick={handleSchedule} disabled={!!busy}>
-                      {busy === 'schedule' ? 'Scheduling…' : 'Schedule'}
-                    </button>
+                    <span
+                      className="blog-action-wrap"
+                      title={!String(draft.excerpt || '').trim() ? 'Excerpt required before publishing' : undefined}
+                    >
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={handleSchedule}
+                        disabled={!!busy || !String(draft.excerpt || '').trim()}
+                      >
+                        {busy === 'schedule' ? 'Scheduling…' : 'Schedule'}
+                      </button>
+                    </span>
                   </div>
-                  <button type="button" className="btn btn-secondary" onClick={handlePublish} disabled={!!busy}>
-                    {busy === 'publish' ? 'Publishing…' : 'Publish'}
-                  </button>
+                  <span
+                    className="blog-action-wrap"
+                    title={!String(draft.excerpt || '').trim() ? 'Excerpt required before publishing' : undefined}
+                  >
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={handlePublish}
+                      disabled={!!busy || !String(draft.excerpt || '').trim()}
+                    >
+                      {busy === 'publish' ? 'Publishing…' : 'Publish'}
+                    </button>
+                  </span>
                   <button type="button" className="btn btn-secondary" onClick={handleArchive} disabled={!!busy}>
                     {busy === 'archive' ? 'Archiving…' : 'Archive'}
                   </button>

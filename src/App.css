@@ -2596,6 +2596,8 @@ option { background: var(--bg-card); }
   color: var(--text-secondary);
 }
 .blog-char-count.over { color: var(--coral); }
+.blog-required { color: var(--coral); font-weight: 700; }
+.blog-action-wrap { display: inline-flex; }
 .blog-quill {
   background: var(--bg-input);
   border: 1px solid var(--border);

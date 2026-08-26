@@ -114,6 +114,7 @@ module.exports = async (req, res) => {
         tags: Array.isArray(body.tags) ? body.tags.map((t) => String(t).trim()).filter(Boolean) : [],
         metaTitle: typeof body.metaTitle === 'string' ? body.metaTitle : '',
         metaDescription: typeof body.metaDescription === 'string' ? body.metaDescription : '',
+        excerpt: typeof body.excerpt === 'string' ? body.excerpt.slice(0, 300) : '',
         createdAt: now,
         updatedAt: now,
         publishedAt: (body.status || 'draft') === 'published' ? now : null,

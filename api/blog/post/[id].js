@@ -92,6 +92,7 @@ function prepareUpdate(body) {
     'metaTitle',
     'metaDescription',
     'publishedAt',
+    'excerpt',
   ];
   allowed.forEach((key) => {
     if (Object.prototype.hasOwnProperty.call(body, key)) update[key] = body[key];
@@ -107,6 +108,9 @@ function prepareUpdate(body) {
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean);
+  }
+  if (Object.prototype.hasOwnProperty.call(update, 'excerpt')) {
+    update.excerpt = String(update.excerpt == null ? '' : update.excerpt).slice(0, 300);
   }
   if (Object.prototype.hasOwnProperty.call(update, 'publishedAt')) {
     const published = toTimestamp(update.publishedAt);
@@ -146,7 +150,7 @@ module.exports = async (req, res) => {
       if (update.status === 'published' && (!prev.publishedAt || Object.prototype.hasOwnProperty.call(body, 'publishedAt'))) {
         update.publishedAt = FieldValue.serverTimestamp();
       }
-      await ref.update(update);
+      await ref.set(update, { merge: true });
       const updated = await ref.get();
       return res.status(200).json({ ok: true, post: serializeDoc(updated) });
     }
