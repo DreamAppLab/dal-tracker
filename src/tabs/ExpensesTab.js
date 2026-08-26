@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
+import ImportStatementModal from '../components/ImportStatementModal';
 import {
   CATEGORY_BADGE,
   EXPENSE_APPS,
@@ -277,6 +278,7 @@ export default function ExpensesTab() {
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState(emptyFilters);
   const [showForm, setShowForm] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [editing, setEditing] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -393,6 +395,9 @@ export default function ExpensesTab() {
         <div className="page-actions">
           <button className="btn btn-secondary" onClick={exportCsv} disabled={!filtered.length}>
             Export
+          </button>
+          <button className="btn btn-secondary" onClick={() => setShowImport(true)}>
+            Import Statement
           </button>
           <button className="btn btn-primary" onClick={() => { setEditing(null); setShowForm(true); }}>
             + Add Expense
@@ -567,6 +572,10 @@ export default function ExpensesTab() {
           onClose={() => { setShowForm(false); setEditing(null); }}
           onSaved={() => { setShowForm(false); setEditing(null); }}
         />
+      )}
+
+      {showImport && (
+        <ImportStatementModal onClose={() => setShowImport(false)} />
       )}
 
       {pendingDelete && (

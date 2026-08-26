@@ -2441,6 +2441,75 @@ option { background: var(--bg-card); }
   .expenses-filters { grid-template-columns: 1fr 1fr; }
 }
 
+.expenses-import-modal {
+  max-width: 900px;
+  width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.expenses-import-modal .modal-body {
+  overflow: auto;
+  flex: 1;
+}
+.expenses-import-status {
+  padding: 28px 12px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+.expenses-import-done {
+  color: var(--teal);
+  font-weight: 700;
+}
+.expenses-import-table-wrap {
+  overflow: auto;
+  max-height: 52vh;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.expenses-import-table { min-width: 760px; margin: 0; }
+.expenses-import-table tbody tr:nth-child(odd) td {
+  background: rgba(255, 255, 255, 0.02);
+}
+.expenses-import-table tbody tr:nth-child(even) td {
+  background: rgba(0, 0, 0, 0.12);
+}
+.expenses-import-table tbody tr.expenses-import-row-checked td {
+  background: rgba(0, 212, 184, 0.08);
+}
+.expenses-import-check { width: 36px; text-align: center; }
+.expenses-import-table .form-select {
+  min-width: 140px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+.expenses-import-totals {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.expenses-import-totals strong {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+@media (max-width: 700px) {
+  .expenses-import-overlay {
+    padding: 0;
+    align-items: stretch;
+  }
+  .expenses-import-modal {
+    max-width: none;
+    max-height: none;
+    height: 100%;
+    border-radius: 0;
+  }
+}
+
 /* ── BLOG ADMIN ── */
 .blog-admin-page { max-width: 1400px; }
 .blog-tabs {

@@ -38,6 +38,7 @@ export const SOURCE_META = {
   manual: { icon: '✏️', label: 'Manual' },
   pdf: { icon: '📄', label: 'PDF' },
   image: { icon: '🖼️', label: 'Image' },
+  import: { icon: '📥', label: 'Import' },
 };
 
 export const CATEGORY_BADGE = {
