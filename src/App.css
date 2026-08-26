@@ -2479,6 +2479,9 @@ option { background: var(--bg-card); }
 .expenses-import-table tbody tr.expenses-import-row-checked td {
   background: rgba(0, 212, 184, 0.08);
 }
+.expenses-import-table tbody tr.expenses-import-row-dup td {
+  background: rgba(245, 158, 11, 0.08);
+}
 .expenses-import-check { width: 36px; text-align: center; }
 .expenses-import-table .form-select {
   min-width: 140px;

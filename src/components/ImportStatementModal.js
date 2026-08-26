@@ -1,8 +1,27 @@
 import React, { useMemo, useState } from 'react';
-import { collection, doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { EXPENSE_APPS, EXPENSE_CATEGORIES, formatMoney } from '../data/expensesData';
 import { parseStatementPdf } from '../utils/parseExpenseStatement';
+
+async function statementIdFromFile(file) {
+  const buf = await file.arrayBuffer();
+  if (window.crypto && window.crypto.subtle) {
+    const hash = await window.crypto.subtle.digest('SHA-256', buf);
+    return Array.from(new Uint8Array(hash))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+  return `${file.name}-${file.size}-${file.lastModified}`;
+}
+
+function isDuplicateExpense(existing, transaction) {
+  return existing.some((e) => (
+    e.date === transaction.date
+    && Math.abs(parseFloat(e.amount) - parseFloat(transaction.amount)) < 0.01
+    && String(e.vendor || '').toLowerCase().trim() === String(transaction.vendor || '').toLowerCase().trim()
+  ));
+}
 
 export default function ImportStatementModal({ onClose, onImported, onManualEntry }) {
   const [step, setStep] = useState('upload');
@@ -11,9 +30,12 @@ export default function ImportStatementModal({ onClose, onImported, onManualEntr
   const [error, setError] = useState('');
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [doneCount, setDoneCount] = useState(0);
+  const [statementId, setStatementId] = useState('');
+  const [billingRange, setBillingRange] = useState({ start: '', end: '' });
 
   const selected = useMemo(() => rows.filter((r) => r.selected), [rows]);
   const selectedTotal = selected.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+  const duplicateCount = rows.filter((r) => r.isDuplicate).length;
 
   const handleFile = (next) => {
     setError('');
@@ -28,6 +50,7 @@ export default function ImportStatementModal({ onClose, onImported, onManualEntr
     }
     setFile(next);
     setRows([]);
+    setStatementId('');
     setStep('upload');
   };
 
@@ -41,7 +64,41 @@ export default function ImportStatementModal({ onClose, onImported, onManualEntr
         setStep('unparsed');
         return;
       }
-      setRows(parsed.map((row, i) => ({ ...row, id: `row-${i}` })));
+
+      const id = await statementIdFromFile(file);
+      setStatementId(id);
+      const stmtSnap = await getDoc(doc(db, 'importedStatements', id));
+      if (stmtSnap.exists()) {
+        setError('This statement has already been imported. Upload a different file, or review existing expenses.');
+        setStep('upload');
+        return;
+      }
+
+      const dates = parsed.map((row) => row.date).filter(Boolean).sort();
+      const billingStart = dates[0];
+      const billingEnd = dates[dates.length - 1];
+      setBillingRange({ start: billingStart, end: billingEnd });
+
+      let existingExpenses = [];
+      if (billingStart && billingEnd) {
+        const q = query(
+          collection(db, 'expenses'),
+          where('date', '>=', billingStart),
+          where('date', '<=', billingEnd)
+        );
+        const existingSnap = await getDocs(q);
+        existingExpenses = existingSnap.docs.map((d) => d.data());
+      }
+
+      setRows(parsed.map((row, i) => {
+        const duplicate = isDuplicateExpense(existingExpenses, row);
+        return {
+          ...row,
+          id: `row-${i}`,
+          isDuplicate: duplicate,
+          selected: !duplicate,
+        };
+      }));
       setStep('preview');
     } catch (err) {
       setError(err.message || 'Could not parse this PDF.');
@@ -81,6 +138,7 @@ export default function ImportStatementModal({ onClose, onImported, onManualEntr
             app: row.appId,
             taxYear: row.taxYear,
             source: 'import',
+            statementId: statementId || '',
             description: '',
             parsedByAI: false,
             needsReview: false,
@@ -90,6 +148,22 @@ export default function ImportStatementModal({ onClose, onImported, onManualEntr
         );
         setProgress({ current: i + 1, total: selected.length });
       }
+
+      if (statementId) {
+        await setDoc(
+          doc(db, 'importedStatements', statementId),
+          {
+            statementId,
+            fileName: file ? file.name : '',
+            billingStart: billingRange.start,
+            billingEnd: billingRange.end,
+            importedCount: selected.length,
+            importedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+
       setDoneCount(selected.length);
       setStep('done');
       if (onImported) onImported();
@@ -155,6 +229,11 @@ export default function ImportStatementModal({ onClose, onImported, onManualEntr
 
           {step === 'preview' && (
             <>
+              {duplicateCount > 0 && (
+                <div className="expenses-review-banner">
+                  {duplicateCount} transaction{duplicateCount === 1 ? '' : 's'} may already be imported (unchecked). Review before importing.
+                </div>
+              )}
               <div className="expenses-import-table-wrap">
                 <table className="quotes-table expenses-table expenses-import-table">
                   <thead>
@@ -176,7 +255,13 @@ export default function ImportStatementModal({ onClose, onImported, onManualEntr
                   </thead>
                   <tbody>
                     {rows.map((row) => (
-                      <tr key={row.id} className={row.selected ? 'expenses-import-row-checked' : ''}>
+                      <tr
+                        key={row.id}
+                        className={[
+                          row.selected ? 'expenses-import-row-checked' : '',
+                          row.isDuplicate ? 'expenses-import-row-dup' : '',
+                        ].filter(Boolean).join(' ')}
+                      >
                         <td className="expenses-import-check">
                           <input
                             type="checkbox"
@@ -186,7 +271,12 @@ export default function ImportStatementModal({ onClose, onImported, onManualEntr
                           />
                         </td>
                         <td>{row.date}</td>
-                        <td>{row.vendor}</td>
+                        <td>
+                          <div className="expenses-vendor">{row.vendor}</div>
+                          {row.isDuplicate && (
+                            <span className="expenses-review-badge">Already imported</span>
+                          )}
+                        </td>
                         <td className="expenses-amount-col">{formatMoney(row.amount)}</td>
                         <td>
                           <select
