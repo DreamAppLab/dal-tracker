@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   format,
   startOfMonth,
@@ -11,6 +11,8 @@ import {
   parseISO,
   isWithinInterval,
   addDays,
+  subDays,
+  addHours,
 } from 'date-fns';
 import { db } from '../firebase';
 import {
@@ -21,9 +23,16 @@ import {
   deleteDoc,
 } from 'firebase/firestore';
 import { useGoogleCalendar } from '../contexts/GoogleCalendarContext';
-import { getAccountColorStyle } from '../data/calendarColors';
+import {
+  EVENT_COLORS,
+  getAccountColorStyle,
+  colorNameToGoogleColorId,
+  googleColorIdToName,
+} from '../data/calendarColors';
 
 const WEEKDAY_HEADERS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+const DAL_CALENDAR = 'dal';
+const GOOGLE_EVENTS_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
 
 function getWorkdaysForMonth(month) {
   const monthStart = startOfMonth(month);
@@ -43,37 +52,124 @@ function getWorkdaysForMonth(month) {
   return days;
 }
 
-function dalEventToForm(event) {
-  const start = parseISO(event.start.length === 10 ? `${event.start}T00:00:00` : event.start);
-  const end = parseISO(event.end.length === 10 ? `${event.end}T23:59:59` : event.end);
+function parseEventDate(value) {
+  return parseISO(value.length === 10 ? `${value}T00:00:00` : value);
+}
+
+function emptyForm() {
   return {
-    title: event.title,
-    start: event.allDay ? format(start, 'yyyy-MM-dd') : format(start, "yyyy-MM-dd'T'HH:mm"),
-    end: event.allDay ? format(end, 'yyyy-MM-dd') : format(end, "yyyy-MM-dd'T'HH:mm"),
-    allDay: event.allDay,
-    description: event.description || '',
+    title: '',
+    date: format(new Date(), 'yyyy-MM-dd'),
+    endDate: '',
+    time: '',
+    description: '',
+    calendar: DAL_CALENDAR,
+    color: 'coral',
   };
 }
 
-function EventForm({ onSave, onCancel, initial = null }) {
-  const [form, setForm] = useState(
-    initial || {
-      title: '',
-      start: format(new Date(), "yyyy-MM-dd'T'09:00"),
-      end: format(new Date(), "yyyy-MM-dd'T'10:00"),
-      allDay: false,
-      description: '',
+function eventToForm(event) {
+  const start = parseEventDate(event.start);
+  const end = parseEventDate(event.end);
+  let endDate = format(end, 'yyyy-MM-dd');
+  if (event.source === 'google' && event.allDay) {
+    const exclusiveEnd = parseISO(event.end.length === 10 ? `${event.end}T00:00:00` : event.end);
+    endDate = format(subDays(exclusiveEnd, 1), 'yyyy-MM-dd');
+    if (endDate < format(start, 'yyyy-MM-dd')) {
+      endDate = format(start, 'yyyy-MM-dd');
     }
-  );
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!form.title.trim()) return;
-    onSave(form);
+  }
+  const startDate = format(start, 'yyyy-MM-dd');
+  return {
+    title: event.title === '(No title)' ? '' : (event.title || ''),
+    date: startDate,
+    endDate: endDate !== startDate ? endDate : '',
+    time: event.allDay ? '' : format(start, 'HH:mm'),
+    description: event.description || '',
+    calendar: event.source === 'dal' ? DAL_CALENDAR : event.accountEmail,
+    color: event.color
+      || (event.colorId ? googleColorIdToName(event.colorId, event.accountColor || 'coral') : null)
+      || event.accountColor
+      || 'coral',
   };
+}
 
+function datesFromForm(form) {
+  const date = form.date;
+  const endDate = form.endDate || form.date;
+  const allDay = !form.time;
+  if (allDay) {
+    return {
+      allDay: true,
+      start: `${date}T00:00:00`,
+      end: `${endDate}T23:59:59`,
+    };
+  }
+  const startLocal = new Date(`${date}T${form.time}`);
+  const endLocal = form.endDate && form.endDate !== form.date
+    ? new Date(`${endDate}T${form.time}`)
+    : addHours(startLocal, 1);
+  return {
+    allDay: false,
+    start: startLocal.toISOString(),
+    end: endLocal.toISOString(),
+  };
+}
+
+function buildGoogleEventBody(form) {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const date = form.date;
+  const endDate = form.endDate || form.date;
+  const description = form.description || '';
+  const colorId = colorNameToGoogleColorId(form.color);
+  if (!form.time) {
+    return {
+      summary: form.title.trim(),
+      description,
+      colorId,
+      start: { date },
+      end: { date: format(addDays(parseISO(`${endDate}T00:00:00`), 1), 'yyyy-MM-dd') },
+    };
+  }
+  const startLocal = new Date(`${date}T${form.time}`);
+  const endLocal = form.endDate && form.endDate !== form.date
+    ? new Date(`${endDate}T${form.time}`)
+    : addHours(startLocal, 1);
+  return {
+    summary: form.title.trim(),
+    description,
+    colorId,
+    start: { dateTime: format(startLocal, "yyyy-MM-dd'T'HH:mm:ss"), timeZone },
+    end: { dateTime: format(endLocal, "yyyy-MM-dd'T'HH:mm:ss"), timeZone },
+  };
+}
+
+function googleEventApiId(event) {
+  if (event.googleEventId) return event.googleEventId;
+  if (event.accountEmail && event.id?.startsWith(`${event.accountEmail}-`)) {
+    return event.id.slice(event.accountEmail.length + 1);
+  }
+  return event.id;
+}
+
+async function parseGoogleError(res) {
+  const body = await res.json().catch(() => ({}));
+  return body?.error?.message || `Calendar API error (${res.status})`;
+}
+
+function EventForm({
+  form,
+  setForm,
+  connectedAccounts,
+  onSave,
+  onCancel,
+  onDelete,
+  saving,
+  error,
+  isEdit,
+}) {
   return (
-    <form onSubmit={handleSubmit} className="calendar-event-form">
+    <form onSubmit={onSave} className="calendar-event-form">
       <div className="form-group">
         <label className="form-label">Title</label>
         <input
@@ -86,144 +182,114 @@ function EventForm({ onSave, onCancel, initial = null }) {
       </div>
       <div className="form-row">
         <div className="form-group">
-          <label className="form-label">Start</label>
+          <label className="form-label">Date</label>
           <input
             className="form-input"
-            type={form.allDay ? 'date' : 'datetime-local'}
-            value={form.allDay ? form.start.slice(0, 10) : form.start}
-            onChange={e => setForm(f => ({ ...f, start: e.target.value }))}
+            type="date"
+            value={form.date}
+            onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+            required
           />
         </div>
         <div className="form-group">
-          <label className="form-label">End</label>
+          <label className="form-label">End date</label>
           <input
             className="form-input"
-            type={form.allDay ? 'date' : 'datetime-local'}
-            value={form.allDay ? form.end.slice(0, 10) : form.end}
-            onChange={e => setForm(f => ({ ...f, end: e.target.value }))}
+            type="date"
+            value={form.endDate}
+            min={form.date}
+            onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))}
           />
         </div>
       </div>
-      <label className="subscriptions-checkbox-label" style={{ marginBottom: 12 }}>
-        <input
-          type="checkbox"
-          checked={form.allDay}
-          onChange={e => setForm(f => ({ ...f, allDay: e.target.checked }))}
-        />
-        All day event
-      </label>
       <div className="form-group">
-        <label className="form-label">Description (optional)</label>
+        <label className="form-label">Time</label>
+        <input
+          className="form-input"
+          type="time"
+          value={form.time}
+          onChange={e => setForm(f => ({ ...f, time: e.target.value }))}
+        />
+        <div className="form-hint">Leave blank for an all-day event</div>
+      </div>
+      <div className="form-group">
+        <label className="form-label">Description</label>
         <textarea
           className="form-textarea"
           value={form.description}
           onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-          rows={2}
+          rows={3}
         />
       </div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button type="submit" className="btn btn-primary btn-sm">{initial ? 'Save Changes' : 'Save Event'}</button>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel}>Cancel</button>
+      <div className="form-group">
+        <label className="form-label">Calendar</label>
+        <select
+          className="form-select"
+          value={form.calendar}
+          onChange={e => {
+            const calendar = e.target.value;
+            setForm(f => {
+              const account = connectedAccounts.find(a => a.email === calendar);
+              return {
+                ...f,
+                calendar,
+                color: calendar === DAL_CALENDAR ? 'coral' : (account?.color || f.color),
+              };
+            });
+          }}
+        >
+          <option value={DAL_CALENDAR}>DAL Events</option>
+          {connectedAccounts.map(account => (
+            <option key={account.email} value={account.email}>{account.email}</option>
+          ))}
+        </select>
       </div>
+      <div className="form-group">
+        <label className="form-label">Color</label>
+        <div className="event-color-picker" role="listbox" aria-label="Event color">
+          {EVENT_COLORS.map(color => (
+            <button
+              key={color.name}
+              type="button"
+              className={`event-color-swatch${form.color === color.name ? ' selected' : ''}`}
+              style={{ background: color.value }}
+              title={color.name}
+              aria-label={color.name}
+              onClick={() => setForm(f => ({ ...f, color: color.name }))}
+            />
+          ))}
+        </div>
+      </div>
+      {error && <div className="calendar-error-banner">{error}</div>}
+      <div className="event-form-actions">
+        <button type="submit" className="btn btn-primary btn-sm" disabled={saving}>
+          {saving ? 'Saving...' : isEdit ? 'Save Changes' : 'Save Event'}
+        </button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel} disabled={saving}>
+          Cancel
+        </button>
+      </div>
+      {isEdit && (
+        <button type="button" className="btn btn-danger event-delete-btn" onClick={onDelete} disabled={saving}>
+          Delete
+        </button>
+      )}
     </form>
   );
 }
 
-function prepareDescriptionHtml(html) {
-  if (!html) return '';
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  doc.querySelectorAll('a').forEach((anchor) => {
-    anchor.setAttribute('target', '_blank');
-    anchor.setAttribute('rel', 'noopener noreferrer');
-    anchor.style.setProperty('color', '#00FF66', 'important');
-    anchor.style.textDecoration = 'underline';
-  });
-  return doc.body.innerHTML;
-}
-
-function EventDetailsModal({ event, editing, onClose, onEdit, onDelete, onSaveEdit }) {
-  if (!event) return null;
-
-  if (editing && event.source === 'dal') {
-    return (
-      <div className="modal-overlay" onClick={onClose}>
-        <div className="modal" onClick={e => e.stopPropagation()}>
-          <div className="modal-header">
-            <div className="modal-title">Edit DAL Event</div>
-            <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
-          </div>
-          <div className="modal-body">
-            <EventForm
-              initial={dalEventToForm(event)}
-              onSave={onSaveEdit}
-              onCancel={onClose}
-            />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const start = parseISO(event.start.length === 10 ? `${event.start}T00:00:00` : event.start);
-  const end = parseISO(event.end.length === 10 ? `${event.end}T23:59:59` : event.end);
-  const dateStr = format(start, 'EEEE, MMMM d, yyyy');
-  const timeStr = event.allDay
-    ? 'All day'
-    : `${format(start, 'h:mm a')} – ${format(end, 'h:mm a')}`;
-
-  const isDal = event.source === 'dal';
-  const sourceStyle = isDal
-    ? { color: 'var(--coral)', background: 'var(--coral-dim)' }
-    : getAccountColorStyle(event.accountColor);
-  const sourceLabel = isDal ? 'DAL Event' : event.accountEmail;
-
+function DeleteConfirmModal({ onCancel, onConfirm, deleting }) {
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal event-details-modal" onClick={e => e.stopPropagation()}>
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal event-confirm-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <div className="modal-title">{event.title}</div>
-          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
-        </div>
-        <div className="modal-body">
-          <div className="event-detail-row">
-            <span className="event-detail-label">Date</span>
-            <span className="event-detail-value">{dateStr}</span>
-          </div>
-          <div className="event-detail-row">
-            <span className="event-detail-label">Time</span>
-            <span className="event-detail-value">{timeStr}</span>
-          </div>
-          <div className="event-detail-row">
-            <span className="event-detail-label">Source</span>
-            <span className="event-detail-source" style={{ color: sourceStyle.color, background: sourceStyle.background }}>
-              <span className="event-detail-source-dot" style={{ background: sourceStyle.color }} />
-              {sourceLabel}
-            </span>
-          </div>
-          {event.location && (
-            <div className="event-detail-row">
-              <span className="event-detail-label">Location</span>
-              <span className="event-detail-value">{event.location}</span>
-            </div>
-          )}
-          {event.description && (
-            <div className="event-detail-row event-detail-row-block">
-              <span className="event-detail-label">Description</span>
-              <div
-                className="event-detail-value event-detail-description"
-                dangerouslySetInnerHTML={{ __html: prepareDescriptionHtml(event.description) }}
-              />
-            </div>
-          )}
+          <div className="modal-title">Delete this event?</div>
         </div>
         <div className="modal-footer">
-          {isDal && (
-            <>
-              <button className="btn btn-secondary" onClick={onEdit}>Edit</button>
-              <button className="btn btn-danger" onClick={onDelete}>Delete</button>
-            </>
-          )}
-          <button className="btn btn-primary" onClick={onClose} style={{ marginLeft: 'auto' }}>Close</button>
+          <button className="btn btn-ghost" onClick={onCancel} disabled={deleting}>Cancel</button>
+          <button className="btn btn-danger" onClick={onConfirm} disabled={deleting}>
+            {deleting ? 'Deleting...' : 'Delete'}
+          </button>
         </div>
       </div>
     </div>
@@ -238,14 +304,12 @@ async function fetchGoogleEvents(accessToken, timeMin, timeMax, authorizedFetch)
     orderBy: 'startTime',
     maxResults: '250',
   });
-  const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`;
+  const url = `${GOOGLE_EVENTS_URL}?${params}`;
   const res = authorizedFetch
     ? await authorizedFetch(url)
     : await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    const message = body?.error?.message || `Calendar API error (${res.status})`;
-    throw new Error(message);
+    throw new Error(await parseGoogleError(res));
   }
   const json = await res.json();
   return (json.items || []).map(ev => ({
@@ -257,6 +321,8 @@ async function fetchGoogleEvents(accessToken, timeMin, timeMax, authorizedFetch)
     description: ev.description || '',
     location: ev.location || '',
     source: 'google',
+    googleEventId: ev.id,
+    colorId: ev.colorId || '',
   }));
 }
 
@@ -266,14 +332,14 @@ function EventPill({ event, onSelect }) {
     onSelect(event);
   };
 
-  if (event.source === 'dal') {
+  if (event.source === 'dal' && !event.color) {
     return (
       <div className="calendar-event-pill dal" title={event.title} onClick={handleClick}>
         {event.title}
       </div>
     );
   }
-  const style = getAccountColorStyle(event.accountColor);
+  const style = getAccountColorStyle(event.color || event.accountColor);
   return (
     <div
       className="calendar-event-pill"
@@ -302,9 +368,18 @@ export default function CalendarDashboard() {
   const [dalEvents, setDalEvents] = useState([]);
   const [googleEvents, setGoogleEvents] = useState([]);
   const [loadingGoogle, setLoadingGoogle] = useState(false);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [selectedEvent, setSelectedEvent] = useState(null);
-  const [editingEvent, setEditingEvent] = useState(false);
+  const [googleReloadKey, setGoogleReloadKey] = useState(0);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingEvent, setEditingEvent] = useState(null);
+  const [form, setForm] = useState(() => emptyForm());
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const refreshGoogleEvents = useCallback(() => {
+    setGoogleReloadKey(k => k + 1);
+  }, []);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'calendarEvents'), (snapshot) => {
@@ -338,6 +413,7 @@ export default function CalendarDashboard() {
               id: `${account.email}-${ev.id}`,
               accountEmail: account.email,
               accountColor: account.color,
+              color: googleColorIdToName(ev.colorId, account.color),
             }));
           })
         );
@@ -364,47 +440,147 @@ export default function CalendarDashboard() {
       }
     };
     load();
-  }, [connectedAccounts, currentMonth, setGoogleError, authorizedCalendarFetch]);
+  }, [connectedAccounts, currentMonth, setGoogleError, authorizedCalendarFetch, googleReloadKey]);
 
-  const saveDalEvent = async (form) => {
-    const id = `evt${Date.now()}`;
-    const start = form.allDay ? `${form.start.slice(0, 10)}T00:00:00` : new Date(form.start).toISOString();
-    const end = form.allDay ? `${form.end.slice(0, 10)}T23:59:59` : new Date(form.end).toISOString();
+  const closeModal = () => {
+    setModalOpen(false);
+    setEditingEvent(null);
+    setFormError(null);
+    setConfirmDelete(false);
+    setSaving(false);
+    setDeleting(false);
+  };
+
+  const openAddModal = () => {
+    setEditingEvent(null);
+    setForm(emptyForm());
+    setFormError(null);
+    setConfirmDelete(false);
+    setModalOpen(true);
+  };
+
+  const openEditModal = (event) => {
+    setEditingEvent(event);
+    setForm(eventToForm(event));
+    setFormError(null);
+    setConfirmDelete(false);
+    setModalOpen(true);
+  };
+
+  const writeDalEvent = async (id, payload, isCreate) => {
     await setDoc(doc(db, 'calendarEvents', id), {
-      title: form.title.trim(),
-      start,
-      end,
-      allDay: form.allDay,
-      description: form.description || '',
+      ...payload,
       source: 'dal',
-      createdAt: new Date().toISOString(),
+      ...(isCreate ? { createdAt: new Date().toISOString() } : {}),
     });
-    setShowAddForm(false);
   };
 
-  const updateDalEvent = async (id, form) => {
-    const start = form.allDay ? `${form.start.slice(0, 10)}T00:00:00` : new Date(form.start).toISOString();
-    const end = form.allDay ? `${form.end.slice(0, 10)}T23:59:59` : new Date(form.end).toISOString();
-    await setDoc(doc(db, 'calendarEvents', id), {
-      title: form.title.trim(),
-      start,
-      end,
-      allDay: form.allDay,
-      description: form.description || '',
-      source: 'dal',
+  const googleWrite = async (account, method, eventId, body) => {
+    const url = eventId
+      ? `${GOOGLE_EVENTS_URL}/${encodeURIComponent(eventId)}`
+      : GOOGLE_EVENTS_URL;
+    const res = await authorizedCalendarFetch(account, url, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
     });
-    closeEventModal();
+    if (!res.ok) {
+      const message = await parseGoogleError(res);
+      if (res.status === 403) {
+        throw new Error(`${message} Reconnect ${account.email} to grant calendar write access.`);
+      }
+      throw new Error(message);
+    }
+    if (res.status === 204) return null;
+    return res.json().catch(() => null);
   };
 
-  const deleteDalEvent = async (id) => {
-    if (!window.confirm('Delete this event?')) return;
-    await deleteDoc(doc(db, 'calendarEvents', id));
-    closeEventModal();
+  const deleteFromSource = async (event) => {
+    if (event.source === 'dal') {
+      await deleteDoc(doc(db, 'calendarEvents', event.id));
+      return;
+    }
+    const account = connectedAccounts.find(a => a.email === event.accountEmail);
+    if (!account) throw new Error('Connected Google account not found.');
+    await googleWrite(account, 'DELETE', googleEventApiId(event));
   };
 
-  const closeEventModal = () => {
-    setSelectedEvent(null);
-    setEditingEvent(false);
+  const createOnTarget = async (formData) => {
+    const dates = datesFromForm(formData);
+    const payload = {
+      title: formData.title.trim(),
+      start: dates.start,
+      end: dates.end,
+      allDay: dates.allDay,
+      description: formData.description || '',
+      color: formData.color,
+    };
+    if (formData.calendar === DAL_CALENDAR) {
+      await writeDalEvent(`evt${Date.now()}`, payload, true);
+      return;
+    }
+    const account = connectedAccounts.find(a => a.email === formData.calendar);
+    if (!account) throw new Error('Select a connected Google calendar.');
+    await googleWrite(account, 'POST', null, buildGoogleEventBody(formData));
+  };
+
+  const updateInPlace = async (event, formData) => {
+    const dates = datesFromForm(formData);
+    if (formData.calendar === DAL_CALENDAR) {
+      await writeDalEvent(event.id, {
+        title: formData.title.trim(),
+        start: dates.start,
+        end: dates.end,
+        allDay: dates.allDay,
+        description: formData.description || '',
+        color: formData.color,
+      }, false);
+      return;
+    }
+    const account = connectedAccounts.find(a => a.email === formData.calendar);
+    if (!account) throw new Error('Connected Google account not found.');
+    await googleWrite(account, 'PATCH', googleEventApiId(event), buildGoogleEventBody(formData));
+  };
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    if (!form.title.trim() || !form.date) return;
+    setSaving(true);
+    setFormError(null);
+    try {
+      if (!editingEvent) {
+        await createOnTarget(form);
+      } else {
+        const prevCalendar = editingEvent.source === 'dal' ? DAL_CALENDAR : editingEvent.accountEmail;
+        if (prevCalendar === form.calendar) {
+          await updateInPlace(editingEvent, form);
+        } else {
+          await createOnTarget(form);
+          await deleteFromSource(editingEvent);
+        }
+      }
+      closeModal();
+      refreshGoogleEvents();
+    } catch (err) {
+      setFormError(err.message || 'Failed to save event');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!editingEvent) return;
+    setDeleting(true);
+    setFormError(null);
+    try {
+      await deleteFromSource(editingEvent);
+      closeModal();
+      refreshGoogleEvents();
+    } catch (err) {
+      setDeleting(false);
+      setConfirmDelete(false);
+      setFormError(err.message || 'Failed to delete event');
+    }
   };
 
   const days = getWorkdaysForMonth(currentMonth);
@@ -412,8 +588,8 @@ export default function CalendarDashboard() {
 
   const getEventsForDay = (day) =>
     allEvents.filter(ev => {
-      const start = parseISO(ev.start.length === 10 ? `${ev.start}T00:00:00` : ev.start);
-      const end = parseISO(ev.end.length === 10 ? `${ev.end}T23:59:59` : ev.end);
+      const start = parseEventDate(ev.start);
+      const end = parseEventDate(ev.end);
       return isWithinInterval(day, { start, end }) || isSameDay(day, start);
     });
 
@@ -425,7 +601,7 @@ export default function CalendarDashboard() {
           <p className="page-subtitle">Gmail calendar sync + DAL reminders and deadlines</p>
         </div>
         <div className="page-actions">
-          <button className="btn btn-secondary" onClick={() => setShowAddForm(true)}>
+          <button className="btn btn-secondary" onClick={openAddModal}>
             + Add DAL Event
           </button>
         </div>
@@ -506,14 +682,14 @@ export default function CalendarDashboard() {
               <div className="calendar-day-num">{format(day, 'd')}</div>
               <div className="calendar-day-events">
                 {dayEvents.slice(0, 3).map(ev => (
-                  <EventPill key={ev.id} event={ev} onSelect={setSelectedEvent} />
+                  <EventPill key={ev.id} event={ev} onSelect={openEditModal} />
                 ))}
                 {dayEvents.length > 3 && (
                   <div
                     className="calendar-event-more"
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (dayEvents[3]) setSelectedEvent(dayEvents[3]);
+                      if (dayEvents[3]) openEditModal(dayEvents[3]);
                     }}
                   >
                     +{dayEvents.length - 3} more
@@ -525,29 +701,36 @@ export default function CalendarDashboard() {
         })}
       </div>
 
-      {selectedEvent && (
-        <EventDetailsModal
-          event={selectedEvent}
-          editing={editingEvent}
-          onClose={closeEventModal}
-          onEdit={() => setEditingEvent(true)}
-          onDelete={() => deleteDalEvent(selectedEvent.id)}
-          onSaveEdit={(form) => updateDalEvent(selectedEvent.id, form)}
-        />
-      )}
-
-      {showAddForm && (
-        <div className="modal-overlay" onClick={() => setShowAddForm(false)}>
+      {modalOpen && (
+        <div className="modal-overlay" onClick={closeModal}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <div className="modal-title">Add DAL Event</div>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowAddForm(false)}>✕</button>
+              <div className="modal-title">{editingEvent ? 'Edit Event' : 'Add DAL Event'}</div>
+              <button className="btn btn-ghost btn-sm" onClick={closeModal}>✕</button>
             </div>
             <div className="modal-body">
-              <EventForm onSave={saveDalEvent} onCancel={() => setShowAddForm(false)} />
+              <EventForm
+                form={form}
+                setForm={setForm}
+                connectedAccounts={connectedAccounts}
+                onSave={handleSave}
+                onCancel={closeModal}
+                onDelete={() => setConfirmDelete(true)}
+                saving={saving}
+                error={formError}
+                isEdit={!!editingEvent}
+              />
             </div>
           </div>
         </div>
+      )}
+
+      {confirmDelete && (
+        <DeleteConfirmModal
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={handleConfirmDelete}
+          deleting={deleting}
+        />
       )}
     </div>
   );
