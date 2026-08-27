@@ -230,7 +230,7 @@ function EventDetailsModal({ event, editing, onClose, onEdit, onDelete, onSaveEd
   );
 }
 
-async function fetchGoogleEvents(accessToken, timeMin, timeMax) {
+async function fetchGoogleEvents(accessToken, timeMin, timeMax, authorizedFetch) {
   const params = new URLSearchParams({
     timeMin: timeMin.toISOString(),
     timeMax: timeMax.toISOString(),
@@ -238,10 +238,10 @@ async function fetchGoogleEvents(accessToken, timeMin, timeMax) {
     orderBy: 'startTime',
     maxResults: '250',
   });
-  const res = await fetch(
-    `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
+  const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`;
+  const res = authorizedFetch
+    ? await authorizedFetch(url)
+    : await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     const message = body?.error?.message || `Calendar API error (${res.status})`;
@@ -295,6 +295,7 @@ export default function CalendarDashboard() {
     setError: setGoogleError,
     connectAccount,
     disconnectAccount,
+    authorizedCalendarFetch,
   } = useGoogleCalendar();
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -326,7 +327,12 @@ export default function CalendarDashboard() {
         const monthEnd = endOfMonth(currentMonth);
         const results = await Promise.allSettled(
           connectedAccounts.map(async (account) => {
-            const events = await fetchGoogleEvents(account.accessToken, monthStart, monthEnd);
+            const events = await fetchGoogleEvents(
+              account.accessToken,
+              monthStart,
+              monthEnd,
+              (url) => authorizedCalendarFetch(account, url)
+            );
             return events.map(ev => ({
               ...ev,
               id: `${account.email}-${ev.id}`,
@@ -358,7 +364,7 @@ export default function CalendarDashboard() {
       }
     };
     load();
-  }, [connectedAccounts, currentMonth, setGoogleError]);
+  }, [connectedAccounts, currentMonth, setGoogleError, authorizedCalendarFetch]);
 
   const saveDalEvent = async (form) => {
     const id = `evt${Date.now()}`;
