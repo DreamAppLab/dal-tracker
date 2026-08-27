@@ -1,6 +1,6 @@
 // clientEmails collection schema:
 // { clientId, projectId, source, threadId, subject, body, to, sentAt, sentBy, direction, read, parentId }
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { db } from '../firebase';
 import EmailBodyEditor from './EmailBodyEditor';
 import { DAL_SIGNATURE } from '../utils/dalEmailSignature';
@@ -39,10 +39,26 @@ function sentAtMillis(value) {
   return Number.isNaN(t) ? 0 : t;
 }
 
-const ThreadMessage = React.memo(function ThreadMessage({ email }) {
+const ThreadMessage = React.memo(function ThreadMessage({ email, onRequestDelete }) {
   const outbound = email.direction === 'outbound';
+  const [showDelete, setShowDelete] = useState(false);
+  const pressTimer = useRef(null);
+
+  const clearPress = () => {
+    if (pressTimer.current) {
+      window.clearTimeout(pressTimer.current);
+      pressTimer.current = null;
+    }
+  };
+
+  const startPress = () => {
+    clearPress();
+    pressTimer.current = window.setTimeout(() => setShowDelete(true), 500);
+  };
+
   return (
     <div
+      className={`contact-thread-bubble${showDelete ? ' contact-thread-bubble-show-delete' : ''}`}
       style={{
         alignSelf: outbound ? 'flex-end' : 'flex-start',
         maxWidth: '78%',
@@ -50,8 +66,26 @@ const ThreadMessage = React.memo(function ThreadMessage({ email }) {
         border: '1px solid var(--border)',
         borderRadius: 12,
         padding: 14,
+        paddingRight: 36,
       }}
+      onMouseLeave={() => setShowDelete(false)}
+      onTouchStart={startPress}
+      onTouchEnd={clearPress}
+      onTouchMove={clearPress}
+      onTouchCancel={clearPress}
     >
+      <button
+        type="button"
+        className="contact-thread-delete"
+        title="Delete message"
+        aria-label="Delete message"
+        onClick={(e) => {
+          e.stopPropagation();
+          onRequestDelete(email);
+        }}
+      >
+        🗑️
+      </button>
       <div className="quotes-muted" style={{ marginBottom: 6 }}>
         {outbound ? 'Sent' : 'Reply'} · {formatSentAt(email.sentAt)}
       </div>
@@ -238,6 +272,9 @@ export default function Contacts({ onUnreadCount }) {
   const [contactEmails, setContactEmails] = useState([]);
   const [loadingEmails, setLoadingEmails] = useState(false);
   const [attachment, setAttachment] = useState(null);
+  const [pendingDeleteEmail, setPendingDeleteEmail] = useState(null);
+  const [deletingMessage, setDeletingMessage] = useState(false);
+  const [deleteMessageError, setDeleteMessageError] = useState('');
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -347,6 +384,27 @@ export default function Contacts({ onUnreadCount }) {
       return name.includes(q) || company.includes(q) || email.includes(q);
     });
   }, [clients, search]);
+
+  const requestDeleteMessage = useCallback((email) => {
+    setDeleteMessageError('');
+    setPendingDeleteEmail(email);
+  }, []);
+
+  const confirmDeleteMessage = async () => {
+    if (!pendingDeleteEmail?.id) return;
+    const id = pendingDeleteEmail.id;
+    setDeletingMessage(true);
+    setDeleteMessageError('');
+    setContactEmails((prev) => prev.filter((e) => e.id !== id));
+    try {
+      await deleteDoc(doc(db, 'clientEmails', id));
+      setPendingDeleteEmail(null);
+    } catch (err) {
+      setDeleteMessageError(err.message || 'Could not delete message.');
+    } finally {
+      setDeletingMessage(false);
+    }
+  };
 
   const confirmDelete = async (client) => {
     if (!client) return;
@@ -526,6 +584,7 @@ export default function Contacts({ onUnreadCount }) {
                   setSelectedContact(null);
                   setComposingFor(null);
                   setAttachment(null);
+                  setPendingDeleteEmail(null);
                 }}
               >
                 ✕ Close
@@ -543,10 +602,43 @@ export default function Contacts({ onUnreadCount }) {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {contactEmails.map((email) => (
-                <ThreadMessage key={email.id} email={email} />
+                <ThreadMessage key={email.id} email={email} onRequestDelete={requestDeleteMessage} />
               ))}
             </div>
           )}
+        </div>
+      ) : null}
+
+      {pendingDeleteEmail ? (
+        <div className="modal-overlay" onClick={() => { if (!deletingMessage) setPendingDeleteEmail(null); }}>
+          <div className="modal contact-message-confirm-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">Delete this message?</div>
+            </div>
+            {deleteMessageError ? (
+              <div className="modal-body" style={{ paddingBottom: 0 }}>
+                <div className="quotes-error">{deleteMessageError}</div>
+              </div>
+            ) : null}
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={deletingMessage}
+                onClick={() => setPendingDeleteEmail(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={deletingMessage}
+                onClick={confirmDeleteMessage}
+              >
+                {deletingMessage ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 
