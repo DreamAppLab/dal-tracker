@@ -268,7 +268,7 @@ export default function Contacts({ onUnreadCount }) {
       collection(db, 'clientEmails'),
       where('clientId', '==', selectedContact.id),
       where('source', '==', 'contact'),
-      orderBy('sentAt', 'asc')
+      orderBy('sentAt', 'desc')
     );
     const unsub = onSnapshot(q, async (snapshot) => {
       const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
