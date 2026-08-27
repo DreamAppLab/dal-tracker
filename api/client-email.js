@@ -44,7 +44,6 @@ export default async function handler(req, res) {
       params.append('to', to);
       params.append('subject', subject);
       params.append('html', body);
-      params.append('text', 'Please view this email in an HTML-compatible email client.');
       params.append('h:Reply-To', 'clients@inbound.dreamapplab.com');
       mgRes = await fetch(
         `https://api.mailgun.net/v3/${MAILGUN_DOMAIN}/messages`,
@@ -68,7 +67,6 @@ export default async function handler(req, res) {
       bodyParts += addField('to', to);
       bodyParts += addField('subject', subject);
       bodyParts += addField('html', body);
-      bodyParts += addField('text', 'Please view this email in an HTML-compatible email client.');
       bodyParts += addField('h:Reply-To', 'clients@inbound.dreamapplab.com');
 
       const textBuffer = Buffer.from(bodyParts, 'utf-8');
