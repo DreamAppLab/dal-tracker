@@ -10,8 +10,6 @@ import {
   deleteDoc,
   doc,
   onSnapshot,
-  limit,
-  orderBy,
   query,
   serverTimestamp,
   updateDoc,
@@ -32,6 +30,42 @@ function formatSentAt(value) {
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleString();
 }
+
+function sentAtMillis(value) {
+  if (!value) return 0;
+  if (typeof value.toMillis === 'function') return value.toMillis();
+  const d = value.toDate ? value.toDate() : new Date(value);
+  const t = d.getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
+const ThreadMessage = React.memo(function ThreadMessage({ email }) {
+  const outbound = email.direction === 'outbound';
+  return (
+    <div
+      style={{
+        alignSelf: outbound ? 'flex-end' : 'flex-start',
+        maxWidth: '78%',
+        background: outbound ? 'var(--teal-dim)' : 'var(--bg-card)',
+        border: '1px solid var(--border)',
+        borderRadius: 12,
+        padding: 14,
+      }}
+    >
+      <div className="quotes-muted" style={{ marginBottom: 6 }}>
+        {outbound ? 'Sent' : 'Reply'} · {formatSentAt(email.sentAt)}
+      </div>
+      <div style={{ fontWeight: 700, marginBottom: 6 }}>{email.subject}</div>
+      <div style={{ fontSize: 13, lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: email.body }} />
+    </div>
+  );
+}, (prev, next) => (
+  prev.email.id === next.email.id
+  && prev.email.body === next.email.body
+  && prev.email.subject === next.email.subject
+  && prev.email.direction === next.email.direction
+  && sentAtMillis(prev.email.sentAt) === sentAtMillis(next.email.sentAt)
+));
 
 function ContactModal({ client, onClose, onSaved, onDelete }) {
   const isEdit = Boolean(client);
@@ -265,27 +299,28 @@ export default function Contacts({ onUnreadCount }) {
       setLoadingEmails(false);
       return;
     }
+    const contactId = selectedContact.id;
     setLoadingEmails(true);
-    setContactEmails([]);
     const q = query(
       collection(db, 'clientEmails'),
-      where('clientId', '==', selectedContact.id),
-      where('source', '==', 'contact'),
-      orderBy('sentAt', 'desc'),
-      limit(50)
+      where('clientId', '==', contactId),
+      where('source', '==', 'contact')
     );
     const unsub = onSnapshot(
       q,
-      async (snapshot) => {
-        const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+      (snapshot) => {
+        const data = snapshot.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => sentAtMillis(b.sentAt) - sentAtMillis(a.sentAt))
+          .slice(0, 50);
         setContactEmails(data);
         setLoadingEmails(false);
-        for (const emailDoc of snapshot.docs) {
+        snapshot.docs.forEach((emailDoc) => {
           const row = emailDoc.data();
           if (row.direction === 'inbound' && row.read === false) {
-            await updateDoc(doc(db, 'clientEmails', emailDoc.id), { read: true });
+            updateDoc(doc(db, 'clientEmails', emailDoc.id), { read: true }).catch(() => {});
           }
-        }
+        });
       },
       (err) => {
         setLoadingEmails(false);
@@ -293,7 +328,7 @@ export default function Contacts({ onUnreadCount }) {
       }
     );
     return () => unsub();
-  }, [selectedContact]);
+  }, [selectedContact?.id]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -489,28 +524,9 @@ export default function Contacts({ onUnreadCount }) {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {contactEmails.map((email) => {
-                const outbound = email.direction === 'outbound';
-                return (
-                  <div
-                    key={email.id}
-                    style={{
-                      alignSelf: outbound ? 'flex-end' : 'flex-start',
-                      maxWidth: '78%',
-                      background: outbound ? 'var(--teal-dim)' : 'var(--bg-card)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 12,
-                      padding: 14,
-                    }}
-                  >
-                    <div className="quotes-muted" style={{ marginBottom: 6 }}>
-                      {outbound ? 'Sent' : 'Reply'} · {formatSentAt(email.sentAt)}
-                    </div>
-                    <div style={{ fontWeight: 700, marginBottom: 6 }}>{email.subject}</div>
-                    <div style={{ fontSize: 13, lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: email.body }} />
-                  </div>
-                );
-              })}
+              {contactEmails.map((email) => (
+                <ThreadMessage key={email.id} email={email} />
+              ))}
             </div>
           )}
         </div>
