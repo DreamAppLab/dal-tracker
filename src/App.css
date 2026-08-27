@@ -1095,6 +1095,12 @@ body.login-page-active {
 }
 .form-select { cursor: pointer; }
 .form-textarea { resize: vertical; min-height: 80px; }
+.form-textarea.email-compose-body {
+  min-height: 176px;
+  overflow-y: auto;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .form-row { display: flex; gap: 12px; }
 .form-row .form-group { flex: 1; }

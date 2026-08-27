@@ -6,6 +6,8 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '../firebase';
+import EmailBodyEditor from './EmailBodyEditor';
+import { DAL_SIGNATURE } from '../utils/dalEmailSignature';
 import {
   addDoc,
   arrayRemove,
@@ -49,7 +51,7 @@ export default function ClientTab({ project }) {
   const [composing, setComposing] = useState(false);
   const [composeClient, setComposeClient] = useState(null);
   const [emailSubject, setEmailSubject] = useState('');
-  const [emailBody, setEmailBody] = useState('');
+  const [emailBody, setEmailBody] = useState(DAL_SIGNATURE);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailError, setEmailError] = useState('');
   const [attachment, setAttachment] = useState(null);
@@ -315,7 +317,7 @@ export default function ClientTab({ project }) {
           onClick={() => {
             setEmailError('');
             setEmailSubject('');
-            setEmailBody('');
+            setEmailBody(DAL_SIGNATURE);
             setComposeClient(emailableClients[0] || null);
             setComposing(true);
           }}
@@ -440,7 +442,7 @@ export default function ClientTab({ project }) {
               </div>
               <div className="form-group">
                 <label className="form-label">Body</label>
-                <textarea className="form-textarea" rows={8} value={emailBody} onChange={(e) => setEmailBody(e.target.value)} />
+                <EmailBodyEditor defaultHtml={emailBody} onChange={setEmailBody} />
               </div>
               <div className="form-group">
                 <label className="form-label">Attachment (optional)</label>

@@ -2,6 +2,8 @@
 // { clientId, projectId, source, threadId, subject, body, to, sentAt, sentBy, direction, read, parentId }
 import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '../firebase';
+import EmailBodyEditor from './EmailBodyEditor';
+import { DAL_SIGNATURE } from '../utils/dalEmailSignature';
 import {
   addDoc,
   collection,
@@ -191,7 +193,7 @@ export default function Contacts({ onUnreadCount }) {
   const [projectMap, setProjectMap] = useState(new Map());
   const [composingFor, setComposingFor] = useState(null);
   const [emailSubject, setEmailSubject] = useState('');
-  const [emailBody, setEmailBody] = useState('');
+  const [emailBody, setEmailBody] = useState(DAL_SIGNATURE);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailError, setEmailError] = useState('');
   const [emailSuccess, setEmailSuccess] = useState('');
@@ -388,7 +390,7 @@ export default function Contacts({ onUnreadCount }) {
                         e.stopPropagation();
                         setComposingFor(client);
                         setEmailSubject('');
-                        setEmailBody('');
+                        setEmailBody(DAL_SIGNATURE);
                         setEmailError('');
                         setEmailSuccess('');
                       }}
@@ -442,7 +444,7 @@ export default function Contacts({ onUnreadCount }) {
                 onClick={() => {
                   setComposingFor(selectedContact);
                   setEmailSubject('');
-                  setEmailBody('');
+                  setEmailBody(DAL_SIGNATURE);
                   setEmailError('');
                   setEmailSuccess('');
                 }}
@@ -549,13 +551,7 @@ export default function Contacts({ onUnreadCount }) {
               </div>
               <div className="form-group">
                 <label className="form-label">Body</label>
-                <textarea
-                  className="form-textarea"
-                  rows={8}
-                  value={emailBody}
-                  onChange={(e) => setEmailBody(e.target.value)}
-                  placeholder="Message"
-                />
+                <EmailBodyEditor defaultHtml={emailBody} onChange={setEmailBody} />
               </div>
               <div className="form-group">
                 <label className="form-label">Attachment (optional)</label>
