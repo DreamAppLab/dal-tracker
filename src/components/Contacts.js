@@ -233,6 +233,7 @@ export default function Contacts({ onUnreadCount }) {
   const [emailError, setEmailError] = useState('');
   const [emailSuccess, setEmailSuccess] = useState('');
   const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadClientIds, setUnreadClientIds] = useState(() => new Set());
   const [selectedContact, setSelectedContact] = useState(null);
   const [contactEmails, setContactEmails] = useState([]);
   const [loadingEmails, setLoadingEmails] = useState(false);
@@ -284,6 +285,12 @@ export default function Contacts({ onUnreadCount }) {
       where('read', '==', false)
     );
     const unsub = onSnapshot(q, (snapshot) => {
+      const ids = new Set();
+      snapshot.docs.forEach((d) => {
+        const clientId = d.data().clientId;
+        if (clientId) ids.add(clientId);
+      });
+      setUnreadClientIds(ids);
       setUnreadCount(snapshot.size);
     });
     return () => unsub();
@@ -404,10 +411,21 @@ export default function Contacts({ onUnreadCount }) {
                   }}
                 >
                   <td>
-                    <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{client.name}</div>
-                    {client.company ? (
-                      <div className="quotes-muted">{client.company}</div>
-                    ) : null}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {unreadClientIds.has(client.id) ? (
+                        <span
+                          className="quotes-unread-dot"
+                          style={{ background: 'var(--coral)', boxShadow: '0 0 6px rgba(232, 92, 92, 0.55)', flexShrink: 0 }}
+                          aria-label="Unread"
+                        />
+                      ) : null}
+                      <div>
+                        <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{client.name}</div>
+                        {client.company ? (
+                          <div className="quotes-muted">{client.company}</div>
+                        ) : null}
+                      </div>
+                    </div>
                   </td>
                   <td>{client.email || '—'}</td>
                   <td>{client.phone || '—'}</td>
