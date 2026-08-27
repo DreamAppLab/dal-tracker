@@ -352,7 +352,7 @@ export default function ClientTab({ project }) {
                   {outbound ? 'Sent' : 'Reply'} · {outbound ? `To ${email.to}` : `From ${email.to}`} · {formatSentAt(email.sentAt)}
                 </div>
                 <div style={{ fontWeight: 700, marginBottom: 6 }}>{email.subject}</div>
-                <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.5 }}>{email.body}</div>
+                <div style={{ fontSize: 13, lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: email.body }} />
                 {email.hasAttachment === true && email.attachmentUrl ? (
                   <a
                     href={email.attachmentUrl}

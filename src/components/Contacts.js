@@ -490,7 +490,7 @@ export default function Contacts({ onUnreadCount }) {
                       {outbound ? 'Sent' : 'Reply'} · {formatSentAt(email.sentAt)}
                     </div>
                     <div style={{ fontWeight: 700, marginBottom: 6 }}>{email.subject}</div>
-                    <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.5 }}>{email.body}</div>
+                    <div style={{ fontSize: 13, lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: email.body }} />
                   </div>
                 );
               })}
