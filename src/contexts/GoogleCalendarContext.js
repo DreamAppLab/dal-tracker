@@ -49,11 +49,15 @@ function tokensRef(userId) {
 
 export function GoogleCalendarProvider({ children }) {
   const { user } = useAuth();
+  const accountsRef = useRef([]);
+  const refreshedOnLoadRef = useRef(new Set());
   const refreshingRef = useRef(new Set());
   const [connectedAccounts, setConnectedAccounts] = useState([]);
   const [connecting, setConnecting] = useState(false);
   const [connectTimedOut, setConnectTimedOut] = useState(false);
   const [error, setError] = useState(null);
+
+  accountsRef.current = connectedAccounts;
 
   useEffect(() => {
     if (!connecting) return undefined;
@@ -68,6 +72,7 @@ export function GoogleCalendarProvider({ children }) {
   useEffect(() => {
     if (!user?.uid) {
       setConnectedAccounts([]);
+      refreshedOnLoadRef.current.clear();
       return undefined;
     }
     const unsub = onSnapshot(
@@ -83,54 +88,66 @@ export function GoogleCalendarProvider({ children }) {
     return () => unsub();
   }, [user?.uid]);
 
-  // Token refresh requires REACT_APP_GOOGLE_CLIENT_ID and REACT_APP_GOOGLE_CLIENT_SECRET.
   const refreshAccessToken = useCallback(async (account) => {
-    if (!account.refreshToken) return null;
+    if (!account?.refreshToken || !user?.uid) return null;
     try {
-      const response = await fetch('https://oauth2.googleapis.com/token', {
+      const response = await fetch('/api/refresh-calendar-token', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          client_id: process.env.REACT_APP_GOOGLE_CLIENT_ID,
-          client_secret: process.env.REACT_APP_GOOGLE_CLIENT_SECRET,
-          refresh_token: account.refreshToken,
-          grant_type: 'refresh_token',
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: account.refreshToken }),
       });
       if (!response.ok) return null;
       const data = await response.json();
       if (!data.access_token) return null;
+      const tokenIssuedAt = Date.now();
       const updatedAccount = {
         ...account,
         accessToken: data.access_token,
-        expiresAt: Timestamp.fromMillis(Date.now() + (data.expires_in ?? 3600) * 1000),
+        tokenIssuedAt,
+        token_issued_at: tokenIssuedAt,
       };
-      const accounts = [
-        ...connectedAccounts.filter((a) => a.email !== account.email),
-        updatedAccount,
-      ];
+      const accounts = accountsRef.current.map((a) =>
+        a.email === account.email ? updatedAccount : a
+      );
       await setDoc(tokensRef(user.uid), { accounts }, { merge: true });
       return updatedAccount.accessToken;
     } catch {
       return null;
     }
-  }, [connectedAccounts, user?.uid]);
+  }, [user?.uid]);
 
   useEffect(() => {
-    if (!connectedAccounts.length) return;
-    const fiveMinutes = 5 * 60 * 1000;
+    if (!user?.uid || !connectedAccounts.length) return;
     connectedAccounts.forEach((account) => {
-      if (!account.expiresAt) return;
-      const expiresAt = account.expiresAt?.toMillis?.() ?? 0;
-      if (expiresAt - Date.now() < fiveMinutes) {
-        if (refreshingRef.current.has(account.email)) return;
-        refreshingRef.current.add(account.email);
-        void refreshAccessToken(account).finally(() => {
-          refreshingRef.current.delete(account.email);
-        });
-      }
+      if (!account.refreshToken) return;
+      const key = `${user.uid}:${account.email}`;
+      if (refreshedOnLoadRef.current.has(key) || refreshingRef.current.has(key)) return;
+      refreshedOnLoadRef.current.add(key);
+      refreshingRef.current.add(key);
+      void refreshAccessToken(account).finally(() => {
+        refreshingRef.current.delete(key);
+      });
     });
-  }, [connectedAccounts, refreshAccessToken]);
+  }, [connectedAccounts, refreshAccessToken, user?.uid]);
+
+  const authorizedCalendarFetch = useCallback(async (account, url, options = {}) => {
+    const withToken = (token) =>
+      fetch(url, {
+        ...options,
+        headers: {
+          ...(options.headers || {}),
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    let res = await withToken(account.accessToken);
+    if (res.status === 401 && account.refreshToken) {
+      const nextToken = await refreshAccessToken(account);
+      if (nextToken) {
+        res = await withToken(nextToken);
+      }
+    }
+    return res;
+  }, [refreshAccessToken]);
 
   const connectAccount = useCallback(async () => {
     if (!user?.uid) {
@@ -160,13 +177,15 @@ export function GoogleCalendarProvider({ children }) {
       const color = existing?.color ?? assignAccountColor(
         connectedAccounts.filter((a) => a.email !== email).length
       );
+      const tokenIssuedAt = Date.now();
       const nextAccount = {
-        expiresAt: Timestamp.fromMillis(Date.now() + 3600 * 1000),
         email,
         accessToken: token,
         refreshToken: refreshToken || existing?.refreshToken || '',
         color,
         connectedAt: existing?.connectedAt || Timestamp.now(),
+        tokenIssuedAt,
+        token_issued_at: tokenIssuedAt,
       };
       const accounts = [
         ...connectedAccounts.filter((a) => a.email !== email),
@@ -204,6 +223,7 @@ export function GoogleCalendarProvider({ children }) {
         connectAccount,
         disconnectAccount,
         refreshAccessToken,
+        authorizedCalendarFetch,
       }}
     >
       {children}
