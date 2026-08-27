@@ -4,21 +4,15 @@ import AppLogo from './AppLogo';
 
 const STORAGE_KEY = 'dal-mc-sidebar-sections';
 const DEFAULT_SECTIONS = {
-  home: true,
-  clients: true,
-  utilities: true,
-  apps: true,
-  websites: true,
+  home: false,
+  clients: false,
+  utilities: false,
+  apps: false,
+  websites: false,
 };
 
 function loadSections() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...DEFAULT_SECTIONS };
-    return { ...DEFAULT_SECTIONS, ...JSON.parse(raw) };
-  } catch {
-    return { ...DEFAULT_SECTIONS };
-  }
+  return { ...DEFAULT_SECTIONS };
 }
 
 function byName(a, b) {
