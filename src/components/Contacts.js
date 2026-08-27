@@ -10,6 +10,7 @@ import {
   deleteDoc,
   doc,
   onSnapshot,
+  limit,
   orderBy,
   query,
   serverTimestamp,
@@ -261,26 +262,36 @@ export default function Contacts({ onUnreadCount }) {
   useEffect(() => {
     if (!selectedContact) {
       setContactEmails([]);
+      setLoadingEmails(false);
       return;
     }
     setLoadingEmails(true);
+    setContactEmails([]);
     const q = query(
       collection(db, 'clientEmails'),
       where('clientId', '==', selectedContact.id),
       where('source', '==', 'contact'),
-      orderBy('sentAt', 'desc')
+      orderBy('sentAt', 'desc'),
+      limit(50)
     );
-    const unsub = onSnapshot(q, async (snapshot) => {
-      const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setContactEmails(data);
-      setLoadingEmails(false);
-      for (const emailDoc of snapshot.docs) {
-        const row = emailDoc.data();
-        if (row.direction === 'inbound' && row.read === false) {
-          await updateDoc(doc(db, 'clientEmails', emailDoc.id), { read: true });
+    const unsub = onSnapshot(
+      q,
+      async (snapshot) => {
+        const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setContactEmails(data);
+        setLoadingEmails(false);
+        for (const emailDoc of snapshot.docs) {
+          const row = emailDoc.data();
+          if (row.direction === 'inbound' && row.read === false) {
+            await updateDoc(doc(db, 'clientEmails', emailDoc.id), { read: true });
+          }
         }
+      },
+      (err) => {
+        setLoadingEmails(false);
+        console.error(err);
       }
-    });
+    );
     return () => unsub();
   }, [selectedContact]);
 
@@ -346,7 +357,11 @@ export default function Contacts({ onUnreadCount }) {
                 return (
                 <tr
                   key={client.id}
-                  onClick={() => setSelectedContact(client)}
+                  onClick={() => {
+                    setSelectedContact(client);
+                    setLoadingEmails(true);
+                    setContactEmails([]);
+                  }}
                   style={{
                     cursor: 'pointer',
                     background: selectedContact?.id === client.id ? 'rgba(56, 189, 248, 0.08)' : undefined,
@@ -465,7 +480,9 @@ export default function Contacts({ onUnreadCount }) {
             </div>
           </div>
           {loadingEmails ? (
-            <div className="empty-state">Loading...</div>
+            <div className="empty-state">
+              <div className="empty-state-text">Loading messages...</div>
+            </div>
           ) : contactEmails.length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-text">No emails yet — click Compose to send the first one.</div>
