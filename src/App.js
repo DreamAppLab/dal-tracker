@@ -59,6 +59,7 @@ function DashboardApp() {
   const [projectsUnread, setProjectsUnread] = useState({}); // { projectId: count }
   const [maintenanceOverdue, setMaintenanceOverdue] = useState(0);
   const [quotesUnread, setQuotesUnread] = useState(0);
+  const [inboundUnread, setInboundUnread] = useState(0);
   const [websitesSeedVersion, setWebsitesSeedVersion] = useState(0);
   const jobIdsRef = useRef(new Set());
 
@@ -228,6 +229,7 @@ function DashboardApp() {
     );
     const unsub = onSnapshot(q, (snap) => {
       const count = snap.size;
+      setInboundUnread(count);
       document.title = count > 0 ? `(${count}) DAL Mission Control` : 'DAL Mission Control';
     });
     return () => {
@@ -299,6 +301,7 @@ function DashboardApp() {
         projectsUnread={projectsUnread}
         maintenanceOverdue={maintenanceOverdue}
         quotesUnread={quotesUnread}
+        inboundUnread={inboundUnread}
       />
       <main className={`main-content ${sidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}>
         {activeView === 'dashboard' && (

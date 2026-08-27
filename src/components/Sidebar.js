@@ -93,6 +93,7 @@ export default function Sidebar({
   projectsUnread = {},
   maintenanceOverdue = 0,
   quotesUnread = 0,
+  inboundUnread = 0,
 }) {
   const [sections, setSections] = useState(DEFAULT_SECTIONS);
 
@@ -126,7 +127,7 @@ export default function Sidebar({
     .slice()
     .sort(byName);
 
-  const clientsBadge = (contactsUnread || 0) + (clientJobsUnread || 0);
+  const clientsBadge = inboundUnread || 0;
   const utilitiesBadge = maintenanceOverdue > 0 ? maintenanceOverdue : 0;
   const websitesBadge = quotesUnread || 0;
 
