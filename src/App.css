@@ -1674,6 +1674,35 @@ option { background: var(--bg-card); }
 .calendar-event-row.dal { border-left: 3px solid var(--coral); }
 .calendar-event-row { border-left: 3px solid var(--teal); }
 .calendar-event-form { display: flex; flex-direction: column; }
+.contact-thread-bubble {
+  position: relative;
+}
+.contact-thread-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  opacity: 0;
+  pointer-events: none;
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-muted);
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+.contact-thread-bubble:hover .contact-thread-delete,
+.contact-thread-bubble.contact-thread-bubble-show-delete .contact-thread-delete,
+.contact-thread-delete:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.contact-thread-delete:hover,
+.contact-thread-delete:focus-visible {
+  color: var(--coral);
+}
+.contact-message-confirm-modal { max-width: 400px; }
 .event-details-modal { max-width: 480px; }
 .event-detail-row {
   display: flex;
