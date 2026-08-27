@@ -48,7 +48,7 @@ function UnreadBadge({ count }) {
   );
 }
 
-function SectionHeader({ label, open, onToggle, badge = 0 }) {
+function SectionHeader({ label, open, onToggle, badge = 0, unreadDot = false }) {
   return (
     <button
       type="button"
@@ -68,6 +68,13 @@ function SectionHeader({ label, open, onToggle, badge = 0 }) {
         {label}
       </span>
       <span style={{ display: 'flex', alignItems: 'center', gap: 6, paddingRight: 8 }}>
+        {unreadDot && badge > 0 && (
+          <span
+            className="quotes-unread-dot"
+            style={{ background: 'var(--coral)', boxShadow: '0 0 6px rgba(232, 92, 92, 0.55)' }}
+            aria-label="Unread"
+          />
+        )}
         {badge > 0 && <UnreadBadge count={badge} />}
         <span className="sidebar-section-chevron" aria-hidden="true" style={{ paddingRight: 0 }}>
           {open ? '▾' : '▸'}
@@ -127,7 +134,7 @@ export default function Sidebar({
     .slice()
     .sort(byName);
 
-  const clientsBadge = inboundUnread || 0;
+  const clientsBadge = (inboundUnread || 0) || ((contactsUnread || 0) + (clientJobsUnread || 0));
   const utilitiesBadge = maintenanceOverdue > 0 ? maintenanceOverdue : 0;
   const websitesBadge = quotesUnread || 0;
 
@@ -234,6 +241,7 @@ export default function Sidebar({
             open={sections.clients}
             onToggle={() => toggleSection('clients')}
             badge={clientsBadge}
+            unreadDot
           />
         )}
         {showClients && (

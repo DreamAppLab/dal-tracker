@@ -238,6 +238,11 @@ function DashboardApp() {
     };
   }, []);
 
+  useEffect(() => {
+    const count = (inboundUnread || 0) || ((contactsUnread || 0) + (clientJobsUnread || 0));
+    document.title = count > 0 ? `(${count}) DAL Mission Control` : 'DAL Mission Control';
+  }, [inboundUnread, contactsUnread, clientJobsUnread]);
+
   const handleSelectProject = (project) => {
     setSelectedProject(project);
     setActiveView('project');
@@ -321,7 +326,9 @@ function DashboardApp() {
             onNewClientJob={() => openAddModal('Client Job')}
           />
         )}
-        {activeView === 'contacts' && <Contacts onUnreadCount={setContactsUnread} />}
+        <div style={{ display: activeView === 'contacts' ? undefined : 'none' }}>
+          <Contacts onUnreadCount={setContactsUnread} />
+        </div>
         {activeView === 'aso' && (
           <ASODashboard projects={projects} />
         )}
