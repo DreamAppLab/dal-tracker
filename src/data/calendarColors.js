@@ -5,11 +5,45 @@ export const ACCOUNT_COLORS = [
   { name: 'blue', value: '#3B82F6', dim: 'rgba(59,130,246,0.15)' },
 ];
 
+export const EVENT_COLORS = [
+  ...ACCOUNT_COLORS,
+  { name: 'coral', value: '#FF5B5B', dim: 'rgba(255,91,91,0.15)' },
+];
+
+const COLOR_TO_GOOGLE_ID = {
+  teal: '7',
+  amber: '5',
+  purple: '3',
+  blue: '9',
+  coral: '11',
+};
+
+const GOOGLE_ID_TO_COLOR = {
+  7: 'teal',
+  10: 'teal',
+  5: 'amber',
+  6: 'amber',
+  3: 'purple',
+  1: 'purple',
+  9: 'blue',
+  2: 'blue',
+  11: 'coral',
+  4: 'coral',
+};
+
 export function assignAccountColor(existingCount) {
   return ACCOUNT_COLORS[existingCount % ACCOUNT_COLORS.length].name;
 }
 
 export function getAccountColorStyle(colorName) {
-  const color = ACCOUNT_COLORS.find(c => c.name === colorName) || ACCOUNT_COLORS[0];
+  const color = EVENT_COLORS.find(c => c.name === colorName) || ACCOUNT_COLORS[0];
   return { color: color.value, background: color.dim };
+}
+
+export function colorNameToGoogleColorId(colorName) {
+  return COLOR_TO_GOOGLE_ID[colorName] || COLOR_TO_GOOGLE_ID.teal;
+}
+
+export function googleColorIdToName(colorId, fallback = 'teal') {
+  return GOOGLE_ID_TO_COLOR[String(colorId)] || fallback;
 }

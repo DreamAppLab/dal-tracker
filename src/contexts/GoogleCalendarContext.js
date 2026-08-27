@@ -16,7 +16,7 @@ import {
 } from 'firebase/firestore';
 import { assignAccountColor } from '../data/calendarColors';
 
-const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
+const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar';
 
 const GoogleCalendarContext = createContext(null);
 
