@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { ClipboardCopy } from 'lucide-react';
 import { db } from '../firebase';
 import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
 import {
@@ -223,6 +224,51 @@ function HqSaveIndicator({ status }) {
     }}>
       {status === 'saving' ? 'Saving…' : status === 'saved' ? '✓ Saved' : '✗ Error'}
     </span>
+  );
+}
+
+function HqCopyableInput({ value, onChange, onBlur, placeholder = '', type = 'text' }) {
+  const [copied, setCopied] = useState(false);
+
+  const copyValue = async () => {
+    try {
+      await navigator.clipboard.writeText(value ?? '');
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Copy failed:', err);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <input
+        className="form-input"
+        type={type}
+        value={value ?? ''}
+        placeholder={placeholder}
+        onChange={onChange}
+        onBlur={onBlur}
+        onClick={(e) => e.target.select()}
+        style={{ flex: 1, minWidth: 0, cursor: 'text' }}
+      />
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
+        aria-label="Copy value"
+        title="Copy"
+        onClick={copyValue}
+        style={{
+          fontSize: 11,
+          padding: '6px 8px',
+          flexShrink: 0,
+          minWidth: 72,
+          color: copied ? '#4F8EF7' : undefined,
+        }}
+      >
+        {copied ? 'Copied!' : <ClipboardCopy size={14} />}
+      </button>
+    </div>
   );
 }
 
@@ -668,8 +714,7 @@ function DALHQServices() {
                         </label>
                         <HqSaveIndicator status={saveStatus[fieldId]} />
                       </div>
-                      <input
-                        className="form-input"
+                      <HqCopyableInput
                         value={fields[fieldName] ?? ''}
                         onChange={(e) => handleFieldChange(svc.key, fieldName, e.target.value)}
                         onBlur={() => handleFieldBlur(fieldId)}
@@ -711,8 +756,7 @@ function DALHQServices() {
                           ×
                         </button>
                       </div>
-                      <input
-                        className="form-input"
+                      <HqCopyableInput
                         value={cf.value ?? ''}
                         placeholder={cf.fieldDescription || ''}
                         onChange={(e) => handleCustomFieldChange(svc.key, idx, e.target.value)}
@@ -867,9 +911,7 @@ export default function DALHeadquarters() {
                 <label className="form-label" style={{ marginBottom: 0 }}>{label}</label>
                 <SaveIndicator fieldKey={key} />
               </div>
-              <input
-                className="form-input"
-                type="text"
+              <HqCopyableInput
                 value={fields[key]}
                 onChange={e => handleChange(key, e.target.value)}
                 onBlur={() => handleBlur(key, fields[key])}
@@ -891,9 +933,7 @@ export default function DALHeadquarters() {
                 <label className="form-label" style={{ marginBottom: 0 }}>{label}</label>
                 <SaveIndicator fieldKey={key} />
               </div>
-              <input
-                className="form-input"
-                type="text"
+              <HqCopyableInput
                 value={fields[key]}
                 onChange={e => handleChange(key, e.target.value)}
                 onBlur={() => handleBlur(key, fields[key])}
@@ -915,9 +955,7 @@ export default function DALHeadquarters() {
                 <label className="form-label" style={{ marginBottom: 0 }}>{label}</label>
                 <SaveIndicator fieldKey={key} />
               </div>
-              <input
-                className="form-input"
-                type="text"
+              <HqCopyableInput
                 value={fields[key]}
                 placeholder={placeholder}
                 onChange={e => handleChange(key, e.target.value)}
@@ -940,9 +978,7 @@ export default function DALHeadquarters() {
                 <label className="form-label" style={{ marginBottom: 0 }}>{label}</label>
                 <SaveIndicator fieldKey={key} />
               </div>
-              <input
-                className="form-input"
-                type="text"
+              <HqCopyableInput
                 value={fields[key]}
                 onChange={e => handleChange(key, e.target.value)}
                 onBlur={() => handleBlur(key, fields[key])}
@@ -980,9 +1016,7 @@ export default function DALHeadquarters() {
                 <label className="form-label" style={{ marginBottom: 0 }}>{label}</label>
                 <SaveIndicator fieldKey={key} />
               </div>
-              <input
-                className="form-input"
-                type="text"
+              <HqCopyableInput
                 value={fields[key]}
                 placeholder={placeholder || ''}
                 onChange={e => handleChange(key, e.target.value)}
@@ -1006,9 +1040,7 @@ export default function DALHeadquarters() {
                 <label className="form-label" style={{ marginBottom: 0 }}>{label}</label>
                 <SaveIndicator fieldKey={key} />
               </div>
-              <input
-                className="form-input"
-                type="text"
+              <HqCopyableInput
                 value={fields[key]}
                 onChange={e => handleChange(key, e.target.value)}
                 onBlur={() => handleBlur(key, fields[key])}
