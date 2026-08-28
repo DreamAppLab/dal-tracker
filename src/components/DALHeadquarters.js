@@ -480,12 +480,14 @@ function DALHQServices() {
     }));
     servicesRef.current = next;
     setServices(next);
+    void persistServices(next, `${key}:custom:${idx}`);
   };
 
   const handleNotesChange = (key, value) => {
     const next = patchService(key, (svc) => ({ ...svc, notes: value }));
     servicesRef.current = next;
     setServices(next);
+    void persistServices(next, key + ':notes');
   };
 
   const handleFieldBlur = (fieldId) => {
