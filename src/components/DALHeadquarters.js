@@ -125,28 +125,20 @@ function asHqStringValue(raw) {
 
 function execCopyText(text) {
   const t = String(text ?? '');
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(t).catch(() => {
-      // fallback
-      const ta = document.createElement('textarea');
-      ta.value = t;
-      ta.style.cssText = 'position:fixed;top:0;left:0;width:200px;height:40px;opacity:0.01;z-index:2147483647;';
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      try { document.execCommand('copy'); } catch { /* ignore */ }
-      document.body.removeChild(ta);
-    });
-  } else {
+  navigator.clipboard.writeText(t).then(() => {
+    // success
+  }).catch(() => {
+    // fallback for focus issues
     const ta = document.createElement('textarea');
     ta.value = t;
-    ta.style.cssText = 'position:fixed;top:0;left:0;width:200px;height:40px;opacity:0.01;z-index:2147483647;';
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:0;left:0;width:2em;height:2em;padding:0;border:none;outline:none;box-shadow:none;background:transparent;';
     document.body.appendChild(ta);
     ta.focus();
     ta.select();
-    try { document.execCommand('copy'); } catch { /* ignore */ }
+    try { document.execCommand('copy'); } catch(e) { console.warn('copy failed', e); }
     document.body.removeChild(ta);
-  }
+  });
 }
 
 function normalizeHqFields(fields) {
@@ -308,7 +300,7 @@ function HqCopyableInput({ fieldId, value, onChange, onBlur, placeholder = '', t
   const fieldRef = useRef(null);
   const displayValue = asHqStringValue(value);
   const doCopy = () => {
-    const text = (fieldRef.current && fieldRef.current.value) || displayValue;
+    const text = fieldRef.current ? fieldRef.current.value : displayValue;
     execCopyText(text);
     setCopied(fieldId);
     setTimeout(() => setCopied(null), 2000);
