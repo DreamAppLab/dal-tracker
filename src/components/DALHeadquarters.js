@@ -284,20 +284,22 @@ function HqSaveIndicator({ status }) {
 }
 
 function HqCopyableInput({ fieldId, value, onChange, onBlur, placeholder = '', type = 'text', copied, setCopied }) {
-  const fieldValue = value ?? '';
+  const fieldRef = useRef(null);
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <input
+        ref={fieldRef}
+        id={fieldId}
         className="form-input"
         type={type}
-        value={fieldValue}
+        value={value ?? ''}
         placeholder={placeholder}
         onChange={onChange}
         onBlur={onBlur}
         onClick={(e) => e.target.select()}
         style={{ flex: 1, minWidth: 0, cursor: 'text' }}
       />
-      <button onClick={() => navigator.clipboard.writeText(fieldValue).then(() => { setCopied(fieldId); setTimeout(() => setCopied(null), 2000); })}>
+      <button onClick={() => navigator.clipboard.writeText(fieldRef.current?.value || '').then(() => { setCopied(fieldId); setTimeout(() => setCopied(null), 2000); })}>
         {copied === fieldId ? 'Copied!' : '📋'}
       </button>
     </div>
@@ -305,20 +307,22 @@ function HqCopyableInput({ fieldId, value, onChange, onBlur, placeholder = '', t
 }
 
 function HqCopyableTextarea({ fieldId, value, onChange, onBlur, placeholder = '', rows, copied, setCopied, style }) {
-  const fieldValue = value ?? '';
+  const fieldRef = useRef(null);
   return (
     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
       <textarea
+        ref={fieldRef}
+        id={fieldId}
         className="form-input"
         rows={rows}
-        value={fieldValue}
+        value={value ?? ''}
         placeholder={placeholder}
         onChange={onChange}
         onBlur={onBlur}
         onClick={(e) => e.target.select()}
         style={{ flex: 1, minWidth: 0, ...style }}
       />
-      <button onClick={() => navigator.clipboard.writeText(fieldValue).then(() => { setCopied(fieldId); setTimeout(() => setCopied(null), 2000); })}>
+      <button onClick={() => navigator.clipboard.writeText(fieldRef.current?.value || '').then(() => { setCopied(fieldId); setTimeout(() => setCopied(null), 2000); })}>
         {copied === fieldId ? 'Copied!' : '📋'}
       </button>
     </div>
@@ -872,22 +876,24 @@ function DALHQServices() {
 
 function Field({ label, fieldKey, value, onChange, onBlur, type = 'text', placeholder = '' }) {
   const [copied, setCopied] = useState(null);
+  const fieldRef = useRef(null);
   const fieldId = fieldKey;
-  const fieldValue = value ?? '';
   return (
     <div className="form-group">
       <label className="form-label">{label}</label>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <input
+        ref={fieldRef}
+        id={fieldId}
         className="form-input"
         type={type}
-        value={fieldValue}
+        value={value ?? ''}
         placeholder={placeholder}
         onChange={e => onChange(fieldKey, e.target.value)}
         onBlur={() => onBlur(fieldKey, value)}
         onClick={(e) => e.target.select()}
       />
-      <button onClick={() => navigator.clipboard.writeText(fieldValue).then(() => { setCopied(fieldId); setTimeout(() => setCopied(null), 2000); })}>
+      <button onClick={() => navigator.clipboard.writeText(fieldRef.current?.value || '').then(() => { setCopied(fieldId); setTimeout(() => setCopied(null), 2000); })}>
         {copied === fieldId ? 'Copied!' : '📋'}
       </button>
       </div>
@@ -897,23 +903,25 @@ function Field({ label, fieldKey, value, onChange, onBlur, type = 'text', placeh
 
 function TextareaField({ label, fieldKey, value, onChange, onBlur, rows = 4, placeholder = '' }) {
   const [copied, setCopied] = useState(null);
+  const fieldRef = useRef(null);
   const fieldId = fieldKey;
-  const fieldValue = value ?? '';
   return (
     <div className="form-group">
       <label className="form-label">{label}</label>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
       <textarea
+        ref={fieldRef}
+        id={fieldId}
         className="form-input"
         rows={rows}
-        value={fieldValue}
+        value={value ?? ''}
         placeholder={placeholder}
         onChange={e => onChange(fieldKey, e.target.value)}
         onBlur={() => onBlur(fieldKey, value)}
         onClick={(e) => e.target.select()}
         style={{ resize: 'vertical', fontFamily: 'inherit', flex: 1 }}
       />
-      <button onClick={() => navigator.clipboard.writeText(fieldValue).then(() => { setCopied(fieldId); setTimeout(() => setCopied(null), 2000); })}>
+      <button onClick={() => navigator.clipboard.writeText(fieldRef.current?.value || '').then(() => { setCopied(fieldId); setTimeout(() => setCopied(null), 2000); })}>
         {copied === fieldId ? 'Copied!' : '📋'}
       </button>
       </div>
