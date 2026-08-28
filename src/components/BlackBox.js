@@ -26,6 +26,61 @@ function byServiceLabel(a, b) {
   return String(a.label || '').localeCompare(String(b.label || ''), undefined, { sensitivity: 'base' });
 }
 
+function CredentialValueField({ value, placeholder, onChange, onBlur }) {
+  const [copied, setCopied] = useState(false);
+  const [visible, setVisible] = useState(true);
+
+  const copyValue = async () => {
+    try {
+      await navigator.clipboard.writeText(value ?? '');
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Copy failed:', err);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <input
+        className="form-input"
+        type={visible ? 'text' : 'password'}
+        autoComplete="off"
+        value={value ?? ''}
+        placeholder={placeholder}
+        onChange={onChange}
+        onBlur={onBlur}
+        onClick={(e) => e.target.select()}
+        style={{ flex: 1, minWidth: 0, cursor: 'text' }}
+      />
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
+        aria-label={visible ? 'Hide value' : 'Show value'}
+        title={visible ? 'Hide' : 'Show'}
+        onClick={() => setVisible((v) => !v)}
+        style={{ fontSize: 14, padding: '6px 8px', flexShrink: 0 }}
+      >
+        {visible ? '🙈' : '👁'}
+      </button>
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
+        onClick={copyValue}
+        style={{
+          fontSize: 11,
+          padding: '6px 10px',
+          flexShrink: 0,
+          color: copied ? '#4F8EF7' : undefined,
+          minWidth: 64,
+        }}
+      >
+        {copied ? 'Copied!' : 'Copy'}
+      </button>
+    </div>
+  );
+}
+
 function groupByCategory(services) {
   const order = [];
   const map = {};
@@ -187,8 +242,7 @@ function ServiceCard({
               >
                 {f.fieldName}
               </label>
-              <input
-                className="form-input"
+              <CredentialValueField
                 value={fields[f.fieldName] ?? ''}
                 placeholder={f.fieldDescription}
                 onChange={(e) => onFieldChange(f.fieldName, e.target.value)}
@@ -210,8 +264,7 @@ function ServiceCard({
               >
                 {cf.fieldName}
               </label>
-              <input
-                className="form-input"
+              <CredentialValueField
                 value={cf.value ?? ''}
                 placeholder={cf.fieldDescription || ''}
                 onChange={(e) => onFieldChange(`__custom__:${idx}`, e.target.value, true)}
