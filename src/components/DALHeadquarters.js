@@ -123,44 +123,60 @@ function asHqStringValue(raw) {
   return '';
 }
 
-function copyTextToClipboard(text) {
+function execCopyText(text) {
   const t = String(text ?? '');
-  const fallback = () => {
-    const ta = document.createElement('textarea');
-    ta.value = t;
-    ta.setAttribute('readonly', '');
-    ta.style.position = 'fixed';
-    ta.style.top = '0';
-    ta.style.left = '0';
-    ta.style.width = '2em';
-    ta.style.height = '2em';
-    ta.style.padding = '0';
-    ta.style.border = 'none';
-    ta.style.outline = 'none';
-    ta.style.boxShadow = 'none';
-    ta.style.background = 'transparent';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
+  const ta = document.createElement('textarea');
+  ta.value = t;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.zIndex = '2147483647';
+  ta.style.left = '8px';
+  ta.style.top = '8px';
+  ta.style.width = '8px';
+  ta.style.height = '8px';
+  ta.style.padding = '0';
+  ta.style.margin = '0';
+  ta.style.border = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try {
     ta.setSelectionRange(0, t.length);
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-  };
-  if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-    return navigator.clipboard.writeText(t).then(() => undefined).catch(() => { fallback(); });
+  } catch {
+    /* ignore */
   }
-  fallback();
-  return Promise.resolve();
+  try {
+    document.execCommand('copy');
+  } catch {
+    /* ignore */
+  }
+  document.body.removeChild(ta);
 }
 
-function copyFromFieldEl(el, rawValue) {
-  const fromDom = el && typeof el.value === 'string' ? el.value : '';
-  const fromState = asHqStringValue(rawValue);
-  const selected = el && typeof el.selectionStart === 'number' && el.selectionStart !== el.selectionEnd
-    ? el.value.slice(el.selectionStart, el.selectionEnd)
-    : '';
-  return copyTextToClipboard(selected || fromDom || fromState);
+function copyFieldContents(el, rawValue) {
+  if (el) {
+    try {
+      el.focus({ preventScroll: true });
+      if (typeof el.select === 'function') el.select();
+    } catch {
+      /* ignore */
+    }
+  }
+  const text = String((el && typeof el.value === 'string' && el.value) || asHqStringValue(rawValue) || '');
+  execCopyText(text);
+  if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    navigator.clipboard.writeText(text).catch(() => {});
+  }
+}
+
+function handleNativeCopy(e) {
+  const el = e.target;
+  if (!el || typeof el.value !== 'string' || !e.clipboardData) return;
+  const hasSel = typeof el.selectionStart === 'number' && el.selectionStart !== el.selectionEnd;
+  const t = hasSel ? el.value.slice(el.selectionStart, el.selectionEnd) : el.value;
+  if (!t) return;
+  e.clipboardData.setData('text/plain', t);
+  e.preventDefault();
 }
 
 function normalizeHqFields(fields) {
@@ -334,16 +350,15 @@ function HqCopyableInput({ fieldId, value, onChange, onBlur, placeholder = '', t
         onChange={onChange}
         onBlur={onBlur}
         onClick={(e) => e.target.select()}
+        onCopy={handleNativeCopy}
         style={{ flex: 1, minWidth: 0, cursor: 'text', userSelect: 'text', WebkitUserSelect: 'text' }}
       />
       <button
         type="button"
-        onMouseDown={(e) => e.preventDefault()}
         onClick={() => {
-          copyFromFieldEl(fieldRef.current, value).then(() => {
-            setCopied(fieldId);
-            setTimeout(() => setCopied(null), 2000);
-          });
+          copyFieldContents(fieldRef.current, value);
+          setCopied(fieldId);
+          setTimeout(() => setCopied(null), 2000);
         }}
       >
         {copied === fieldId ? 'Copied!' : '📋'}
@@ -368,16 +383,15 @@ function HqCopyableTextarea({ fieldId, value, onChange, onBlur, placeholder = ''
         onChange={onChange}
         onBlur={onBlur}
         onClick={(e) => e.target.select()}
+        onCopy={handleNativeCopy}
         style={{ flex: 1, minWidth: 0, userSelect: 'text', WebkitUserSelect: 'text', ...style }}
       />
       <button
         type="button"
-        onMouseDown={(e) => e.preventDefault()}
         onClick={() => {
-          copyFromFieldEl(fieldRef.current, value).then(() => {
-            setCopied(fieldId);
-            setTimeout(() => setCopied(null), 2000);
-          });
+          copyFieldContents(fieldRef.current, value);
+          setCopied(fieldId);
+          setTimeout(() => setCopied(null), 2000);
         }}
       >
         {copied === fieldId ? 'Copied!' : '📋'}
@@ -944,16 +958,15 @@ function Field({ label, fieldKey, value, onChange, onBlur, type = 'text', placeh
         onChange={e => onChange(fieldKey, e.target.value)}
         onBlur={() => onBlur(fieldKey, value)}
         onClick={(e) => e.target.select()}
+        onCopy={handleNativeCopy}
         style={{ cursor: 'text', userSelect: 'text', WebkitUserSelect: 'text' }}
       />
       <button
         type="button"
-        onMouseDown={(e) => e.preventDefault()}
         onClick={() => {
-          copyFromFieldEl(fieldRef.current, value).then(() => {
-            setCopied(fieldId);
-            setTimeout(() => setCopied(null), 2000);
-          });
+          copyFieldContents(fieldRef.current, value);
+          setCopied(fieldId);
+          setTimeout(() => setCopied(null), 2000);
         }}
       >
         {copied === fieldId ? 'Copied!' : '📋'}
@@ -983,13 +996,15 @@ function TextareaField({ label, fieldKey, value, onChange, onBlur, rows = 4, pla
         onChange={e => onChange(fieldKey, e.target.value)}
         onBlur={() => onBlur(fieldKey, value)}
         onClick={(e) => e.target.select()}
+        onCopy={handleNativeCopy}
         style={{ resize: 'vertical', fontFamily: 'inherit', flex: 1, userSelect: 'text', WebkitUserSelect: 'text' }}
       />
       <button
         type="button"
-        onMouseDown={(e) => e.preventDefault()}
         onClick={() => {
-          copyFromFieldEl(fieldRef.current, value).then(() => { setCopied(fieldId); setTimeout(() => setCopied(null), 2000); });
+          copyFieldContents(fieldRef.current, value);
+          setCopied(fieldId);
+          setTimeout(() => setCopied(null), 2000);
         }}
       >
         {copied === fieldId ? 'Copied!' : '📋'}
