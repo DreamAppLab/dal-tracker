@@ -110,6 +110,57 @@ function makeHqService({ key, label, category, fields, helper }) {
   };
 }
 
+function isTelnyxService(svc) {
+  const key = String(svc?.key || '').toLowerCase();
+  const label = String(svc?.label || '').toLowerCase().trim();
+  return key === 'telnyx' || key.startsWith('telnyx_') || label === 'telnyx';
+}
+
+function asHqStringValue(raw) {
+  if (raw == null) return '';
+  if (typeof raw === 'string') return raw;
+  if (typeof raw === 'number' || typeof raw === 'boolean') return String(raw);
+  if (typeof raw === 'object') {
+    if (raw.value == null) return '';
+    if (typeof raw.value === 'string' || typeof raw.value === 'number' || typeof raw.value === 'boolean') {
+      return String(raw.value);
+    }
+  }
+  return '';
+}
+
+/** Coerce Telnyx `fields` to the same string map Mailgun uses: { [fieldName]: string }. */
+function telnyxFieldsAsMailgunMap(fields) {
+  if (Array.isArray(fields)) {
+    const map = {};
+    fields.forEach((f, i) => {
+      if (typeof f === 'string') {
+        if (map[f] === undefined) map[f] = '';
+        return;
+      }
+      const name = f?.fieldName || f?.label || f?.name || `Field ${i + 1}`;
+      map[name] = asHqStringValue(f?.value !== undefined ? f.value : f);
+    });
+    return map;
+  }
+  if (!fields || typeof fields !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(fields).map(([k, v]) => [k, asHqStringValue(v)])
+  );
+}
+
+function normalizeTelnyxService(svc) {
+  if (!isTelnyxService(svc)) return svc;
+  return {
+    ...svc,
+    fields: telnyxFieldsAsMailgunMap(svc.fields),
+    customFields: (svc.customFields || []).map((cf) => ({
+      ...cf,
+      value: asHqStringValue(cf.value),
+    })),
+  };
+}
+
 const DAL_HQ_SEED_SERVICES = [
   makeHqService({
     key: 'expo_eas',
@@ -142,6 +193,12 @@ const DAL_HQ_SEED_SERVICES = [
     label: 'Mailgun',
     category: 'Email & Messaging',
     fields: ['API Key', 'Domain', 'From Email'],
+  }),
+  makeHqService({
+    key: 'telnyx',
+    label: 'Telnyx',
+    category: 'Email & Messaging',
+    fields: ['API Key', 'Public Key', 'Messaging Profile ID', 'Phone Number'],
   }),
   makeHqService({
     key: 'twilio',
@@ -317,7 +374,7 @@ function DALHQServices() {
           Object.fromEntries(DAL_HQ_SEED_SERVICES.filter((s) => s.enabled).map((s) => [s.key, true]))
         );
       } else {
-        const loaded = snapshot.data().services || [];
+        const loaded = (snapshot.data().services || []).map(normalizeTelnyxService);
         servicesRef.current = loaded;
         setServices(loaded);
         setExpanded(
@@ -348,10 +405,15 @@ function DALHQServices() {
   };
 
   const handleFieldChange = (key, fieldName, value) => {
-    const next = patchService(key, (svc) => ({
-      ...svc,
-      fields: { ...(svc.fields || {}), [fieldName]: value },
-    }));
+    const next = patchService(key, (svc) => {
+      const baseFields = isTelnyxService(svc)
+        ? telnyxFieldsAsMailgunMap(svc.fields)
+        : { ...(svc.fields || {}) };
+      return {
+        ...svc,
+        fields: { ...baseFields, [fieldName]: value },
+      };
+    });
     servicesRef.current = next;
     setServices(next);
   };
@@ -583,7 +645,9 @@ function DALHQServices() {
 
       {enabledServices.map((svc) => {
         const isExpanded = expanded[svc.key] !== false;
-        const fields = svc.fields || {};
+        const fields = isTelnyxService(svc)
+          ? telnyxFieldsAsMailgunMap(svc.fields)
+          : (svc.fields || {});
         const customFields = svc.customFields || [];
         return (
           <div
