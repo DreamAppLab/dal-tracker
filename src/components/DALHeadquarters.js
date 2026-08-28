@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ClipboardCopy } from 'lucide-react';
 import { db } from '../firebase';
 import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
 import {
@@ -284,46 +283,43 @@ function HqSaveIndicator({ status }) {
   );
 }
 
-function HqCopyableInput({ value, onChange, onBlur, placeholder = '', type = 'text' }) {
-  const [copied, setCopied] = useState(false);
-
-  const copyValue = async () => {
-    try {
-      await navigator.clipboard.writeText(value ?? '');
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Copy failed:', err);
-    }
-  };
-
+function HqCopyableInput({ fieldId, value, onChange, onBlur, placeholder = '', type = 'text', copied, setCopied }) {
+  const fieldValue = value ?? '';
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <input
         className="form-input"
         type={type}
-        value={value ?? ''}
+        value={fieldValue}
         placeholder={placeholder}
         onChange={onChange}
         onBlur={onBlur}
         onClick={(e) => e.target.select()}
         style={{ flex: 1, minWidth: 0, cursor: 'text' }}
       />
-      <button
-        type="button"
-        className="btn btn-ghost btn-sm"
-        aria-label="Copy value"
-        title="Copy"
-        onClick={copyValue}
-        style={{
-          fontSize: 11,
-          padding: '6px 8px',
-          flexShrink: 0,
-          minWidth: 72,
-          color: copied ? '#4F8EF7' : undefined,
-        }}
-      >
-        {copied ? 'Copied!' : <ClipboardCopy size={14} />}
+      <button onClick={() => navigator.clipboard.writeText(fieldValue).then(() => { setCopied(fieldId); setTimeout(() => setCopied(null), 2000); })}>
+        {copied === fieldId ? 'Copied!' : '📋'}
+      </button>
+    </div>
+  );
+}
+
+function HqCopyableTextarea({ fieldId, value, onChange, onBlur, placeholder = '', rows, copied, setCopied, style }) {
+  const fieldValue = value ?? '';
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+      <textarea
+        className="form-input"
+        rows={rows}
+        value={fieldValue}
+        placeholder={placeholder}
+        onChange={onChange}
+        onBlur={onBlur}
+        onClick={(e) => e.target.select()}
+        style={{ flex: 1, minWidth: 0, ...style }}
+      />
+      <button onClick={() => navigator.clipboard.writeText(fieldValue).then(() => { setCopied(fieldId); setTimeout(() => setCopied(null), 2000); })}>
+        {copied === fieldId ? 'Copied!' : '📋'}
       </button>
     </div>
   );
@@ -339,6 +335,7 @@ function DALHQServices() {
   const [showAddService, setShowAddService] = useState(false);
   const [newServiceName, setNewServiceName] = useState('');
   const [newServiceCategory, setNewServiceCategory] = useState('Custom');
+  const [copied, setCopied] = useState(null);
   const servicesRef = useRef([]);
 
   const persistServices = useCallback(async (next, fieldId) => {
@@ -596,9 +593,11 @@ function DALHQServices() {
               <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
                 Service Name
               </label>
-              <input
-                className="form-input"
+              <HqCopyableInput
+                fieldId="new-service-name"
                 value={newServiceName}
+                copied={copied}
+                setCopied={setCopied}
                 onChange={(e) => setNewServiceName(e.target.value)}
                 placeholder="e.g. Cloudflare"
               />
@@ -623,7 +622,6 @@ function DALHQServices() {
               type="button"
               className="btn btn-primary btn-sm"
               style={{ background: '#4F8EF7', borderColor: '#4F8EF7', color: '#fff' }}
-              disabled={!newServiceName.trim()}
               onClick={addCustomService}
             >
               Confirm
@@ -716,9 +714,11 @@ function DALHQServices() {
                         <label style={{ fontSize: 11, color: '#4cc1f3', display: 'block', marginBottom: 4 }}>
                           Field Name
                         </label>
-                        <input
-                          className="form-input"
+                        <HqCopyableInput
+                          fieldId={`${svc.key}:new-field-name`}
                           value={newFieldDraft.fieldName}
+                          copied={copied}
+                          setCopied={setCopied}
                           onChange={(e) => setNewFieldDraft({ ...newFieldDraft, fieldName: e.target.value })}
                           placeholder="e.g. Staging URL"
                         />
@@ -727,9 +727,11 @@ function DALHQServices() {
                         <label style={{ fontSize: 11, color: '#4cc1f3', display: 'block', marginBottom: 4 }}>
                           Description
                         </label>
-                        <input
-                          className="form-input"
+                        <HqCopyableInput
+                          fieldId={`${svc.key}:new-field-desc`}
                           value={newFieldDraft.fieldDescription}
+                          copied={copied}
+                          setCopied={setCopied}
                           onChange={(e) =>
                             setNewFieldDraft({ ...newFieldDraft, fieldDescription: e.target.value })
                           }
@@ -742,7 +744,6 @@ function DALHQServices() {
                         type="button"
                         className="btn btn-primary btn-sm"
                         style={{ background: '#4F8EF7', borderColor: '#4F8EF7', color: '#fff' }}
-                        disabled={!newFieldDraft.fieldName.trim()}
                         onClick={() => confirmAddField(svc.key)}
                       >
                         Confirm
@@ -779,7 +780,10 @@ function DALHQServices() {
                         <HqSaveIndicator status={saveStatus[fieldId]} />
                       </div>
                       <HqCopyableInput
+                        fieldId={fieldId}
                         value={fields[fieldName] ?? ''}
+                        copied={copied}
+                        setCopied={setCopied}
                         onChange={(e) => handleFieldChange(svc.key, fieldName, e.target.value)}
                         onBlur={() => handleFieldBlur(fieldId)}
                       />
@@ -821,7 +825,10 @@ function DALHQServices() {
                         </button>
                       </div>
                       <HqCopyableInput
+                        fieldId={fieldId}
                         value={cf.value ?? ''}
+                        copied={copied}
+                        setCopied={setCopied}
                         placeholder={cf.fieldDescription || ''}
                         onChange={(e) => handleCustomFieldChange(svc.key, idx, e.target.value)}
                         onBlur={() => handleFieldBlur(fieldId)}
@@ -843,13 +850,15 @@ function DALHQServices() {
                     </label>
                     <HqSaveIndicator status={saveStatus[`${svc.key}:notes`]} />
                   </div>
-                  <textarea
-                    className="form-input"
-                    style={{ minHeight: 72, resize: 'vertical', width: '100%', boxSizing: 'border-box' }}
+                  <HqCopyableTextarea
+                    fieldId={`${svc.key}:notes`}
                     value={svc.notes ?? ''}
+                    copied={copied}
+                    setCopied={setCopied}
                     placeholder="Additional notes for this service..."
                     onChange={(e) => handleNotesChange(svc.key, e.target.value)}
                     onBlur={() => handleFieldBlur(`${svc.key}:notes`)}
+                    style={{ minHeight: 72, resize: 'vertical', width: '100%', boxSizing: 'border-box' }}
                   />
                 </div>
               </div>
@@ -862,34 +871,52 @@ function DALHQServices() {
 }
 
 function Field({ label, fieldKey, value, onChange, onBlur, type = 'text', placeholder = '' }) {
+  const [copied, setCopied] = useState(null);
+  const fieldId = fieldKey;
+  const fieldValue = value ?? '';
   return (
     <div className="form-group">
       <label className="form-label">{label}</label>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <input
         className="form-input"
         type={type}
-        value={value}
+        value={fieldValue}
         placeholder={placeholder}
         onChange={e => onChange(fieldKey, e.target.value)}
         onBlur={() => onBlur(fieldKey, value)}
+        onClick={(e) => e.target.select()}
       />
+      <button onClick={() => navigator.clipboard.writeText(fieldValue).then(() => { setCopied(fieldId); setTimeout(() => setCopied(null), 2000); })}>
+        {copied === fieldId ? 'Copied!' : '📋'}
+      </button>
+      </div>
     </div>
   );
 }
 
 function TextareaField({ label, fieldKey, value, onChange, onBlur, rows = 4, placeholder = '' }) {
+  const [copied, setCopied] = useState(null);
+  const fieldId = fieldKey;
+  const fieldValue = value ?? '';
   return (
     <div className="form-group">
       <label className="form-label">{label}</label>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
       <textarea
         className="form-input"
         rows={rows}
-        value={value}
+        value={fieldValue}
         placeholder={placeholder}
         onChange={e => onChange(fieldKey, e.target.value)}
         onBlur={() => onBlur(fieldKey, value)}
-        style={{ resize: 'vertical', fontFamily: 'inherit' }}
+        onClick={(e) => e.target.select()}
+        style={{ resize: 'vertical', fontFamily: 'inherit', flex: 1 }}
       />
+      <button onClick={() => navigator.clipboard.writeText(fieldValue).then(() => { setCopied(fieldId); setTimeout(() => setCopied(null), 2000); })}>
+        {copied === fieldId ? 'Copied!' : '📋'}
+      </button>
+      </div>
     </div>
   );
 }
@@ -898,6 +925,7 @@ export default function DALHeadquarters() {
   const [fields, setFields] = useState(DEFAULTS);
   const [loading, setLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState({});
+  const [copied, setCopied] = useState(null);
 
   useEffect(() => {
     getDoc(doc(db, COLLECTION, DOCUMENT)).then(snapshot => {
@@ -976,7 +1004,10 @@ export default function DALHeadquarters() {
                 <SaveIndicator fieldKey={key} />
               </div>
               <HqCopyableInput
+                fieldId={key}
                 value={fields[key]}
+                copied={copied}
+                setCopied={setCopied}
                 onChange={e => handleChange(key, e.target.value)}
                 onBlur={() => handleBlur(key, fields[key])}
               />
@@ -998,7 +1029,10 @@ export default function DALHeadquarters() {
                 <SaveIndicator fieldKey={key} />
               </div>
               <HqCopyableInput
+                fieldId={key}
                 value={fields[key]}
+                copied={copied}
+                setCopied={setCopied}
                 onChange={e => handleChange(key, e.target.value)}
                 onBlur={() => handleBlur(key, fields[key])}
               />
@@ -1020,7 +1054,10 @@ export default function DALHeadquarters() {
                 <SaveIndicator fieldKey={key} />
               </div>
               <HqCopyableInput
+                fieldId={key}
                 value={fields[key]}
+                copied={copied}
+                setCopied={setCopied}
                 placeholder={placeholder}
                 onChange={e => handleChange(key, e.target.value)}
                 onBlur={() => handleBlur(key, fields[key])}
@@ -1043,7 +1080,10 @@ export default function DALHeadquarters() {
                 <SaveIndicator fieldKey={key} />
               </div>
               <HqCopyableInput
+                fieldId={key}
                 value={fields[key]}
+                copied={copied}
+                setCopied={setCopied}
                 onChange={e => handleChange(key, e.target.value)}
                 onBlur={() => handleBlur(key, fields[key])}
               />
@@ -1057,10 +1097,12 @@ export default function DALHeadquarters() {
           <div className="section-label" style={{ marginBottom: 0 }}>Domains</div>
           <SaveIndicator fieldKey="domains" />
         </div>
-        <textarea
-          className="form-input"
-          rows={3}
+        <HqCopyableTextarea
+          fieldId="domains"
           value={fields.domains}
+          copied={copied}
+          setCopied={setCopied}
+          rows={3}
           onChange={e => handleChange('domains', e.target.value)}
           onBlur={() => handleBlur('domains', fields.domains)}
           style={{ resize: 'vertical', fontFamily: 'inherit', width: '100%' }}
@@ -1081,7 +1123,10 @@ export default function DALHeadquarters() {
                 <SaveIndicator fieldKey={key} />
               </div>
               <HqCopyableInput
+                fieldId={key}
                 value={fields[key]}
+                copied={copied}
+                setCopied={setCopied}
                 placeholder={placeholder || ''}
                 onChange={e => handleChange(key, e.target.value)}
                 onBlur={() => handleBlur(key, fields[key])}
@@ -1105,7 +1150,10 @@ export default function DALHeadquarters() {
                 <SaveIndicator fieldKey={key} />
               </div>
               <HqCopyableInput
+                fieldId={key}
                 value={fields[key]}
+                copied={copied}
+                setCopied={setCopied}
                 onChange={e => handleChange(key, e.target.value)}
                 onBlur={() => handleBlur(key, fields[key])}
               />
@@ -1121,10 +1169,12 @@ export default function DALHeadquarters() {
           <div className="section-label" style={{ marginBottom: 0 }}>Notes</div>
           <SaveIndicator fieldKey="notes" />
         </div>
-        <textarea
-          className="form-input"
-          rows={6}
+        <HqCopyableTextarea
+          fieldId="notes"
           value={fields.notes}
+          copied={copied}
+          setCopied={setCopied}
+          rows={6}
           placeholder="Any other DAL-wide notes..."
           onChange={e => handleChange('notes', e.target.value)}
           onBlur={() => handleBlur('notes', fields.notes)}
@@ -1155,6 +1205,7 @@ function SeedProjectTypesPanel() {
   if (seeded && logs.length === 0) return null;
 
   const handleRun = async () => {
+    if (running) return;
     setRunning(true);
     setError('');
     try {
@@ -1177,7 +1228,7 @@ function SeedProjectTypesPanel() {
         This button disappears after a successful run.
       </p>
       {!seeded && (
-        <button type="button" className="btn btn-secondary" disabled={running} onClick={handleRun}>
+        <button type="button" className="btn btn-secondary" onClick={handleRun}>
           {running ? 'Seeding…' : 'Seed project types'}
         </button>
       )}
@@ -1206,6 +1257,7 @@ function SeedMissingBlackBoxAppsPanel() {
   if (seeded && logs.length === 0) return null;
 
   const handleRun = async () => {
+    if (running) return;
     setRunning(true);
     setError('');
     try {
@@ -1229,7 +1281,7 @@ function SeedMissingBlackBoxAppsPanel() {
         This button disappears after a successful run.
       </p>
       {!seeded && (
-        <button type="button" className="btn btn-secondary" disabled={running} onClick={handleRun}>
+        <button type="button" className="btn btn-secondary" onClick={handleRun}>
           {running ? 'Seeding…' : 'Seed missing Black Box apps'}
         </button>
       )}
@@ -1258,6 +1310,7 @@ function SeedPipelineProgressPanel() {
   if (seeded && logs.length === 0) return null;
 
   const handleRun = async () => {
+    if (running) return;
     setRunning(true);
     setError('');
     try {
@@ -1280,7 +1333,7 @@ function SeedPipelineProgressPanel() {
         as of August 19, 2026. This button disappears after a successful run.
       </p>
       {!seeded && (
-        <button type="button" className="btn btn-secondary" disabled={running} onClick={handleRun}>
+        <button type="button" className="btn btn-secondary" onClick={handleRun}>
           {running ? 'Seeding…' : 'Seed pipeline progress'}
         </button>
       )}
