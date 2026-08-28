@@ -181,8 +181,8 @@ function serializeHqServiceForFirestore(svc) {
     fields: normalizeHqFields(svc.fields),
     customFields: (svc.customFields || []).map((cf) => ({
       fieldName: cf.fieldName || '',
-      fieldDescription: asHqStringValue(cf.fieldDescription),
-      value: asHqStringValue(cf.value),
+      fieldDescription: cf.fieldDescription || '',
+      value: cf.value || '',
     })),
     notes: asHqStringValue(svc.notes),
   };
