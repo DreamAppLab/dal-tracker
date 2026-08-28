@@ -109,18 +109,13 @@ function makeHqService({ key, label, category, fields, helper }) {
   };
 }
 
-function isTelnyxService(svc) {
-  const key = String(svc?.key || '').toLowerCase();
-  const label = String(svc?.label || '').toLowerCase().trim();
-  return key === 'telnyx' || key.startsWith('telnyx_') || label === 'telnyx';
-}
-
 function asHqStringValue(raw) {
   if (raw == null) return '';
   if (typeof raw === 'string') return raw;
   if (typeof raw === 'number' || typeof raw === 'boolean') return String(raw);
   if (typeof raw === 'object') {
-    if (raw.value == null) return '';
+    if (typeof raw.toDate === 'function') return '';
+    if (typeof raw.stringValue === 'string') return raw.stringValue;
     if (typeof raw.value === 'string' || typeof raw.value === 'number' || typeof raw.value === 'boolean') {
       return String(raw.value);
     }
@@ -128,8 +123,47 @@ function asHqStringValue(raw) {
   return '';
 }
 
-/** Coerce Telnyx `fields` to the same string map Mailgun uses: { [fieldName]: string }. */
-function telnyxFieldsAsMailgunMap(fields) {
+function copyTextToClipboard(text) {
+  const t = String(text ?? '');
+  const fallback = () => {
+    const ta = document.createElement('textarea');
+    ta.value = t;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '0';
+    ta.style.left = '0';
+    ta.style.width = '2em';
+    ta.style.height = '2em';
+    ta.style.padding = '0';
+    ta.style.border = 'none';
+    ta.style.outline = 'none';
+    ta.style.boxShadow = 'none';
+    ta.style.background = 'transparent';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, t.length);
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  };
+  if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    return navigator.clipboard.writeText(t).then(() => undefined).catch(() => { fallback(); });
+  }
+  fallback();
+  return Promise.resolve();
+}
+
+function copyFromFieldEl(el, rawValue) {
+  const fromDom = el && typeof el.value === 'string' ? el.value : '';
+  const fromState = asHqStringValue(rawValue);
+  const selected = el && typeof el.selectionStart === 'number' && el.selectionStart !== el.selectionEnd
+    ? el.value.slice(el.selectionStart, el.selectionEnd)
+    : '';
+  return copyTextToClipboard(selected || fromDom || fromState);
+}
+
+function normalizeHqFields(fields) {
   if (Array.isArray(fields)) {
     const map = {};
     fields.forEach((f, i) => {
@@ -148,15 +182,16 @@ function telnyxFieldsAsMailgunMap(fields) {
   );
 }
 
-function normalizeTelnyxService(svc) {
-  if (!isTelnyxService(svc)) return svc;
+function normalizeHqService(svc) {
+  if (!svc) return svc;
   return {
     ...svc,
-    fields: telnyxFieldsAsMailgunMap(svc.fields),
+    fields: normalizeHqFields(svc.fields),
     customFields: (svc.customFields || []).map((cf) => ({
       ...cf,
       value: asHqStringValue(cf.value),
     })),
+    notes: asHqStringValue(svc.notes),
   };
 }
 
@@ -285,6 +320,7 @@ function HqSaveIndicator({ status }) {
 
 function HqCopyableInput({ fieldId, value, onChange, onBlur, placeholder = '', type = 'text', copied, setCopied }) {
   const fieldRef = useRef(null);
+  const displayValue = asHqStringValue(value);
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <input
@@ -292,14 +328,24 @@ function HqCopyableInput({ fieldId, value, onChange, onBlur, placeholder = '', t
         id={fieldId}
         className="form-input"
         type={type}
-        value={value ?? ''}
+        value={displayValue}
         placeholder={placeholder}
+        autoComplete="off"
         onChange={onChange}
         onBlur={onBlur}
         onClick={(e) => e.target.select()}
-        style={{ flex: 1, minWidth: 0, cursor: 'text' }}
+        style={{ flex: 1, minWidth: 0, cursor: 'text', userSelect: 'text', WebkitUserSelect: 'text' }}
       />
-      <button onClick={() => navigator.clipboard.writeText(fieldRef.current?.value || '').then(() => { setCopied(fieldId); setTimeout(() => setCopied(null), 2000); })}>
+      <button
+        type="button"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
+          copyFromFieldEl(fieldRef.current, value).then(() => {
+            setCopied(fieldId);
+            setTimeout(() => setCopied(null), 2000);
+          });
+        }}
+      >
         {copied === fieldId ? 'Copied!' : '📋'}
       </button>
     </div>
@@ -308,6 +354,7 @@ function HqCopyableInput({ fieldId, value, onChange, onBlur, placeholder = '', t
 
 function HqCopyableTextarea({ fieldId, value, onChange, onBlur, placeholder = '', rows, copied, setCopied, style }) {
   const fieldRef = useRef(null);
+  const displayValue = asHqStringValue(value);
   return (
     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
       <textarea
@@ -315,14 +362,24 @@ function HqCopyableTextarea({ fieldId, value, onChange, onBlur, placeholder = ''
         id={fieldId}
         className="form-input"
         rows={rows}
-        value={value ?? ''}
+        value={displayValue}
         placeholder={placeholder}
+        autoComplete="off"
         onChange={onChange}
         onBlur={onBlur}
         onClick={(e) => e.target.select()}
-        style={{ flex: 1, minWidth: 0, ...style }}
+        style={{ flex: 1, minWidth: 0, userSelect: 'text', WebkitUserSelect: 'text', ...style }}
       />
-      <button onClick={() => navigator.clipboard.writeText(fieldRef.current?.value || '').then(() => { setCopied(fieldId); setTimeout(() => setCopied(null), 2000); })}>
+      <button
+        type="button"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
+          copyFromFieldEl(fieldRef.current, value).then(() => {
+            setCopied(fieldId);
+            setTimeout(() => setCopied(null), 2000);
+          });
+        }}
+      >
         {copied === fieldId ? 'Copied!' : '📋'}
       </button>
     </div>
@@ -375,7 +432,7 @@ function DALHQServices() {
           Object.fromEntries(DAL_HQ_SEED_SERVICES.filter((s) => s.enabled).map((s) => [s.key, true]))
         );
       } else {
-        const loaded = (snapshot.data().services || []).map(normalizeTelnyxService);
+        const loaded = (snapshot.data().services || []).map(normalizeHqService);
         servicesRef.current = loaded;
         setServices(loaded);
         setExpanded(
@@ -406,15 +463,10 @@ function DALHQServices() {
   };
 
   const handleFieldChange = (key, fieldName, value) => {
-    const next = patchService(key, (svc) => {
-      const baseFields = isTelnyxService(svc)
-        ? telnyxFieldsAsMailgunMap(svc.fields)
-        : { ...(svc.fields || {}) };
-      return {
-        ...svc,
-        fields: { ...baseFields, [fieldName]: value },
-      };
-    });
+    const next = patchService(key, (svc) => ({
+      ...svc,
+      fields: { ...normalizeHqFields(svc.fields), [fieldName]: value },
+    }));
     servicesRef.current = next;
     setServices(next);
   };
@@ -647,9 +699,7 @@ function DALHQServices() {
 
       {enabledServices.map((svc) => {
         const isExpanded = expanded[svc.key] !== false;
-        const fields = isTelnyxService(svc)
-          ? telnyxFieldsAsMailgunMap(svc.fields)
-          : (svc.fields || {});
+        const fields = normalizeHqFields(svc.fields);
         const customFields = svc.customFields || [];
         return (
           <div
@@ -878,6 +928,7 @@ function Field({ label, fieldKey, value, onChange, onBlur, type = 'text', placeh
   const [copied, setCopied] = useState(null);
   const fieldRef = useRef(null);
   const fieldId = fieldKey;
+  const displayValue = asHqStringValue(value);
   return (
     <div className="form-group">
       <label className="form-label">{label}</label>
@@ -887,13 +938,24 @@ function Field({ label, fieldKey, value, onChange, onBlur, type = 'text', placeh
         id={fieldId}
         className="form-input"
         type={type}
-        value={value ?? ''}
+        value={displayValue}
         placeholder={placeholder}
+        autoComplete="off"
         onChange={e => onChange(fieldKey, e.target.value)}
         onBlur={() => onBlur(fieldKey, value)}
         onClick={(e) => e.target.select()}
+        style={{ cursor: 'text', userSelect: 'text', WebkitUserSelect: 'text' }}
       />
-      <button onClick={() => navigator.clipboard.writeText(fieldRef.current?.value || '').then(() => { setCopied(fieldId); setTimeout(() => setCopied(null), 2000); })}>
+      <button
+        type="button"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
+          copyFromFieldEl(fieldRef.current, value).then(() => {
+            setCopied(fieldId);
+            setTimeout(() => setCopied(null), 2000);
+          });
+        }}
+      >
         {copied === fieldId ? 'Copied!' : '📋'}
       </button>
       </div>
@@ -905,6 +967,7 @@ function TextareaField({ label, fieldKey, value, onChange, onBlur, rows = 4, pla
   const [copied, setCopied] = useState(null);
   const fieldRef = useRef(null);
   const fieldId = fieldKey;
+  const displayValue = asHqStringValue(value);
   return (
     <div className="form-group">
       <label className="form-label">{label}</label>
@@ -914,14 +977,21 @@ function TextareaField({ label, fieldKey, value, onChange, onBlur, rows = 4, pla
         id={fieldId}
         className="form-input"
         rows={rows}
-        value={value ?? ''}
+        value={displayValue}
         placeholder={placeholder}
+        autoComplete="off"
         onChange={e => onChange(fieldKey, e.target.value)}
         onBlur={() => onBlur(fieldKey, value)}
         onClick={(e) => e.target.select()}
-        style={{ resize: 'vertical', fontFamily: 'inherit', flex: 1 }}
+        style={{ resize: 'vertical', fontFamily: 'inherit', flex: 1, userSelect: 'text', WebkitUserSelect: 'text' }}
       />
-      <button onClick={() => navigator.clipboard.writeText(fieldRef.current?.value || '').then(() => { setCopied(fieldId); setTimeout(() => setCopied(null), 2000); })}>
+      <button
+        type="button"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
+          copyFromFieldEl(fieldRef.current, value).then(() => { setCopied(fieldId); setTimeout(() => setCopied(null), 2000); });
+        }}
+      >
         {copied === fieldId ? 'Copied!' : '📋'}
       </button>
       </div>
@@ -938,7 +1008,16 @@ export default function DALHeadquarters() {
   useEffect(() => {
     getDoc(doc(db, COLLECTION, DOCUMENT)).then(snapshot => {
       if (snapshot.exists() && Object.keys(snapshot.data()).length > 0) {
-        setFields(prev => ({ ...prev, ...snapshot.data() }));
+        const data = snapshot.data();
+        setFields((prev) => {
+          const merged = { ...prev };
+          Object.entries(data).forEach(([k, v]) => {
+            if (v && typeof v === 'object' && typeof v.toDate === 'function') return;
+            if (Array.isArray(v)) return;
+            merged[k] = asHqStringValue(v);
+          });
+          return merged;
+        });
       }
       setLoading(false);
     }).catch(err => {
