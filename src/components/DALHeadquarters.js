@@ -127,16 +127,7 @@ function execCopyText(text) {
   const t = String(text ?? '');
   const ta = document.createElement('textarea');
   ta.value = t;
-  ta.setAttribute('readonly', '');
-  ta.style.position = 'fixed';
-  ta.style.zIndex = '2147483647';
-  ta.style.left = '8px';
-  ta.style.top = '8px';
-  ta.style.width = '8px';
-  ta.style.height = '8px';
-  ta.style.padding = '0';
-  ta.style.margin = '0';
-  ta.style.border = '0';
+  ta.style.cssText = 'position:fixed;top:0;left:0;width:200px;height:40px;opacity:0.01;z-index:2147483647;';
   document.body.appendChild(ta);
   ta.focus();
   ta.select();
@@ -150,33 +141,12 @@ function execCopyText(text) {
   } catch {
     /* ignore */
   }
-  document.body.removeChild(ta);
-}
-
-function copyFieldContents(el, rawValue) {
-  if (el) {
-    try {
-      el.focus({ preventScroll: true });
-      if (typeof el.select === 'function') el.select();
-    } catch {
-      /* ignore */
-    }
+  if (typeof navigator !== 'undefined' && navigator.clipboard && t) {
+    navigator.clipboard.writeText(t).catch(() => {});
   }
-  const text = String((el && typeof el.value === 'string' && el.value) || asHqStringValue(rawValue) || '');
-  execCopyText(text);
-  if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-    navigator.clipboard.writeText(text).catch(() => {});
-  }
-}
-
-function handleNativeCopy(e) {
-  const el = e.target;
-  if (!el || typeof el.value !== 'string' || !e.clipboardData) return;
-  const hasSel = typeof el.selectionStart === 'number' && el.selectionStart !== el.selectionEnd;
-  const t = hasSel ? el.value.slice(el.selectionStart, el.selectionEnd) : el.value;
-  if (!t) return;
-  e.clipboardData.setData('text/plain', t);
-  e.preventDefault();
+  setTimeout(() => {
+    if (ta.parentNode) ta.parentNode.removeChild(ta);
+  }, 500);
 }
 
 function normalizeHqFields(fields) {
@@ -337,8 +307,14 @@ function HqSaveIndicator({ status }) {
 function HqCopyableInput({ fieldId, value, onChange, onBlur, placeholder = '', type = 'text', copied, setCopied }) {
   const fieldRef = useRef(null);
   const displayValue = asHqStringValue(value);
+  const doCopy = () => {
+    const text = (fieldRef.current && fieldRef.current.value) || displayValue;
+    execCopyText(text);
+    setCopied(fieldId);
+    setTimeout(() => setCopied(null), 2000);
+  };
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
       <input
         ref={fieldRef}
         id={fieldId}
@@ -350,18 +326,15 @@ function HqCopyableInput({ fieldId, value, onChange, onBlur, placeholder = '', t
         onChange={onChange}
         onBlur={onBlur}
         onClick={(e) => e.target.select()}
-        onCopy={handleNativeCopy}
-        style={{ flex: 1, minWidth: 0, cursor: 'text', userSelect: 'text', WebkitUserSelect: 'text' }}
+        style={{ flex: 1, minWidth: 0, width: 0, cursor: 'text', userSelect: 'text', WebkitUserSelect: 'text' }}
       />
       <button
         type="button"
-        onClick={() => {
-          copyFieldContents(fieldRef.current, value);
-          setCopied(fieldId);
-          setTimeout(() => setCopied(null), 2000);
-        }}
+        className="btn btn-secondary btn-sm"
+        onClick={doCopy}
+        style={{ flexShrink: 0 }}
       >
-        {copied === fieldId ? 'Copied!' : '📋'}
+        {copied === fieldId ? 'Copied!' : 'Copy'}
       </button>
     </div>
   );
@@ -370,8 +343,14 @@ function HqCopyableInput({ fieldId, value, onChange, onBlur, placeholder = '', t
 function HqCopyableTextarea({ fieldId, value, onChange, onBlur, placeholder = '', rows, copied, setCopied, style }) {
   const fieldRef = useRef(null);
   const displayValue = asHqStringValue(value);
+  const doCopy = () => {
+    const text = (fieldRef.current && fieldRef.current.value) || displayValue;
+    execCopyText(text);
+    setCopied(fieldId);
+    setTimeout(() => setCopied(null), 2000);
+  };
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, width: '100%' }}>
       <textarea
         ref={fieldRef}
         id={fieldId}
@@ -383,18 +362,15 @@ function HqCopyableTextarea({ fieldId, value, onChange, onBlur, placeholder = ''
         onChange={onChange}
         onBlur={onBlur}
         onClick={(e) => e.target.select()}
-        onCopy={handleNativeCopy}
-        style={{ flex: 1, minWidth: 0, userSelect: 'text', WebkitUserSelect: 'text', ...style }}
+        style={{ ...style, flex: 1, minWidth: 0, width: 0, userSelect: 'text', WebkitUserSelect: 'text' }}
       />
       <button
         type="button"
-        onClick={() => {
-          copyFieldContents(fieldRef.current, value);
-          setCopied(fieldId);
-          setTimeout(() => setCopied(null), 2000);
-        }}
+        className="btn btn-secondary btn-sm"
+        onClick={doCopy}
+        style={{ flexShrink: 0 }}
       >
-        {copied === fieldId ? 'Copied!' : '📋'}
+        {copied === fieldId ? 'Copied!' : 'Copy'}
       </button>
     </div>
   );
@@ -723,7 +699,6 @@ function DALHQServices() {
               border: '1px solid var(--border)',
               borderRadius: 12,
               marginBottom: 12,
-              overflow: 'hidden',
             }}
           >
             <div
@@ -766,7 +741,7 @@ function DALHQServices() {
             </div>
 
             {isExpanded && (
-              <div style={{ padding: '0 14px 14px', borderTop: '1px solid var(--border)' }}>
+              <div style={{ padding: '0 14px 14px', borderTop: '1px solid var(--border)', userSelect: 'text' }}>
                 {addingFieldFor === svc.key && (
                   <div
                     style={{
@@ -946,7 +921,7 @@ function Field({ label, fieldKey, value, onChange, onBlur, type = 'text', placeh
   return (
     <div className="form-group">
       <label className="form-label">{label}</label>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
       <input
         ref={fieldRef}
         id={fieldId}
@@ -958,18 +933,19 @@ function Field({ label, fieldKey, value, onChange, onBlur, type = 'text', placeh
         onChange={e => onChange(fieldKey, e.target.value)}
         onBlur={() => onBlur(fieldKey, value)}
         onClick={(e) => e.target.select()}
-        onCopy={handleNativeCopy}
-        style={{ cursor: 'text', userSelect: 'text', WebkitUserSelect: 'text' }}
+        style={{ flex: 1, minWidth: 0, width: 0, cursor: 'text', userSelect: 'text', WebkitUserSelect: 'text' }}
       />
       <button
         type="button"
+        className="btn btn-secondary btn-sm"
+        style={{ flexShrink: 0 }}
         onClick={() => {
-          copyFieldContents(fieldRef.current, value);
+          execCopyText((fieldRef.current && fieldRef.current.value) || displayValue);
           setCopied(fieldId);
           setTimeout(() => setCopied(null), 2000);
         }}
       >
-        {copied === fieldId ? 'Copied!' : '📋'}
+        {copied === fieldId ? 'Copied!' : 'Copy'}
       </button>
       </div>
     </div>
@@ -984,7 +960,7 @@ function TextareaField({ label, fieldKey, value, onChange, onBlur, rows = 4, pla
   return (
     <div className="form-group">
       <label className="form-label">{label}</label>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, width: '100%' }}>
       <textarea
         ref={fieldRef}
         id={fieldId}
@@ -996,18 +972,19 @@ function TextareaField({ label, fieldKey, value, onChange, onBlur, rows = 4, pla
         onChange={e => onChange(fieldKey, e.target.value)}
         onBlur={() => onBlur(fieldKey, value)}
         onClick={(e) => e.target.select()}
-        onCopy={handleNativeCopy}
-        style={{ resize: 'vertical', fontFamily: 'inherit', flex: 1, userSelect: 'text', WebkitUserSelect: 'text' }}
+        style={{ resize: 'vertical', fontFamily: 'inherit', flex: 1, minWidth: 0, width: 0, userSelect: 'text', WebkitUserSelect: 'text' }}
       />
       <button
         type="button"
+        className="btn btn-secondary btn-sm"
+        style={{ flexShrink: 0 }}
         onClick={() => {
-          copyFieldContents(fieldRef.current, value);
+          execCopyText((fieldRef.current && fieldRef.current.value) || displayValue);
           setCopied(fieldId);
           setTimeout(() => setCopied(null), 2000);
         }}
       >
-        {copied === fieldId ? 'Copied!' : '📋'}
+        {copied === fieldId ? 'Copied!' : 'Copy'}
       </button>
       </div>
     </div>
