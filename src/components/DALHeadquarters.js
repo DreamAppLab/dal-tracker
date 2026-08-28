@@ -315,6 +315,7 @@ function HqSaveIndicator({ status }) {
 
 function HqCopyableInput({ fieldId, value, onChange, onBlur, placeholder = '', type = 'text', copied, setCopied }) {
   const fieldRef = useRef(null);
+  const [visible, setVisible] = useState(type !== 'password');
   const displayValue = asHqStringValue(value);
   const doCopy = () => {
     const text = fieldRef.current ? fieldRef.current.value : displayValue;
@@ -328,15 +329,25 @@ function HqCopyableInput({ fieldId, value, onChange, onBlur, placeholder = '', t
         ref={fieldRef}
         id={fieldId}
         className="form-input"
-        type={type}
+        type={visible ? 'text' : 'password'}
         value={displayValue}
         placeholder={placeholder}
         autoComplete="off"
         onChange={onChange}
         onBlur={onBlur}
         onClick={(e) => e.target.select()}
-        style={{ flex: 1, minWidth: 0, width: 0, cursor: 'text', userSelect: 'text', WebkitUserSelect: 'text' }}
+        style={{ flex: 1, cursor: 'text', userSelect: 'text', WebkitUserSelect: 'text' }}
       />
+      <button
+        type="button"
+        className="btn btn-secondary btn-sm"
+        aria-label={visible ? 'Hide value' : 'Show value'}
+        title={visible ? 'Hide' : 'Show'}
+        onClick={() => setVisible((v) => !v)}
+        style={{ flexShrink: 0 }}
+      >
+        👁
+      </button>
       <button
         type="button"
         className="btn btn-secondary btn-sm"
