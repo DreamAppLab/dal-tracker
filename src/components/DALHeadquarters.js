@@ -172,6 +172,24 @@ function normalizeHqService(svc) {
   };
 }
 
+function serializeHqServiceForFirestore(svc) {
+  const serialized = {
+    key: svc.key,
+    label: svc.label,
+    category: svc.category || 'Custom',
+    enabled: !!svc.enabled,
+    fields: normalizeHqFields(svc.fields),
+    customFields: (svc.customFields || []).map((cf) => ({
+      fieldName: cf.fieldName || '',
+      fieldDescription: asHqStringValue(cf.fieldDescription),
+      value: asHqStringValue(cf.value),
+    })),
+    notes: asHqStringValue(svc.notes),
+  };
+  if (svc.helper) serialized.helper = svc.helper;
+  return serialized;
+}
+
 const DAL_HQ_SEED_SERVICES = [
   makeHqService({
     key: 'expo_eas',
@@ -387,7 +405,8 @@ function DALHQServices() {
       setSaveStatus((prev) => ({ ...prev, [fieldId]: 'saving' }));
     }
     try {
-      await setDoc(doc(db, COLLECTION, SERVICES_DOCUMENT), { services: next }, { merge: true });
+      const payload = next.map(serializeHqServiceForFirestore);
+      await setDoc(doc(db, COLLECTION, SERVICES_DOCUMENT), { services: payload }, { merge: true });
       if (fieldId) {
         setSaveStatus((prev) => ({ ...prev, [fieldId]: 'saved' }));
         setTimeout(() => {
