@@ -125,28 +125,28 @@ function asHqStringValue(raw) {
 
 function execCopyText(text) {
   const t = String(text ?? '');
-  const ta = document.createElement('textarea');
-  ta.value = t;
-  ta.style.cssText = 'position:fixed;top:0;left:0;width:200px;height:40px;opacity:0.01;z-index:2147483647;';
-  document.body.appendChild(ta);
-  ta.focus();
-  ta.select();
-  try {
-    ta.setSelectionRange(0, t.length);
-  } catch {
-    /* ignore */
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(t).catch(() => {
+      // fallback
+      const ta = document.createElement('textarea');
+      ta.value = t;
+      ta.style.cssText = 'position:fixed;top:0;left:0;width:200px;height:40px;opacity:0.01;z-index:2147483647;';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      try { document.execCommand('copy'); } catch { /* ignore */ }
+      document.body.removeChild(ta);
+    });
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = t;
+    ta.style.cssText = 'position:fixed;top:0;left:0;width:200px;height:40px;opacity:0.01;z-index:2147483647;';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try { document.execCommand('copy'); } catch { /* ignore */ }
+    document.body.removeChild(ta);
   }
-  try {
-    document.execCommand('copy');
-  } catch {
-    /* ignore */
-  }
-  if (typeof navigator !== 'undefined' && navigator.clipboard && t) {
-    navigator.clipboard.writeText(t).catch(() => {});
-  }
-  setTimeout(() => {
-    if (ta.parentNode) ta.parentNode.removeChild(ta);
-  }, 500);
 }
 
 function normalizeHqFields(fields) {
