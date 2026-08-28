@@ -125,20 +125,19 @@ function asHqStringValue(raw) {
 
 function execCopyText(text) {
   const t = String(text ?? '');
-  navigator.clipboard.writeText(t).then(() => {
-    // success
-  }).catch(() => {
-    // fallback for focus issues
-    const ta = document.createElement('textarea');
-    ta.value = t;
-    ta.setAttribute('readonly', '');
-    ta.style.cssText = 'position:fixed;top:0;left:0;width:2em;height:2em;padding:0;border:none;outline:none;box-shadow:none;background:transparent;';
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    try { document.execCommand('copy'); } catch(e) { console.warn('copy failed', e); }
-    document.body.removeChild(ta);
-  });
+  const ta = document.createElement('textarea');
+  ta.value = t;
+  ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;';
+  document.body.appendChild(ta);
+  ta.focus({ preventScroll: true });
+  ta.setSelectionRange(0, t.length);
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch(e) { ok = false; }
+  document.body.removeChild(ta);
+  if (!ok) {
+    navigator.clipboard.writeText(t).catch(() => {});
+  }
 }
 
 function normalizeHqFields(fields) {
