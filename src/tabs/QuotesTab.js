@@ -257,8 +257,10 @@ function isUnread(quote) {
   return quote.readAt == null || quote.readAt === '';
 }
 
-export function countSubmittedUnreadQuotes(quotes) {
+export function countSubmittedUnreadQuotes(quotes, existingIds) {
   return (quotes || []).filter((quote) => {
+    // Only count quotes that currently exist in Firestore (not deleted ones).
+    if (existingIds && !existingIds.has(quote.id)) return false;
     const status = String(quote.status || 'submitted');
     if (status === 'welcome_sent') return false;
     return status === 'submitted' && isUnread(quote);
@@ -275,7 +277,9 @@ export function QuotesUnreadListener({ onUnreadCount, intervalMs = 20000 }) {
         const res = await fetch('/api/quotes');
         const data = await res.json().catch(() => ({}));
         if (cancelled || !data.ok) return;
-        onUnreadCount(countSubmittedUnreadQuotes(data.quotes));
+        // Build a set of IDs that currently exist so deleted docs are never counted.
+        const existingIds = new Set((data.quotes || []).map((q) => q.id));
+        onUnreadCount(countSubmittedUnreadQuotes(data.quotes, existingIds));
       } catch {
         /* keep last known count */
       }
@@ -1528,7 +1532,10 @@ export default function QuotesTab({ onOpenProject, onToast, onUnreadCount, onboa
 
   useEffect(() => {
     if (!onUnreadCount || loading) return;
-    onUnreadCount(countSubmittedUnreadQuotes(quotes));
+    // Derive the set of IDs that currently exist in local state so that any
+    // quote deleted externally (not through this UI) is excluded from the count.
+    const existingIds = new Set(quotes.map((q) => q.id));
+    onUnreadCount(countSubmittedUnreadQuotes(quotes, existingIds));
   }, [quotes, onUnreadCount, loading]);
 
   const filtered = useMemo(() => {
@@ -1731,6 +1738,19 @@ export default function QuotesTab({ onOpenProject, onToast, onUnreadCount, onboa
                       <td>{formatDateTime(quote.createdAt)}</td>
                       <td>
                         <span>{quote.name || '—'}</span>
+                        {quote.dalcrmClientId && (
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: 'var(--text-muted, #94a3b8)',
+                              marginTop: 2,
+                              fontFamily: 'monospace',
+                              letterSpacing: '0.01em',
+                            }}
+                          >
+                            {quote.dalcrmClientId}
+                          </div>
+                        )}
                         {hasNewFiles && (
                           <span
                             style={{
