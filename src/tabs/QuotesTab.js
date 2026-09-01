@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { addDoc, collection, doc, getDocs, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore';
+import { getDownloadURL, listAll, ref as storageRef } from 'firebase/storage';
 import { db } from '../firebase';
-import { dalCrmDb } from '../firebaseDalCrm';
+import { dalCrmDb, dalCrmStorage } from '../firebaseDalCrm';
 
 const FORTY_EIGHT_HOURS = 48 * 60 * 60 * 1000;
 
@@ -476,6 +477,9 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
   const [messagesLoading, setMessagesLoading] = useState(true);
   const [onboardingItems, setOnboardingItems] = useState([]);
   const [onboardingLoading, setOnboardingLoading] = useState(false);
+  const [storageFiles, setStorageFiles] = useState([]);
+  const [storageFilesLoading, setStorageFilesLoading] = useState(false);
+  const [storageFilesError, setStorageFilesError] = useState('');
 
   const status = rawStatus(quote);
   const shownStatus = displayStatus(quote);
@@ -555,6 +559,43 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
     );
 
     return () => unsub();
+  }, [quote.id, quote.dalcrmClientId, quote.formType]);
+
+  useEffect(() => {
+    const clientId = quote.dalcrmClientId;
+    if (!dalCrmStorage || !isCrmQuote(quote.formType) || !clientId) return;
+
+    let cancelled = false;
+    setStorageFilesLoading(true);
+    setStorageFilesError('');
+
+    async function loadStorageFiles() {
+      try {
+        const folderRef = storageRef(dalCrmStorage, `clients/${clientId}`);
+        const result = await listAll(folderRef);
+        const files = await Promise.all(
+          result.items.map(async (itemRef) => {
+            const url = await getDownloadURL(itemRef);
+            return { name: itemRef.name, url, fullPath: itemRef.fullPath };
+          })
+        );
+        if (!cancelled) {
+          setStorageFiles(files);
+          setStorageFilesLoading(false);
+        }
+      } catch (err) {
+        console.warn('[QuoteDetail] Storage files error:', err.message);
+        if (!cancelled) {
+          setStorageFilesError(err.message);
+          setStorageFilesLoading(false);
+        }
+      }
+    }
+
+    loadStorageFiles();
+    return () => {
+      cancelled = true;
+    };
   }, [quote.id, quote.dalcrmClientId, quote.formType]);
 
   const timeline = [
@@ -920,6 +961,43 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
           </div>
         )}
       </section>
+
+      {isCrmQuote(quote.formType) && quote.dalcrmClientId && (
+        <section className="quotes-section">
+          <h2>Uploaded Files</h2>
+          {storageFilesLoading ? (
+            <p className="quotes-muted">Loading files…</p>
+          ) : storageFilesError ? (
+            <p className="quotes-muted" style={{ color: '#f87171' }}>
+              Could not load files: {storageFilesError}
+            </p>
+          ) : !dalCrmStorage ? (
+            <p className="quotes-muted">
+              Add <code>REACT_APP_DALCRM_FIREBASE_API_KEY</code> env var to enable file access.
+            </p>
+          ) : storageFiles.length === 0 ? (
+            <p className="quotes-muted">No files uploaded yet.</p>
+          ) : (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {storageFiles.map((file) => (
+                <li key={file.fullPath} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 14, color: '#94a3b8' }}>
+                    {/\.(png|jpe?g|gif|webp|svg)$/i.test(file.name) ? '🖼' : '📄'}
+                  </span>
+                  <a
+                    href={file.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: '#4cc1f3', fontWeight: 500, wordBreak: 'break-all' }}
+                  >
+                    {file.name}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       {isCrmQuote(quote.formType) && quote.dalcrmClientId && (
         <section className="quotes-section">
