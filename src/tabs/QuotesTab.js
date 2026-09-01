@@ -1530,14 +1530,6 @@ export default function QuotesTab({ onOpenProject, onToast, onUnreadCount, onboa
     };
   }, []);
 
-  useEffect(() => {
-    if (!onUnreadCount || loading) return;
-    // Derive the set of IDs that currently exist in local state so that any
-    // quote deleted externally (not through this UI) is excluded from the count.
-    const existingIds = new Set(quotes.map((q) => q.id));
-    onUnreadCount(countSubmittedUnreadQuotes(quotes, existingIds));
-  }, [quotes, onUnreadCount, loading]);
-
   const filtered = useMemo(() => {
     const q = filters.search.trim().toLowerCase();
     return quotes.filter((quote) => {
@@ -1725,7 +1717,9 @@ export default function QuotesTab({ onOpenProject, onToast, onUnreadCount, onboa
                   const hasNewFiles =
                     isCrmQuote(quote.formType) &&
                     quote.dalcrmClientId &&
-                    (onboardingUploadsByClientId[quote.dalcrmClientId]?.length || 0) > 0;
+                    (onboardingUploadsByClientId[quote.dalcrmClientId] || []).some(
+                      (item) => !item.reviewedBy
+                    );
                   return (
                     <tr
                       key={quote.id}
@@ -1737,7 +1731,23 @@ export default function QuotesTab({ onOpenProject, onToast, onUnreadCount, onboa
                       </td>
                       <td>{formatDateTime(quote.createdAt)}</td>
                       <td>
-                        <span>{quote.name || '—'}</span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          {(unread || hasNewFiles) && (
+                            <span
+                              className="quotes-new-dot"
+                              style={{
+                                display: 'inline-block',
+                                width: 8,
+                                height: 8,
+                                borderRadius: '50%',
+                                background: '#4cc1f3',
+                                flexShrink: 0,
+                              }}
+                              aria-label="New activity"
+                            />
+                          )}
+                          {quote.name || '—'}
+                        </span>
                         {quote.dalcrmClientId && (
                           <div
                             style={{
