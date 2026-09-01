@@ -1742,7 +1742,7 @@ export default function QuotesTab({ onOpenProject, onToast, onUnreadCount, onboa
                           <div
                             style={{
                               fontSize: 11,
-                              color: 'var(--text-muted, #94a3b8)',
+                              color: '#4cc1f3',
                               marginTop: 2,
                               fontFamily: 'monospace',
                               letterSpacing: '0.01em',
@@ -1754,7 +1754,7 @@ export default function QuotesTab({ onOpenProject, onToast, onUnreadCount, onboa
                         <div
                           style={{
                             fontSize: 11,
-                            color: 'var(--text-muted, #94a3b8)',
+                            color: '#4cc1f3',
                             marginTop: 2,
                             fontFamily: 'monospace',
                             letterSpacing: '0.01em',
