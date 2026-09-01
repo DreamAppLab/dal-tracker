@@ -61,9 +61,44 @@ function DashboardApp() {
   const [maintenanceOverdue, setMaintenanceOverdue] = useState(0);
   const [quotesUnread, setQuotesUnread] = useState(0);
   const [inboundUnread, setInboundUnread] = useState(0);
-  const { uploadsByClientId: onboardingUploadsByClientId, totalCount: onboardingUploadsCount } = useOnboardingUploads();
+  const { uploadsByClientId: onboardingUploadsByClientId } = useOnboardingUploads();
+  // Tracks which dalcrmClientId values currently have an active quote. Used to
+  // filter the onboarding-uploads badge so deleted-quote clients are excluded.
+  const [activeQuoteClientIds, setActiveQuoteClientIds] = useState(null);
   const [websitesSeedVersion, setWebsitesSeedVersion] = useState(0);
   const jobIdsRef = useRef(new Set());
+
+  // Poll /api/quotes to keep activeQuoteClientIds in sync. Onboarding upload
+  // counts are filtered through this set so that deleted quotes' clients are
+  // never counted toward the badge.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadActiveClientIds() {
+      try {
+        const res = await fetch('/api/quotes');
+        const data = await res.json().catch(() => ({}));
+        if (cancelled || !data.ok) return;
+        const ids = new Set(
+          (data.quotes || []).map((q) => q.dalcrmClientId).filter(Boolean)
+        );
+        setActiveQuoteClientIds(ids);
+      } catch {
+        /* keep last known set on transient errors */
+      }
+    }
+    loadActiveClientIds();
+    const timer = setInterval(loadActiveClientIds, 30000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, []);
+
+  // Only count uploads for clients that still have an active quote.
+  const filteredOnboardingUploadsByClientId = activeQuoteClientIds === null
+    ? {} // not yet loaded — show nothing until first fetch resolves
+    : Object.fromEntries(
+        Object.entries(onboardingUploadsByClientId).filter(([id]) => activeQuoteClientIds.has(id))
+      );
+  const filteredOnboardingUploadsCount = Object.values(filteredOnboardingUploadsByClientId)
+    .reduce((s, arr) => s + arr.length, 0);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => setLoading(false), 8000);
@@ -309,7 +344,7 @@ function DashboardApp() {
         maintenanceOverdue={maintenanceOverdue}
         quotesUnread={quotesUnread}
         inboundUnread={inboundUnread}
-        onboardingUploads={onboardingUploadsCount}
+        onboardingUploads={filteredOnboardingUploadsCount}
       />
       <main className={`main-content ${sidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}>
         {activeView === 'dashboard' && (
@@ -371,7 +406,7 @@ function DashboardApp() {
             onToast={showToast}
             quotesUnread={quotesUnread}
             onQuotesUnread={setQuotesUnread}
-            onboardingUploadsByClientId={onboardingUploadsByClientId}
+            onboardingUploadsByClientId={filteredOnboardingUploadsByClientId}
           />
         )}
       </main>
