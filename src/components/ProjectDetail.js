@@ -229,7 +229,7 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
     { key: 'overview', label: 'Overview' },
     { key: 'client', label: 'Client', badge: clientUnread },
     ...(isDalWebsite ? [
-      { key: 'quotes', label: 'Quotes', badge: quotesUnread + totalOnboardingUploads },
+      { key: 'quotes', label: 'Quotes', badge: quotesUnread, uploadBadge: totalOnboardingUploads },
       { key: 'builds', label: 'Build Board' },
     ] : []),
     ...(isFamilyThread ? [{ key: 'admin', label: 'Admin Panel' }] : []),
@@ -527,6 +527,11 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
               {t.badge > 0 && (
                 <span style={{ background: 'var(--coral)', color: 'white', borderRadius: 10, padding: '1px 5px', fontSize: 10, fontWeight: 700, marginLeft: 6 }}>
                   {t.badge}
+                </span>
+              )}
+              {t.uploadBadge > 0 && (
+                <span style={{ background: '#e6a817', color: 'white', borderRadius: 10, padding: '1px 5px', fontSize: 10, fontWeight: 700, marginLeft: 4 }}>
+                  {t.uploadBadge}
                 </span>
               )}
               {count !== null && count > 0 && <span className="tab-count">{count}</span>}
