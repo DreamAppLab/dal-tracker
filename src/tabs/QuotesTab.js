@@ -12,7 +12,13 @@ const FORM_TYPE_LABELS = {
   app: 'Mobile App',
   'webapp-quote': 'Custom Business App',
   'pwa-quote': 'Business Web App',
+  'crm-only': 'CRM Only',
+  'crm only': 'CRM Only',
+  'website + crm': 'Website + CRM',
+  'website+crm': 'Website + CRM',
 };
+
+const CRM_FORM_TYPES = new Set(['CRM Only', 'Website + CRM']);
 
 const DAL_SITE_QUOTE_REPLY = 'https://www.dreamapplab.com/api/quote-reply';
 
@@ -53,6 +59,8 @@ const FORM_TYPE_FILTER_OPTIONS = [
   { value: 'Mobile App', label: 'Mobile App' },
   { value: 'Custom Business App', label: 'Custom Business App' },
   { value: 'Business Web App', label: 'Business Web App' },
+  { value: 'CRM Only', label: 'CRM Only' },
+  { value: 'Website + CRM', label: 'Website + CRM' },
 ];
 
 function toDate(value) {
@@ -91,8 +99,14 @@ function firstName(name) {
 }
 
 function formTypeLabel(formType) {
-  const key = String(formType || '').toLowerCase();
+  const raw = String(formType || '');
+  if (raw === 'CRM Only' || raw === 'Website + CRM') return raw;
+  const key = raw.toLowerCase();
   return FORM_TYPE_LABELS[key] || 'Website';
+}
+
+function isCrmQuote(formType) {
+  return CRM_FORM_TYPES.has(formTypeLabel(formType));
 }
 
 function rawStatus(quote) {
@@ -739,7 +753,36 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
           <InfoRow label="Business">{businessName(quote) || '—'}</InfoRow>
           <InfoRow label="Form type">{formTypeLabel(quote.formType)}</InfoRow>
           <InfoRow label="Submitted">{formatDateTime(quote.createdAt)}</InfoRow>
+          {isCrmQuote(quote.formType) && quote.dalcrmClientId && (
+            <InfoRow label="DAL CRM Portal">
+              <a
+                href={`https://dalcrm.app/onboarding/${quote.dalcrmClientId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: '#4cc1f3' }}
+              >
+                {quote.dalcrmClientId}
+              </a>
+            </InfoRow>
+          )}
         </div>
+        {isCrmQuote(quote.formType) && quote.dalcrmClientId && (
+          <div style={{ marginTop: 12 }}>
+            <a
+              href={`https://dalcrm.app/onboarding/${quote.dalcrmClientId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                color: '#4cc1f3',
+                fontSize: 13,
+                fontWeight: 600,
+                textDecoration: 'none',
+              }}
+            >
+              View Onboarding Portal →
+            </a>
+          </div>
+        )}
         {timeline.length > 0 && (
           <div className="quotes-timeline">
             {timeline.map((step, i) => (
