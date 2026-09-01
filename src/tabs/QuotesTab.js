@@ -1751,6 +1751,17 @@ export default function QuotesTab({ onOpenProject, onToast, onUnreadCount, onboa
                             {quote.dalcrmClientId}
                           </div>
                         )}
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: 'var(--text-muted, #94a3b8)',
+                            marginTop: 2,
+                            fontFamily: 'monospace',
+                            letterSpacing: '0.01em',
+                          }}
+                        >
+                          {quote.id}
+                        </div>
                         {hasNewFiles && (
                           <span
                             style={{
