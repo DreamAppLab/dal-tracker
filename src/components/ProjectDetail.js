@@ -195,7 +195,7 @@ function isDalWebsiteProject(project) {
   return id === 'dal-website' || name.includes('dream app lab');
 }
 
-export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, onDelete, onBack, onOpenProject, onToast, quotesUnread = 0, onQuotesUnread }) {
+export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, onDelete, onBack, onOpenProject, onToast, quotesUnread = 0, onQuotesUnread, onboardingUploadsByClientId = {} }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [clientUnread, setClientUnread] = useState(0);
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
@@ -224,11 +224,12 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
   const typeBadge = PROJECT_TYPE_BADGE[project.projectType];
   const isFamilyThread = isFamilyThreadProject(project);
   const isDalWebsite = isDalWebsiteProject(project);
+  const totalOnboardingUploads = Object.values(onboardingUploadsByClientId).reduce((s, arr) => s + arr.length, 0);
   const TABS = [
     { key: 'overview', label: 'Overview' },
     { key: 'client', label: 'Client', badge: clientUnread },
     ...(isDalWebsite ? [
-      { key: 'quotes', label: 'Quotes', badge: quotesUnread },
+      { key: 'quotes', label: 'Quotes', badge: quotesUnread + totalOnboardingUploads },
       { key: 'builds', label: 'Build Board' },
     ] : []),
     ...(isFamilyThread ? [{ key: 'admin', label: 'Admin Panel' }] : []),
@@ -628,7 +629,12 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
       {activeTab === 'admin' && isFamilyThread && <FamilyThreadAdminTab />}
 
       {activeTab === 'quotes' && isDalWebsite && (
-        <QuotesTab onOpenProject={onOpenProject} onToast={onToast} onUnreadCount={onQuotesUnread} />
+        <QuotesTab
+          onOpenProject={onOpenProject}
+          onToast={onToast}
+          onUnreadCount={onQuotesUnread}
+          onboardingUploadsByClientId={onboardingUploadsByClientId}
+        />
       )}
 
       {activeTab === 'pipeline' && showPipeline && pipelineKind === 'app' && (

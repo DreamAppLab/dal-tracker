@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
-import { addDoc, collection, doc, getDocs, query, setDoc, where } from 'firebase/firestore';
+import { addDoc, collection, doc, getDocs, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
+import { dalCrmDb } from '../firebaseDalCrm';
 
 const FORTY_EIGHT_HOURS = 48 * 60 * 60 * 1000;
 
@@ -360,6 +361,94 @@ function MessageBubble({ message, clientLabel }) {
   );
 }
 
+function OnboardingFileRow({ item, onReviewed }) {
+  const [marking, setMarking] = useState(false);
+  const [markedDone, setMarkedDone] = useState(false);
+
+  const itemName = item.itemName || item.name || item.label || item.type || 'Uploaded file';
+  const fileName = item.fileName || item.originalName || '';
+  const fileUrl = item.fileUrl || item.downloadUrl || item.url || item.storageUrl || '';
+  const uploadedAt = item.uploadedAt || item.createdAt || item.updatedAt || '';
+
+  const handleMarkReviewed = async () => {
+    if (!dalCrmDb || markedDone) return;
+    setMarking(true);
+    try {
+      const docRef = doc(dalCrmDb, 'clients', item.clientId, 'onboarding', item.id);
+      await updateDoc(docRef, {
+        reviewedBy: 'DAL Mission Control',
+        reviewedAt: new Date().toISOString(),
+      });
+      setMarkedDone(true);
+      if (onReviewed) onReviewed(item.id);
+    } catch (err) {
+      console.error('[OnboardingFileRow] Failed to mark reviewed:', err);
+    } finally {
+      setMarking(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
+        gap: 12,
+        padding: '12px 0',
+        borderBottom: '1px solid rgba(255,255,255,0.07)',
+        opacity: markedDone ? 0.45 : 1,
+        transition: 'opacity 0.2s',
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: 14, color: '#E2E8F0', marginBottom: 2 }}>
+          {itemName}
+          {markedDone && (
+            <span style={{ marginLeft: 8, fontSize: 11, color: '#4ADE80', fontWeight: 700 }}>
+              Reviewed ✓
+            </span>
+          )}
+        </div>
+        {fileName && (
+          <div style={{ fontSize: 12, color: '#94A3B8', marginBottom: 2 }}>{fileName}</div>
+        )}
+        {uploadedAt && (
+          <div style={{ fontSize: 11, color: '#64748B' }}>
+            Uploaded {formatDateTime(uploadedAt)}
+          </div>
+        )}
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
+        {fileUrl && (
+          <a
+            href={fileUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn btn-secondary btn-sm"
+            style={{ fontSize: 12 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            ⬇ Download
+          </a>
+        )}
+        {!markedDone && (
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            style={{ fontSize: 12 }}
+            disabled={marking || !dalCrmDb}
+            onClick={handleMarkReviewed}
+            title={!dalCrmDb ? 'DAL CRM Firebase not configured' : undefined}
+          >
+            {marking ? 'Saving…' : 'Mark Reviewed'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProject, onToast }) {
   const [discountOpen, setDiscountOpen] = useState(false);
   const [discountMode, setDiscountMode] = useState('dollar');
@@ -385,6 +474,8 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
   });
   const [messages, setMessages] = useState([]);
   const [messagesLoading, setMessagesLoading] = useState(true);
+  const [onboardingItems, setOnboardingItems] = useState([]);
+  const [onboardingLoading, setOnboardingLoading] = useState(false);
 
   const status = rawStatus(quote);
   const shownStatus = displayStatus(quote);
@@ -430,6 +521,41 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
       cancelled = true;
     };
   }, [quote.id]);
+
+  useEffect(() => {
+    const clientId = quote.dalcrmClientId;
+    if (!dalCrmDb || !isCrmQuote(quote.formType) || !clientId) return;
+
+    setOnboardingLoading(true);
+    const q = query(
+      collection(dalCrmDb, 'clients', clientId, 'onboarding'),
+      where('status', '==', 'uploaded')
+    );
+
+    const unsub = onSnapshot(
+      q,
+      (snapshot) => {
+        const items = snapshot.docs.map((d) => ({
+          id: d.id,
+          clientId,
+          ...d.data(),
+        }));
+        items.sort((a, b) => {
+          const ta = String(a.uploadedAt || a.createdAt || '');
+          const tb = String(b.uploadedAt || b.createdAt || '');
+          return tb.localeCompare(ta);
+        });
+        setOnboardingItems(items);
+        setOnboardingLoading(false);
+      },
+      (err) => {
+        console.warn('[QuoteDetail] Onboarding listener error:', err.message);
+        setOnboardingLoading(false);
+      }
+    );
+
+    return () => unsub();
+  }, [quote.id, quote.dalcrmClientId, quote.formType]);
 
   const timeline = [
     { label: 'Submitted', at: quote.createdAt || quote.submittedAt },
@@ -794,6 +920,55 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
           </div>
         )}
       </section>
+
+      {isCrmQuote(quote.formType) && quote.dalcrmClientId && (
+        <section className="quotes-section">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <h2 style={{ margin: 0 }}>📎 Onboarding Files</h2>
+            {onboardingItems.filter((it) => !it.reviewedBy).length > 0 && (
+              <span
+                style={{
+                  background: '#ea580c',
+                  color: '#fff',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 10,
+                  padding: '2px 8px',
+                }}
+              >
+                {onboardingItems.filter((it) => !it.reviewedBy).length} new
+              </span>
+            )}
+          </div>
+          {onboardingLoading ? (
+            <p className="quotes-muted">Loading files…</p>
+          ) : !dalCrmDb ? (
+            <p className="quotes-muted">
+              Add <code>REACT_APP_DALCRM_FIREBASE_API_KEY</code> env var to enable onboarding file tracking.
+            </p>
+          ) : onboardingItems.length === 0 ? (
+            <p className="quotes-muted">No files uploaded yet.</p>
+          ) : (
+            <div>
+              {onboardingItems.map((item) => (
+                <OnboardingFileRow
+                  key={item.id}
+                  item={item}
+                  onReviewed={(reviewedId) => {
+                    setOnboardingItems((prev) =>
+                      prev.map((it) =>
+                        it.id === reviewedId
+                          ? { ...it, reviewedBy: 'DAL Mission Control', reviewedAt: new Date().toISOString() }
+                          : it
+                      )
+                    );
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="quotes-section">
         <h2>Messages</h2>
@@ -1233,7 +1408,7 @@ const EMPTY_FILTERS = {
   search: '',
 };
 
-export default function QuotesTab({ onOpenProject, onToast, onUnreadCount }) {
+export default function QuotesTab({ onOpenProject, onToast, onUnreadCount, onboardingUploadsByClientId = {} }) {
   const [quotes, setQuotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -1462,6 +1637,10 @@ export default function QuotesTab({ onOpenProject, onToast, onUnreadCount }) {
                 filtered.map((quote) => {
                   const pricing = quotePricing(quote);
                   const unread = isUnread(quote);
+                  const hasNewFiles =
+                    isCrmQuote(quote.formType) &&
+                    quote.dalcrmClientId &&
+                    (onboardingUploadsByClientId[quote.dalcrmClientId]?.length || 0) > 0;
                   return (
                     <tr
                       key={quote.id}
@@ -1472,7 +1651,26 @@ export default function QuotesTab({ onOpenProject, onToast, onUnreadCount }) {
                         {unread ? <span className="quotes-unread-dot" aria-label="Unread" /> : null}
                       </td>
                       <td>{formatDateTime(quote.createdAt)}</td>
-                      <td>{quote.name || '—'}</td>
+                      <td>
+                        <span>{quote.name || '—'}</span>
+                        {hasNewFiles && (
+                          <span
+                            style={{
+                              marginLeft: 7,
+                              fontSize: 11,
+                              fontWeight: 700,
+                              color: '#ea580c',
+                              background: 'rgba(234,88,12,0.12)',
+                              border: '1px solid rgba(234,88,12,0.35)',
+                              borderRadius: 4,
+                              padding: '1px 5px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            📎 New file
+                          </span>
+                        )}
+                      </td>
                       <td>{businessName(quote) || '—'}</td>
                       <td>{formTypeLabel(quote.formType)}</td>
                       <td>{money(pricing.finalTotal)}</td>

@@ -20,6 +20,7 @@ import MaintenanceTab from './components/MaintenanceTab';
 import Contacts from './components/Contacts';
 import Sidebar from './components/Sidebar';
 import { QuotesUnreadListener } from './tabs/QuotesTab';
+import { useOnboardingUploads } from './hooks/useOnboardingUploads';
 import AddProjectModal from './components/AddProjectModal';
 import LoginScreen from './components/LoginScreen';
 import AuthLoadingScreen from './components/AuthLoadingScreen';
@@ -60,6 +61,7 @@ function DashboardApp() {
   const [maintenanceOverdue, setMaintenanceOverdue] = useState(0);
   const [quotesUnread, setQuotesUnread] = useState(0);
   const [inboundUnread, setInboundUnread] = useState(0);
+  const { uploadsByClientId: onboardingUploadsByClientId, totalCount: onboardingUploadsCount } = useOnboardingUploads();
   const [websitesSeedVersion, setWebsitesSeedVersion] = useState(0);
   const jobIdsRef = useRef(new Set());
 
@@ -307,6 +309,7 @@ function DashboardApp() {
         maintenanceOverdue={maintenanceOverdue}
         quotesUnread={quotesUnread}
         inboundUnread={inboundUnread}
+        onboardingUploads={onboardingUploadsCount}
       />
       <main className={`main-content ${sidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}>
         {activeView === 'dashboard' && (
@@ -368,6 +371,7 @@ function DashboardApp() {
             onToast={showToast}
             quotesUnread={quotesUnread}
             onQuotesUnread={setQuotesUnread}
+            onboardingUploadsByClientId={onboardingUploadsByClientId}
           />
         )}
       </main>

@@ -95,6 +95,7 @@ export default function Sidebar({
   maintenanceOverdue = 0,
   quotesUnread = 0,
   inboundUnread = 0,
+  onboardingUploads = 0,
 }) {
   const [sections, setSections] = useState(DEFAULT_SECTIONS);
 
@@ -130,7 +131,7 @@ export default function Sidebar({
 
   const clientsBadge = (inboundUnread || 0) || ((contactsUnread || 0) + (clientJobsUnread || 0));
   const utilitiesBadge = maintenanceOverdue > 0 ? maintenanceOverdue : 0;
-  const websitesBadge = quotesUnread || 0;
+  const websitesBadge = (quotesUnread || 0) + (onboardingUploads || 0);
 
   const renderProject = (p) => {
     const sc = STATUS_CONFIG[p.status];
@@ -146,7 +147,7 @@ export default function Sidebar({
         </span>
         <span className="sidebar-item-text">{p.name}</span>
         <UnreadBadge
-          count={(projectsUnread[p.id] || 0) + (isDalWebsite(p) ? (quotesUnread || 0) : 0)}
+          count={(projectsUnread[p.id] || 0) + (isDalWebsite(p) ? (quotesUnread || 0) + (onboardingUploads || 0) : 0)}
         />
         <span className="sidebar-status-dot" style={{ background: sc?.color || '#94A3B8' }} />
       </button>
