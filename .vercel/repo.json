@@ -1,0 +1,11 @@
+{
+  "remoteName": "origin",
+  "projects": [
+    {
+      "id": "prj_eCc9oYIjLdW0HriiWn6dAbOXXx5S",
+      "name": "dal-tracker",
+      "directory": ".",
+      "orgId": "team_DTdKthT6vqeddH5ND7XmMWHO"
+    }
+  ]
+}
