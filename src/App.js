@@ -15,6 +15,7 @@ import BlogAdmin from './pages/BlogAdmin';
 import ToolsHub from './pages/ToolsHub';
 import ExpensesTab from './tabs/ExpensesTab';
 import ProjectDetail from './components/ProjectDetail';
+import EnterpriseInquiriesTab from './tabs/EnterpriseInquiriesTab';
 import ClientJobsDashboard from './components/ClientJobsDashboard';
 import MaintenanceTab from './components/MaintenanceTab';
 import Contacts from './components/Contacts';
@@ -379,6 +380,7 @@ function DashboardApp() {
           />
         )}
         {activeView === 'expenses' && <ExpensesTab />}
+        {activeView === 'enterprise-inquiries' && <EnterpriseInquiriesTab />}
         {activeView === 'subscriptions' && (
           <SubscriptionsDashboard projects={projects} />
         )}
