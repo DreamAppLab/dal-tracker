@@ -4,7 +4,7 @@ import { dalCrmDb } from '../firebaseDalCrm';
 
 /**
  * Real-time listener for unreviewed onboarding file uploads across all
- * clients in the DAL CRM project (fieldbase-prod-42be2).
+ * clients in the Zerbiq project (fieldbase-prod-42be2).
  *
  * Listens to clients/{clientId}/onboarding/ where:
  *   status == 'uploaded' AND reviewedBy == null

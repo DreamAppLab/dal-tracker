@@ -444,7 +444,7 @@ function OnboardingFileRow({ item, onReviewed }) {
             style={{ fontSize: 12 }}
             disabled={marking || !dalCrmDb}
             onClick={handleMarkReviewed}
-            title={!dalCrmDb ? 'DAL CRM Firebase not configured' : undefined}
+            title={!dalCrmDb ? 'Zerbiq Firebase not configured' : undefined}
           >
             {marking ? 'Saving…' : 'Mark Reviewed'}
           </button>
@@ -925,7 +925,7 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
           <InfoRow label="Form type">{formTypeLabel(quote.formType)}</InfoRow>
           <InfoRow label="Submitted">{formatDateTime(quote.createdAt)}</InfoRow>
           {isCrmQuote(quote.formType) && quote.dalcrmClientId && (
-            <InfoRow label="DAL CRM Portal">
+            <InfoRow label="Zerbiq Portal">
               <a
                 href={`https://dalcrm.app/onboarding/${quote.dalcrmClientId}`}
                 target="_blank"
