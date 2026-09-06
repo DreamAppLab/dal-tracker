@@ -4,7 +4,7 @@ import { getStorage } from 'firebase/storage';
 
 const DAL_CRM_APP_NAME = 'dalCrmApp';
 
-// DAL CRM Firebase project (fieldbase-prod-42be2).
+// Zerbiq Firebase project (fieldbase-prod-42be2).
 // Required Vercel env vars:
 //   REACT_APP_DALCRM_FIREBASE_API_KEY
 //   REACT_APP_DALCRM_FIREBASE_AUTH_DOMAIN       (optional, has default)
