@@ -3,7 +3,7 @@ import { format } from 'date-fns';
 import { addDoc, collection, doc, getDocs, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { getDownloadURL, listAll, ref as storageRef } from 'firebase/storage';
 import { db } from '../firebase';
-import { dalCrmDb, dalCrmStorage } from '../firebaseDalCrm';
+import { zerbiqDb, zerbiqStorage } from '../firebaseZerbiq';
 
 const FORTY_EIGHT_HOURS = 48 * 60 * 60 * 1000;
 
@@ -376,10 +376,10 @@ function OnboardingFileRow({ item, onReviewed }) {
   const uploadedAt = item.uploadedAt || item.createdAt || item.updatedAt || '';
 
   const handleMarkReviewed = async () => {
-    if (!dalCrmDb || markedDone) return;
+    if (!zerbiqDb || markedDone) return;
     setMarking(true);
     try {
-      const docRef = doc(dalCrmDb, 'clients', item.clientId, 'onboarding', item.id);
+      const docRef = doc(zerbiqDb, 'clients', item.clientId, 'onboarding', item.id);
       await updateDoc(docRef, {
         reviewedBy: 'DAL Mission Control',
         reviewedAt: new Date().toISOString(),
@@ -442,9 +442,9 @@ function OnboardingFileRow({ item, onReviewed }) {
             type="button"
             className="btn btn-primary btn-sm"
             style={{ fontSize: 12 }}
-            disabled={marking || !dalCrmDb}
+            disabled={marking || !zerbiqDb}
             onClick={handleMarkReviewed}
-            title={!dalCrmDb ? 'Zerbiq Firebase not configured' : undefined}
+            title={!zerbiqDb ? 'Zerbiq Firebase not configured' : undefined}
           >
             {marking ? 'Saving…' : 'Mark Reviewed'}
           </button>
@@ -531,12 +531,12 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
   }, [quote.id]);
 
   useEffect(() => {
-    const clientId = quote.dalcrmClientId;
-    if (!dalCrmDb || !isCrmQuote(quote.formType) || !clientId) return;
+    const clientId = quote.zerbiqClientId;
+    if (!zerbiqDb || !isCrmQuote(quote.formType) || !clientId) return;
 
     setOnboardingLoading(true);
     const q = query(
-      collection(dalCrmDb, 'clients', clientId, 'onboarding'),
+      collection(zerbiqDb, 'clients', clientId, 'onboarding'),
       where('status', '==', 'uploaded')
     );
 
@@ -563,11 +563,11 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
     );
 
     return () => unsub();
-  }, [quote.id, quote.dalcrmClientId, quote.formType]);
+  }, [quote.id, quote.zerbiqClientId, quote.formType]);
 
   useEffect(() => {
-    const clientId = quote.dalcrmClientId;
-    if (!dalCrmStorage || !isCrmQuote(quote.formType) || !clientId) return;
+    const clientId = quote.zerbiqClientId;
+    if (!zerbiqStorage || !isCrmQuote(quote.formType) || !clientId) return;
 
     let cancelled = false;
     setStorageFilesLoading(true);
@@ -575,7 +575,7 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
 
     async function loadStorageFiles() {
       try {
-        const folderRef = storageRef(dalCrmStorage, `clients/${clientId}`);
+        const folderRef = storageRef(zerbiqStorage, `clients/${clientId}`);
         const result = await listAll(folderRef);
         const files = await Promise.all(
           result.items.map(async (itemRef) => {
@@ -600,7 +600,7 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
     return () => {
       cancelled = true;
     };
-  }, [quote.id, quote.dalcrmClientId, quote.formType]);
+  }, [quote.id, quote.zerbiqClientId, quote.formType]);
 
   const timeline = [
     { label: 'Submitted', at: quote.createdAt || quote.submittedAt },
@@ -924,23 +924,23 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
           <InfoRow label="Business">{businessName(quote) || '—'}</InfoRow>
           <InfoRow label="Form type">{formTypeLabel(quote.formType)}</InfoRow>
           <InfoRow label="Submitted">{formatDateTime(quote.createdAt)}</InfoRow>
-          {isCrmQuote(quote.formType) && quote.dalcrmClientId && (
+          {isCrmQuote(quote.formType) && quote.zerbiqClientId && (
             <InfoRow label="Zerbiq Portal">
               <a
-                href={`https://dalcrm.app/onboarding/${quote.dalcrmClientId}`}
+                href={`https://zerbiq.app/onboarding/${quote.zerbiqClientId}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{ color: '#4cc1f3' }}
               >
-                {quote.dalcrmClientId}
+                {quote.zerbiqClientId}
               </a>
             </InfoRow>
           )}
         </div>
-        {isCrmQuote(quote.formType) && quote.dalcrmClientId && (
+        {isCrmQuote(quote.formType) && quote.zerbiqClientId && (
           <div style={{ marginTop: 12 }}>
             <a
-              href={`https://dalcrm.app/onboarding/${quote.dalcrmClientId}`}
+              href={`https://zerbiq.app/onboarding/${quote.zerbiqClientId}`}
               target="_blank"
               rel="noopener noreferrer"
               style={{
@@ -966,7 +966,7 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
         )}
       </section>
 
-      {isCrmQuote(quote.formType) && quote.dalcrmClientId && (
+      {isCrmQuote(quote.formType) && quote.zerbiqClientId && (
         <section className="quotes-section">
           <h2>Uploaded Files</h2>
           {storageFilesLoading ? (
@@ -975,9 +975,9 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
             <p className="quotes-muted" style={{ color: '#f87171' }}>
               Could not load files: {storageFilesError}
             </p>
-          ) : !dalCrmStorage ? (
+          ) : !zerbiqStorage ? (
             <p className="quotes-muted">
-              Add <code>REACT_APP_DALCRM_FIREBASE_API_KEY</code> env var to enable file access.
+              Add <code>REACT_APP_ZERBIQ_FIREBASE_API_KEY</code> env var to enable file access.
             </p>
           ) : storageFiles.length === 0 ? (
             <p className="quotes-muted">No files uploaded yet.</p>
@@ -1003,7 +1003,7 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
         </section>
       )}
 
-      {isCrmQuote(quote.formType) && quote.dalcrmClientId && (
+      {isCrmQuote(quote.formType) && quote.zerbiqClientId && (
         <section className="quotes-section">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
             <h2 style={{ margin: 0 }}>📎 Onboarding Files</h2>
@@ -1024,9 +1024,9 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
           </div>
           {onboardingLoading ? (
             <p className="quotes-muted">Loading files…</p>
-          ) : !dalCrmDb ? (
+          ) : !zerbiqDb ? (
             <p className="quotes-muted">
-              Add <code>REACT_APP_DALCRM_FIREBASE_API_KEY</code> env var to enable onboarding file tracking.
+              Add <code>REACT_APP_ZERBIQ_FIREBASE_API_KEY</code> env var to enable onboarding file tracking.
             </p>
           ) : onboardingItems.length === 0 ? (
             <p className="quotes-muted">No files uploaded yet.</p>
@@ -1716,8 +1716,8 @@ export default function QuotesTab({ onOpenProject, onToast, onUnreadCount, onboa
                   const unread = isUnread(quote);
                   const hasNewFiles =
                     isCrmQuote(quote.formType) &&
-                    quote.dalcrmClientId &&
-                    (onboardingUploadsByClientId[quote.dalcrmClientId] || []).some(
+                    quote.zerbiqClientId &&
+                    (onboardingUploadsByClientId[quote.zerbiqClientId] || []).some(
                       (item) => !item.reviewedBy
                     );
                   return (
@@ -1748,7 +1748,7 @@ export default function QuotesTab({ onOpenProject, onToast, onUnreadCount, onboa
                           )}
                           {quote.name || '—'}
                         </span>
-                        {quote.dalcrmClientId && (
+                        {quote.zerbiqClientId && (
                           <div
                             style={{
                               fontSize: 11,
@@ -1758,7 +1758,7 @@ export default function QuotesTab({ onOpenProject, onToast, onUnreadCount, onboa
                               letterSpacing: '0.01em',
                             }}
                           >
-                            {quote.dalcrmClientId}
+                            {quote.zerbiqClientId}
                           </div>
                         )}
                         <div

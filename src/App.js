@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from './firebase';
-import { collection, onSnapshot, doc, setDoc, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, query, where, getDocs } from 'firebase/firestore';
 import { PIPELINE_APPS } from './data/initialData';
 import Dashboard from './components/Dashboard';
 import ASODashboard from './components/ASODashboard';
@@ -63,11 +63,31 @@ function DashboardApp() {
   const [quotesUnread, setQuotesUnread] = useState(0);
   const [inboundUnread, setInboundUnread] = useState(0);
   const { uploadsByClientId: onboardingUploadsByClientId } = useOnboardingUploads();
-  // Tracks which dalcrmClientId values currently have an active quote. Used to
+  // Tracks which zerbiqClientId values currently have an active quote. Used to
   // filter the onboarding-uploads badge so deleted-quote clients are excluded.
   const [activeQuoteClientIds, setActiveQuoteClientIds] = useState(null);
   const [websitesSeedVersion, setWebsitesSeedVersion] = useState(0);
   const jobIdsRef = useRef(new Set());
+
+  // One-time patch: rename any Firestore project still labelled "DAL CRM" to
+  // "Zerbiq" so the sidebar shows the correct product name.
+  useEffect(() => {
+    async function patchDalCrmLabel() {
+      try {
+        const snap = await getDocs(
+          query(collection(db, 'projects'), where('name', '==', 'DAL CRM'))
+        );
+        await Promise.all(
+          snap.docs.map((d) =>
+            setDoc(doc(db, 'projects', d.id), { name: 'Zerbiq' }, { merge: true })
+          )
+        );
+      } catch {
+        /* non-fatal — will self-heal on next load */
+      }
+    }
+    patchDalCrmLabel();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll /api/quotes to keep activeQuoteClientIds in sync. Onboarding upload
   // counts are filtered through this set so that deleted quotes' clients are
@@ -80,7 +100,7 @@ function DashboardApp() {
         const data = await res.json().catch(() => ({}));
         if (cancelled || !data.ok) return;
         const ids = new Set(
-          (data.quotes || []).map((q) => q.dalcrmClientId).filter(Boolean)
+          (data.quotes || []).map((q) => q.zerbiqClientId).filter(Boolean)
         );
         setActiveQuoteClientIds(ids);
       } catch {

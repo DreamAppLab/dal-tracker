@@ -1,6 +1,6 @@
 // Mission Control — quote submission endpoint
 // POST /api/submit — create a new quote in the DAL site Firestore
-// Accepts JSON body matching the quote schema; dalcrmClientId is persisted for CRM quotes.
+// Accepts JSON body matching the quote schema; zerbiqClientId is persisted for CRM quotes.
 
 const { initializeApp, getApp, getApps, cert } = require('firebase-admin/app');
 const { getFirestore, Timestamp, FieldValue } = require('firebase-admin/firestore');
@@ -88,8 +88,8 @@ function buildQuoteData(body) {
     submittedAt: Timestamp.fromDate(new Date(body.submittedAt || now)),
   };
 
-  if (isCrm && body.dalcrmClientId) {
-    data.dalcrmClientId = String(body.dalcrmClientId).trim();
+  if (isCrm && body.zerbiqClientId) {
+    data.zerbiqClientId = String(body.zerbiqClientId).trim();
   }
 
   // Strip undefined values
