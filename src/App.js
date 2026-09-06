@@ -63,7 +63,7 @@ function DashboardApp() {
   const [quotesUnread, setQuotesUnread] = useState(0);
   const [inboundUnread, setInboundUnread] = useState(0);
   const { uploadsByClientId: onboardingUploadsByClientId } = useOnboardingUploads();
-  // Tracks which dalcrmClientId values currently have an active quote. Used to
+  // Tracks which zerbiqClientId values currently have an active quote. Used to
   // filter the onboarding-uploads badge so deleted-quote clients are excluded.
   const [activeQuoteClientIds, setActiveQuoteClientIds] = useState(null);
   const [websitesSeedVersion, setWebsitesSeedVersion] = useState(0);
@@ -80,7 +80,7 @@ function DashboardApp() {
         const data = await res.json().catch(() => ({}));
         if (cancelled || !data.ok) return;
         const ids = new Set(
-          (data.quotes || []).map((q) => q.dalcrmClientId).filter(Boolean)
+          (data.quotes || []).map((q) => q.zerbiqClientId).filter(Boolean)
         );
         setActiveQuoteClientIds(ids);
       } catch {
