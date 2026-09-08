@@ -70,7 +70,8 @@ function DashboardApp() {
   const jobIdsRef = useRef(new Set());
 
   // One-time patch: rename any Firestore project still labelled "DAL CRM" to
-  // "Zerbiq" so the sidebar shows the correct product name.
+  // "Zerbiq" so the sidebar shows the correct product name, and ensure the
+  // Zerbiq project has hasBlog: true so the Blog tab appears.
   useEffect(() => {
     async function patchDalCrmLabel() {
       try {
@@ -79,14 +80,32 @@ function DashboardApp() {
         );
         await Promise.all(
           snap.docs.map((d) =>
-            setDoc(doc(db, 'projects', d.id), { name: 'Zerbiq' }, { merge: true })
+            setDoc(doc(db, 'projects', d.id), { name: 'Zerbiq', hasBlog: true }, { merge: true })
           )
         );
       } catch {
         /* non-fatal — will self-heal on next load */
       }
     }
+    async function patchZerbiqBlog() {
+      try {
+        const snap = await getDocs(
+          query(collection(db, 'projects'), where('name', '==', 'Zerbiq'))
+        );
+        await Promise.all(
+          snap.docs.map((d) => {
+            if (!d.data().hasBlog) {
+              return setDoc(doc(db, 'projects', d.id), { hasBlog: true }, { merge: true });
+            }
+            return Promise.resolve();
+          })
+        );
+      } catch {
+        /* non-fatal */
+      }
+    }
     patchDalCrmLabel();
+    patchZerbiqBlog();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll /api/quotes to keep activeQuoteClientIds in sync. Onboarding upload

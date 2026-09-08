@@ -16,7 +16,7 @@ function fileToBase64(file) {
   });
 }
 
-export async function uploadBlogImage(file) {
+export async function uploadBlogImage(file, uploadEndpoint = '/api/blog/upload') {
   if (!file) throw new Error('Choose an image to upload.');
   const type = String(file.type || '').toLowerCase();
   if (type && !ALLOWED.includes(type)) {
@@ -29,7 +29,7 @@ export async function uploadBlogImage(file) {
   }
 
   const data = await fileToBase64(compressed);
-  const res = await fetch('/api/blog/upload', {
+  const res = await fetch(uploadEndpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

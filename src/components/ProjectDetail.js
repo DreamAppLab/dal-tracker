@@ -195,6 +195,12 @@ function isDalWebsiteProject(project) {
   return id === 'dal-website' || name.includes('dream app lab');
 }
 
+function isZerbiqProject(project) {
+  const name = (project.name || '').toLowerCase().replace(/\s+/g, '');
+  const id = (project.id || '').toLowerCase();
+  return name === 'zerbiq' || id === 'zerbiq' || id.includes('zerbiq');
+}
+
 export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, onDelete, onBack, onOpenProject, onToast, quotesUnread = 0, onQuotesUnread, onboardingUploadsByClientId = {} }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [clientUnread, setClientUnread] = useState(0);
@@ -224,6 +230,7 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
   const typeBadge = PROJECT_TYPE_BADGE[project.projectType];
   const isFamilyThread = isFamilyThreadProject(project);
   const isDalWebsite = isDalWebsiteProject(project);
+  const isZerbiq = isZerbiqProject(project);
   const totalOnboardingUploads = Object.values(onboardingUploadsByClientId).reduce((s, arr) => s + arr.length, 0);
   const TABS = [
     { key: 'overview', label: 'Overview' },
@@ -1033,7 +1040,13 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
       )}
 
       {activeTab === 'blog' && project.hasBlog === true && (
-        <BlogAdmin />
+        <BlogAdmin
+          apiBase={isZerbiq ? '/api/blog/zerbiq' : '/api/blog'}
+          subtitle={isZerbiq
+            ? `zerbiq.app posts · ${process.env.REACT_APP_ZERBIQ_FIREBASE_PROJECT_ID || 'fieldbase-prod-42be2'}`
+            : 'dreamapplab.com posts · dal-website-c9dd8'
+          }
+        />
       )}
 
       {activeTab === 'vault' && (

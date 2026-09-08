@@ -143,7 +143,7 @@ function RemainingCount({ value, max }) {
   );
 }
 
-export default function BlogAdmin() {
+export default function BlogAdmin({ apiBase = '/api/blog', subtitle = 'dreamapplab.com posts · dal-website-c9dd8' }) {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -163,7 +163,7 @@ export default function BlogAdmin() {
     if (!silent) setLoading(true);
     setError('');
     try {
-      const data = await apiJson('/api/blog/posts');
+      const data = await apiJson(`${apiBase}/posts`);
       const list = Array.isArray(data.posts) ? data.posts : [];
       list.sort((a, b) => {
         const av = toDate(listDate(a))?.getTime() || 0;
@@ -177,7 +177,7 @@ export default function BlogAdmin() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, []);
+  }, [apiBase]);
 
   useEffect(() => {
     loadPosts();
@@ -256,7 +256,7 @@ export default function BlogAdmin() {
     setFeaturedBusy(true);
     setError('');
     try {
-      const url = await uploadBlogImage(file);
+      const url = await uploadBlogImage(file, `${apiBase}/upload`);
       setDraft((prev) => (prev ? { ...prev, featuredImage: url } : prev));
       setDirty(true);
     } catch (err) {
@@ -315,7 +315,7 @@ export default function BlogAdmin() {
     setError('');
     setNotice('');
     try {
-      const data = await apiJson('/api/blog/posts', {
+      const data = await apiJson(`${apiBase}/posts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -355,7 +355,7 @@ export default function BlogAdmin() {
       return;
     }
     return runAction('save', async () => {
-      await apiJson('/api/blog/post/' + encodeURIComponent(selectedId), {
+      await apiJson(`${apiBase}/post/` + encodeURIComponent(selectedId), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payloadFromDraft()),
@@ -375,7 +375,7 @@ export default function BlogAdmin() {
       return;
     }
     return runAction('schedule', async () => {
-      await apiJson('/api/blog/post/' + encodeURIComponent(selectedId), {
+      await apiJson(`${apiBase}/post/` + encodeURIComponent(selectedId), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payloadFromDraft({ status: 'scheduled' })),
@@ -393,7 +393,7 @@ export default function BlogAdmin() {
       return;
     }
     return runAction('publish', async () => {
-      await apiJson('/api/blog/post/' + encodeURIComponent(selectedId), {
+      await apiJson(`${apiBase}/post/` + encodeURIComponent(selectedId), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payloadFromDraft({ status: 'published', clearSchedule: true })),
@@ -407,7 +407,7 @@ export default function BlogAdmin() {
 
   const handleArchive = () =>
     runAction('archive', async () => {
-      await apiJson('/api/blog/post/' + encodeURIComponent(selectedId), {
+      await apiJson(`${apiBase}/post/` + encodeURIComponent(selectedId), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payloadFromDraft({ status: 'archived' })),
@@ -421,7 +421,7 @@ export default function BlogAdmin() {
   const handleDelete = () => {
     if (!window.confirm('Delete this post permanently? This cannot be undone.')) return;
     return runAction('delete', async () => {
-      await apiJson('/api/blog/post/' + encodeURIComponent(selectedId), { method: 'DELETE' });
+      await apiJson(`${apiBase}/post/` + encodeURIComponent(selectedId), { method: 'DELETE' });
       setSelectedId(null);
       setDraft(null);
       setDirty(false);
@@ -435,7 +435,7 @@ export default function BlogAdmin() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Blog</h1>
-          <p className="page-subtitle">dreamapplab.com posts · dal-website-c9dd8</p>
+          <p className="page-subtitle">{subtitle}</p>
         </div>
         <div className="page-actions">
           <button
