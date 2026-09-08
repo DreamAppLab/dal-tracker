@@ -137,16 +137,34 @@ function normalizeItems(d) {
     return d.items.map((it) => ({
       name: it.name || it.label || '',
       description: it.description || it.desc || '',
+      price: it.price != null ? it.price : null,
     }));
   }
   if (Array.isArray(d.selections) && d.selections.length) {
     return d.selections.map((it) => ({
       name: it.label || it.name || '',
       description: it.description || it.desc || '',
+      price: it.price != null ? it.price : null,
     }));
   }
   return [];
 }
+
+// Fields that are explicitly rendered elsewhere; excluded from the fallback "Other Fields" section.
+const KNOWN_QUOTE_FIELDS = new Set([
+  'id', 'name', 'email', 'phone', 'phoneNumber', 'business', 'biz', 'biz_name', 'owner_name',
+  'formType', 'status', 'createdAt', 'submittedAt', 'acceptedAt', 'questionsSentAt',
+  'clientRepliedAt', 'questionsText', 'clientQuestions', 'clientReplyText', 'readAt',
+  'zerbiqClientId', 'items', 'selections', 'design', 'brand_status', 'brandStatus',
+  'colors', 'inspirations', 'designInspirations', 'notes',
+  'managementChoice', 'managedTier', 'plan', 'path', 'monthlyFee', 'transferFee',
+  'discountCode', 'discountPercent', 'discountAmount', 'originalTotal', 'total',
+  'dalDiscount', 'dalDiscountNote', 'dalDiscountAppliedAt',
+  'monthlyOptions', 'recommendedPlan',
+  'estimatedStart', 'estimatedCompletion',
+  'depositSentAt', 'stripeDepositUrl', 'balanceSentAt', 'stripeBalanceUrl',
+  'completedAt', 'movedToBuildAt', 'quoteId',
+]);
 
 function designLines(d) {
   const lines = [];
@@ -919,11 +937,18 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
         <h2>Client Info</h2>
         <div className="quotes-info-grid">
           <InfoRow label="Name">{quote.name}</InfoRow>
+          {quote.owner_name && quote.owner_name !== quote.name && (
+            <InfoRow label="Owner">{quote.owner_name}</InfoRow>
+          )}
           <InfoRow label="Email">{quote.email}</InfoRow>
           <InfoRow label="Phone">{quote.phone || quote.phoneNumber}</InfoRow>
-          <InfoRow label="Business">{businessName(quote) || '—'}</InfoRow>
+          <InfoRow label="Business">{businessName(quote) || quote.biz_name || '—'}</InfoRow>
+          {quote.biz_name && quote.biz_name !== businessName(quote) && (
+            <InfoRow label="Biz name">{quote.biz_name}</InfoRow>
+          )}
           <InfoRow label="Form type">{formTypeLabel(quote.formType)}</InfoRow>
-          <InfoRow label="Submitted">{formatDateTime(quote.createdAt)}</InfoRow>
+          <InfoRow label="Status (raw)">{quote.status || 'submitted'}</InfoRow>
+          <InfoRow label="Submitted">{formatDateTime(quote.submittedAt || quote.createdAt)}</InfoRow>
           {isCrmQuote(quote.formType) && quote.zerbiqClientId && (
             <InfoRow label="Zerbiq Portal">
               <a
@@ -1076,16 +1101,28 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
       <section className="quotes-section">
         <h2>Project Summary</h2>
         {items.length ? (
-          <ul className="quotes-feature-list">
-            {items.map((it, i) => (
-              <li key={i}>
-                <div className="quotes-feature-name">{it.name || 'Feature'}</div>
-                {it.description ? (
-                  <div className="quotes-feature-desc">{it.description}</div>
-                ) : null}
-              </li>
-            ))}
-          </ul>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
+                  <th style={{ textAlign: 'left', padding: '6px 10px 6px 0', color: '#94A3B8', fontWeight: 600, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Item</th>
+                  <th style={{ textAlign: 'left', padding: '6px 10px', color: '#94A3B8', fontWeight: 600, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Description</th>
+                  <th style={{ textAlign: 'right', padding: '6px 0 6px 10px', color: '#94A3B8', fontWeight: 600, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Price</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((it, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                    <td style={{ padding: '8px 10px 8px 0', color: '#E2E8F0', fontWeight: 600, verticalAlign: 'top', whiteSpace: 'nowrap' }}>{it.name || 'Feature'}</td>
+                    <td style={{ padding: '8px 10px', color: '#94A3B8', verticalAlign: 'top' }}>{it.description || '—'}</td>
+                    <td style={{ padding: '8px 0 8px 10px', color: it.price != null ? '#4ADE80' : '#64748B', fontWeight: it.price != null ? 700 : 400, textAlign: 'right', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                      {it.price != null ? money(it.price) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <p className="quotes-muted">No features recorded.</p>
         )}
@@ -1144,6 +1181,101 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
           </div>
         </div>
       </section>
+
+      {Array.isArray(quote.monthlyOptions) && quote.monthlyOptions.length > 0 && (
+        <section className="quotes-section">
+          <h2>Monthly Plan Options</h2>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
+                  <th style={{ textAlign: 'left', padding: '6px 10px 6px 0', color: '#94A3B8', fontWeight: 600, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Plan</th>
+                  <th style={{ textAlign: 'right', padding: '6px 10px', color: '#94A3B8', fontWeight: 600, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Regular Price</th>
+                  <th style={{ textAlign: 'right', padding: '6px 10px', color: '#94A3B8', fontWeight: 600, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Your Price</th>
+                  <th style={{ textAlign: 'left', padding: '6px 0 6px 10px', color: '#94A3B8', fontWeight: 600, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {quote.monthlyOptions.map((opt, i) => {
+                  const planName = opt.name || opt.planName || opt.label || `Plan ${i + 1}`;
+                  const isRecommended =
+                    quote.recommendedPlan &&
+                    (planName === quote.recommendedPlan ||
+                      opt.id === quote.recommendedPlan ||
+                      String(opt.key || '') === String(quote.recommendedPlan));
+                  const regularPrice = opt.regularPrice ?? opt.originalPrice ?? opt.price ?? null;
+                  const yourPrice = opt.yourPrice ?? opt.discountedPrice ?? opt.clientPrice ?? opt.salePrice ?? null;
+                  return (
+                    <tr
+                      key={i}
+                      style={{
+                        borderBottom: '1px solid rgba(255,255,255,0.06)',
+                        background: isRecommended ? 'rgba(74,222,128,0.06)' : 'transparent',
+                      }}
+                    >
+                      <td style={{ padding: '10px 10px 10px 0', verticalAlign: 'top' }}>
+                        <span style={{ color: '#E2E8F0', fontWeight: isRecommended ? 700 : 500 }}>
+                          {isRecommended && (
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                background: 'rgba(74,222,128,0.18)',
+                                border: '1px solid rgba(74,222,128,0.45)',
+                                borderRadius: 4,
+                                padding: '1px 6px',
+                                fontSize: 11,
+                                fontWeight: 700,
+                                color: '#4ADE80',
+                                marginRight: 6,
+                                letterSpacing: '0.03em',
+                              }}
+                            >
+                              ★ Recommended
+                            </span>
+                          )}
+                          {planName}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px', textAlign: 'right', verticalAlign: 'top' }}>
+                        {regularPrice != null ? (
+                          <span style={{ color: '#64748B', textDecoration: 'line-through', fontSize: 13 }}>
+                            {money(regularPrice)}
+                          </span>
+                        ) : (
+                          <span style={{ color: '#64748B' }}>—</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '10px', textAlign: 'right', verticalAlign: 'top' }}>
+                        {yourPrice != null ? (
+                          <span style={{ color: '#4ADE80', fontWeight: 700, fontSize: 15 }}>
+                            {money(yourPrice)}
+                          </span>
+                        ) : regularPrice != null ? (
+                          <span style={{ color: '#4ADE80', fontWeight: 700, fontSize: 15 }}>
+                            {money(regularPrice)}
+                          </span>
+                        ) : (
+                          <span style={{ color: '#64748B' }}>—</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '10px 0 10px 10px', color: '#94A3B8', verticalAlign: 'top' }}>
+                        {opt.description || opt.desc || '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {quote.recommendedPlan && (
+            <p style={{ fontSize: 12, color: '#64748B', marginTop: 8 }}>
+              Recommended plan: <strong style={{ color: '#4ADE80' }}>{quote.recommendedPlan}</strong>
+            </p>
+          )}
+        </section>
+      )}
 
       <section className="quotes-section">
         <button
@@ -1206,6 +1338,45 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
           </div>
         )}
       </section>
+
+      {(() => {
+        const extraEntries = Object.entries(quote).filter(([key, val]) => {
+          if (KNOWN_QUOTE_FIELDS.has(key)) return false;
+          if (val == null || val === '' || val === false) return false;
+          if (typeof val === 'object' && !Array.isArray(val) && typeof val.toDate !== 'function') return false;
+          return true;
+        });
+        if (!extraEntries.length) return null;
+        return (
+          <section className="quotes-section">
+            <h2>Other Fields</h2>
+            <div className="quotes-info-grid">
+              {extraEntries.map(([key, val]) => {
+                let display;
+                if (Array.isArray(val)) {
+                  display = val.map((v, i) => (
+                    <span key={i} style={{ display: 'block', fontSize: 13, color: '#94A3B8', lineHeight: 1.6 }}>
+                      {typeof v === 'object' ? JSON.stringify(v) : String(v)}
+                    </span>
+                  ));
+                } else if (typeof val === 'boolean') {
+                  display = val ? 'Yes' : 'No';
+                } else if (typeof val === 'number') {
+                  display = String(val);
+                } else {
+                  const d = toDate(val);
+                  display = d ? formatDateTime(val) : String(val);
+                }
+                return (
+                  <InfoRow key={key} label={key.replace(/_/g, ' ')}>
+                    {display}
+                  </InfoRow>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })()}
 
       <section className="quotes-section">
         <h2>Management Selection</h2>
