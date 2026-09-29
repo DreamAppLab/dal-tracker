@@ -5,6 +5,11 @@ import { db } from '../firebase';
 
 const COST_PER_CARD = 0.905;
 
+const COUNTY_ORDER = [
+  'St. Johns', 'Duval', 'Clay', 'Nassau', 'Flagler',
+  'Volusia', 'Baker', 'Bradford', 'Union', 'Putnam',
+];
+
 // ── helpers ────────────────────────────────────────────────────────────────
 
 function todayBatchId() {
@@ -189,6 +194,21 @@ export default function PostcardsTab() {
     return Object.values(map).sort((a, b) => b.batchId.localeCompare(a.batchId));
   }, [cards]);
 
+  // ── county breakdown ─────────────────────────────────────────────────────
+  const countyBreakdown = useMemo(() => {
+    const map = {};
+    cards.forEach((c) => {
+      const county = c.county;
+      if (!county) return;
+      if (!map[county]) map[county] = { county, mailed: 0, scans: 0 };
+      map[county].mailed += 1;
+      if (c.firstScanAt != null) map[county].scans += 1;
+    });
+    return COUNTY_ORDER
+      .filter((name) => map[name] && map[name].mailed > 0)
+      .map((name) => map[name]);
+  }, [cards]);
+
   // ── filtered card list ───────────────────────────────────────────────────
   const filteredCards = useMemo(() => {
     const list = selectedBatch
@@ -252,6 +272,41 @@ export default function PostcardsTab() {
             sub={`${quoteCount} of ${totalMailed} quoted`}
           />
         </div>
+      </div>
+
+      {/* SECTION 1b — County Breakdown */}
+      <div style={{ marginBottom: 28 }}>
+        <div className="data-section-header">
+          <h3 className="data-section-title" style={{ color: '#4AB8E8' }}>County Breakdown</h3>
+        </div>
+        {countyBreakdown.length === 0 ? (
+          <div className="empty-state"><div className="empty-state-text">No data yet.</div></div>
+        ) : (
+          <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-card)' }}>
+            <table className="stack-table" style={{ minWidth: 420 }}>
+              <thead>
+                <tr>
+                  <th>County</th>
+                  <th>Cards Mailed</th>
+                  <th>Scans</th>
+                  <th>Scan Rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {countyBreakdown.map(({ county, mailed, scans }) => (
+                  <tr key={county}>
+                    <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{county}</td>
+                    <td style={{ color: 'var(--text-primary)' }}>{mailed.toLocaleString()}</td>
+                    <td style={{ color: scans > 0 ? 'var(--indigo)' : 'var(--text-muted)' }}>{scans}</td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-secondary)' }}>
+                      {(scans / mailed * 100).toFixed(1) + '%'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* SECTION 2 — Batch History */}
