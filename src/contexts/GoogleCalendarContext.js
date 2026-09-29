@@ -17,7 +17,11 @@ const GoogleCalendarContext = createContext(null);
 function createGoogleCalendarProvider() {
   const provider = new GoogleAuthProvider();
   provider.addScope(GOOGLE_CALENDAR_SCOPE);
-  provider.setCustomParameters({ prompt: 'consent', access_type: 'online' });
+  // access_type: 'offline' causes Google to issue a refresh_token so we can
+  // silently re-authenticate after the 1-hour access_token expires.
+  // prompt: 'consent' is required to guarantee the refresh_token is returned
+  // on every connect (Google only sends it on the first authorisation otherwise).
+  provider.setCustomParameters({ prompt: 'consent', access_type: 'offline' });
   return provider;
 }
 
@@ -27,6 +31,26 @@ function extractOAuthAccessToken(result) {
     return credential.accessToken;
   }
   return result?._tokenResponse?.oauthAccessToken || null;
+}
+
+/**
+ * Extract the Google OAuth refresh token from the internal Firebase sign-in
+ * response. This field is populated when access_type='offline' is requested.
+ * It is NOT the Firebase refresh token – it is Google's own OAuth2 refresh
+ * token that can be sent directly to oauth2.googleapis.com/token.
+ */
+function extractOAuthRefreshToken(result) {
+  return result?._tokenResponse?.oauthRefreshToken || null;
+}
+
+/**
+ * Build a token expiry ISO string. Google tokens live for 3600 s by default;
+ * the _tokenResponse.oauthExpireIn field carries the actual value if present.
+ */
+function buildTokenExpiry(result) {
+  const raw = result?._tokenResponse?.oauthExpireIn;
+  const seconds = raw ? parseInt(raw, 10) : 3600;
+  return new Date(Date.now() + seconds * 1000).toISOString();
 }
 
 export function GoogleCalendarProvider({ children }) {
@@ -56,6 +80,8 @@ export function GoogleCalendarProvider({ children }) {
       const provider = createGoogleCalendarProvider();
       const result = await signInWithPopup(auth, provider);
       const token = extractOAuthAccessToken(result);
+      const refreshToken = extractOAuthRefreshToken(result);
+      const tokenExpiry = buildTokenExpiry(result);
       const email = result.user?.email;
 
       if (!token) {
@@ -70,13 +96,25 @@ export function GoogleCalendarProvider({ children }) {
         connectedAccounts.filter(a => a.email !== email).length
       );
 
-      await setDoc(doc(db, 'connectedCalendars', email), {
+      const record = {
         email,
         accessToken: token,
+        tokenExpiry,
         color,
+        needsReconnect: false,
         connectedAt: existing?.connectedAt || new Date().toISOString(),
         lastUpdated: new Date().toISOString(),
-      });
+      };
+
+      // Only write refreshToken when Google actually returns one (it will on
+      // every connect because we always pass prompt='consent').  We never
+      // overwrite an existing refreshToken with null so that old records
+      // retain whatever was previously stored.
+      if (refreshToken) {
+        record.refreshToken = refreshToken;
+      }
+
+      await setDoc(doc(db, 'connectedCalendars', email), record);
 
       await signOut(auth);
       await relogin();
@@ -116,4 +154,11 @@ export function useGoogleCalendar() {
   return ctx;
 }
 
-export { GOOGLE_CALENDAR_SCOPE, TOKEN_STORAGE_KEY, createGoogleCalendarProvider, extractOAuthAccessToken };
+export {
+  GOOGLE_CALENDAR_SCOPE,
+  TOKEN_STORAGE_KEY,
+  createGoogleCalendarProvider,
+  extractOAuthAccessToken,
+  extractOAuthRefreshToken,
+  buildTokenExpiry,
+};
