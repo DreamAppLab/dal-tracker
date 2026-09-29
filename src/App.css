@@ -692,6 +692,12 @@ body.login-page-active {
   font-size: 24px;
   font-weight: 700;
 }
+.detail-title-link,
+.detail-title-link:visited {
+  color: #4AB8E8;
+  text-decoration: none;
+}
+.detail-title-link:hover { color: #4AB8E8; text-decoration: underline; }
 .detail-meta {
   display: flex;
   align-items: center;
