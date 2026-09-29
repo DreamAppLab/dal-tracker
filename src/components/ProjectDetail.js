@@ -17,6 +17,7 @@ import AppLogo from './AppLogo';
 import BlackBox from './BlackBox';
 import { FamilyThreadAdminTab } from '../pages/FamilyThreadAdmin';
 import QuotesTab from '../tabs/QuotesTab';
+import PostcardsTab, { PostcardsCountListener } from '../tabs/PostcardsTab';
 import BuildBoardTab from '../tabs/BuildBoardTab';
 import ClientTab from './ClientTab';
 import { hasPipelineTab, pipelineKindForProjectType, PROJECT_TYPE_BADGE } from '../data/projectTypes';
@@ -204,6 +205,7 @@ function isZerbiqProject(project) {
 export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, onDelete, onBack, onOpenProject, onToast, quotesUnread = 0, onQuotesUnread, onboardingUploadsByClientId = {} }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [clientUnread, setClientUnread] = useState(0);
+  const [postcardsToday, setPostcardsToday] = useState(0);
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
@@ -237,6 +239,7 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
     { key: 'client', label: 'Client', badge: clientUnread },
     ...(isDalWebsite ? [
       { key: 'quotes', label: 'Quotes', badge: quotesUnread, uploadBadge: totalOnboardingUploads },
+      { key: 'postcards', label: 'Postcards', badge: postcardsToday },
       { key: 'builds', label: 'Build Board' },
     ] : []),
     ...(isFamilyThread ? [{ key: 'admin', label: 'Admin Panel' }] : []),
@@ -259,6 +262,9 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
       setActiveTab('overview');
     }
     if (activeTab === 'quotes' && !isDalWebsite) {
+      setActiveTab('overview');
+    }
+    if (activeTab === 'postcards' && !isDalWebsite) {
       setActiveTab('overview');
     }
     if (activeTab === 'builds' && !isDalWebsite) {
@@ -549,6 +555,10 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
 
       {activeTab === 'client' && <ClientTab project={project} />}
 
+      {isDalWebsite && (
+        <PostcardsCountListener onCount={setPostcardsToday} />
+      )}
+
       {activeTab === 'overview' && (
         <div className="data-section">
           <div className="overview-logo-area">
@@ -661,6 +671,7 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
 
       {activeTab === 'builds' && isDalWebsite && <BuildBoardTab />}
 
+      {activeTab === 'postcards' && isDalWebsite && <PostcardsTab />}
       {activeTab === 'milestones' && (
         <div className="data-section">
           <div className="data-section-header">
