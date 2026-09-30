@@ -296,6 +296,63 @@ function DeleteConfirmModal({ onCancel, onConfirm, deleting }) {
   );
 }
 
+// ── Token refresh helpers ─────────────────────────────────────────────────────
+
+/**
+ * Returns true when the stored access token is already expired or will expire
+ * within the next 5 minutes.
+ */
+function isTokenExpiredOrExpiring(account) {
+  if (!account.tokenExpiry) {
+    // Old record without an expiry timestamp — always try to refresh so we
+    // pick up the new expiry field on the next successful call.
+    return true;
+  }
+  const expiryMs = new Date(account.tokenExpiry).getTime();
+  const fiveMinutesMs = 5 * 60 * 1000;
+  return Date.now() >= expiryMs - fiveMinutesMs;
+}
+
+/**
+ * Calls /api/refresh-google-token to get a fresh access token for the given
+ * account.  Returns the new access token string, or throws an object with
+ * { message, needsReconnect } so the caller can surface the right UI.
+ */
+async function refreshAccessToken(account) {
+  const res = await fetch('/api/refresh-google-token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: account.email }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok || !data.accessToken) {
+    const err = new Error(
+      data.error || 'Failed to refresh Google Calendar token. Please reconnect.'
+    );
+    err.needsReconnect = !!data.needsReconnect;
+    throw err;
+  }
+
+  return data.accessToken;
+}
+
+/**
+ * Returns the access token to use for a Calendar API call.
+ * Refreshes automatically if the stored token is expired or near-expiry.
+ * Throws if the token can't be refreshed.
+ */
+async function getValidAccessToken(account) {
+  if (!isTokenExpiredOrExpiring(account)) {
+    return account.accessToken;
+  }
+  // Token is expired (or has no expiry on old records) — refresh it.
+  return refreshAccessToken(account);
+}
+
+// ── Google Calendar API ───────────────────────────────────────────────────────
+
 async function fetchGoogleEvents(accessToken, timeMin, timeMax, authorizedFetch) {
   const params = new URLSearchParams({
     timeMin: timeMin.toISOString(),
@@ -402,8 +459,21 @@ export default function CalendarDashboard() {
         const monthEnd = endOfMonth(currentMonth);
         const results = await Promise.allSettled(
           connectedAccounts.map(async (account) => {
+            // Skip accounts that are already flagged as needing a reconnect
+            // (e.g. user revoked access in Google settings).
+            if (account.needsReconnect) {
+              const err = new Error(
+                `${account.email}: Google Calendar access was revoked. Please reconnect.`
+              );
+              err.needsReconnect = true;
+              throw err;
+            }
+
+            // Refresh the access token if it is expired or expiring soon.
+            const accessToken = await getValidAccessToken(account);
+
             const events = await fetchGoogleEvents(
-              account.accessToken,
+              accessToken,
               monthStart,
               monthEnd,
               (url) => authorizedCalendarFetch(account, url)
@@ -424,13 +494,19 @@ export default function CalendarDashboard() {
           if (result.status === 'fulfilled') {
             merged.push(...result.value);
           } else {
-            errors.push(`${connectedAccounts[i].email}: ${result.reason?.message || 'Failed to fetch'}`);
+            const reason = result.reason;
+            const label = connectedAccounts[i].email;
+            if (reason?.needsReconnect) {
+              errors.push(`${label}: Access revoked — please reconnect this account.`);
+            } else {
+              errors.push(`${label}: ${reason?.message || 'Failed to fetch events'}`);
+            }
           }
         });
 
         setGoogleEvents(merged);
         if (errors.length) {
-          setGoogleError(errors.join('; '));
+          setGoogleError(errors.join(' | '));
         }
       } catch (err) {
         setGoogleError(err.message);
@@ -638,6 +714,21 @@ export default function CalendarDashboard() {
           </ul>
         )}
       </div>
+
+      {/* Reconnect prompt — shown when Google has revoked an account's access.
+          This is separate from transient fetch errors (shown below). */}
+      {connectedAccounts.some(a => a.needsReconnect) && (
+        <div className="calendar-error-banner">
+          {connectedAccounts
+            .filter(a => a.needsReconnect)
+            .map(a => (
+              <div key={a.email}>
+                <strong>{a.email}</strong>: Google Calendar access was revoked. Click{' '}
+                <strong>+ Connect Account</strong> above to reconnect.
+              </div>
+            ))}
+        </div>
+      )}
 
       {googleError && (
         <div className="calendar-error-banner">{googleError}</div>

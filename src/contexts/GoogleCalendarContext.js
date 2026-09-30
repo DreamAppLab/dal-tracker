@@ -23,6 +23,10 @@ const GoogleCalendarContext = createContext(null);
 function createGoogleCalendarProvider() {
   const provider = new GoogleAuthProvider();
   provider.addScope(GOOGLE_CALENDAR_SCOPE);
+  // access_type: 'offline' causes Google to issue a refresh_token so we can
+  // silently re-authenticate after the 1-hour access_token expires.
+  // prompt: 'consent' is required to guarantee the refresh_token is returned
+  // on every connect (Google only sends it on the first authorisation otherwise).
   provider.setCustomParameters({ prompt: 'consent', access_type: 'offline' });
   return provider;
 }
@@ -41,6 +45,16 @@ function extractOAuthRefreshToken(result) {
     result?._tokenResponse?.refreshToken ||
     ''
   );
+}
+
+/**
+ * Build a token expiry ISO string. Google tokens live for 3600 s by default;
+ * the _tokenResponse.oauthExpireIn field carries the actual value if present.
+ */
+function buildTokenExpiry(result) {
+  const raw = result?._tokenResponse?.oauthExpireIn;
+  const seconds = raw ? parseInt(raw, 10) : 3600;
+  return new Date(Date.now() + seconds * 1000).toISOString();
 }
 
 function tokensRef(userId) {
@@ -162,6 +176,7 @@ export function GoogleCalendarProvider({ children }) {
       const result = await signInWithPopup(calendarAuth, provider);
       const token = extractOAuthAccessToken(result);
       const refreshToken = extractOAuthRefreshToken(result);
+      const tokenExpiry = buildTokenExpiry(result);
       const email = result.user?.email;
 
       await signOut(calendarAuth);
@@ -182,7 +197,9 @@ export function GoogleCalendarProvider({ children }) {
         email,
         accessToken: token,
         refreshToken: refreshToken || existing?.refreshToken || '',
+        tokenExpiry,
         color,
+        needsReconnect: false,
         connectedAt: existing?.connectedAt || Timestamp.now(),
         tokenIssuedAt,
         token_issued_at: tokenIssuedAt,
@@ -239,4 +256,4 @@ export function useGoogleCalendar() {
   return ctx;
 }
 
-export { GOOGLE_CALENDAR_SCOPE, createGoogleCalendarProvider, extractOAuthAccessToken };
+export { GOOGLE_CALENDAR_SCOPE, createGoogleCalendarProvider, extractOAuthAccessToken, extractOAuthRefreshToken, buildTokenExpiry };
