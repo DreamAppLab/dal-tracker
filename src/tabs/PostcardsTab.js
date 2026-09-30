@@ -1,7 +1,7 @@
 // src/tabs/PostcardsTab.js
 import React, { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
-import { db } from '../firebase';
+import { dalSiteDb } from '../firebaseDalSite';
 
 const COST_PER_CARD = 0.905;
 
@@ -133,7 +133,7 @@ export function PostcardsCountListener({ onCount }) {
     if (!onCount) return;
     const today = todayBatchId();
     const q = query(
-      collection(db, 'postcard_mailings'),
+      collection(dalSiteDb, 'postcard_mailings'),
       where('batchId', '==', today),
       where('isTest', '==', false)
     );
@@ -155,7 +155,7 @@ export default function PostcardsTab() {
   // Real-time listener — production cards only
   useEffect(() => {
     const q = query(
-      collection(db, 'postcard_mailings'),
+      collection(dalSiteDb, 'postcard_mailings'),
       where('isTest', '==', false)
     );
     const unsub = onSnapshot(
