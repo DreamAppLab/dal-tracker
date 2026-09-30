@@ -1,7 +1,7 @@
 // src/components/SubscriptionsDashboard.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../firebase';
-import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
 import {
   SUBSCRIPTION_APPS,
   SUBSCRIPTIONS,
@@ -9,8 +9,15 @@ import {
   formatSubscriptionCost,
   getCheckedApps,
   getAppMonthlyTotals,
+  getSubscriptionStatus,
+  isSubscriptionSuspended,
 } from '../data/subscriptionsData';
 import AddSubscriptionModal from './AddSubscriptionModal';
+
+const REQUIRED_NEW_SUBSCRIPTIONS = [
+  { name: 'Twilio' },
+  { name: 'Vercel' },
+];
 
 function formatMoney(amount) {
   if (!amount) return '$0.00';
@@ -24,16 +31,59 @@ function seedSubscription(sub) {
     period: sub.period,
     category: 'tools',
     apps: {},
+    status: 'active',
   };
 }
 
-export default function SubscriptionsDashboard() {
+function buildNewSubscription(name) {
+  const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + `-${Date.now()}`;
+  return {
+    id,
+    name,
+    amount: 0,
+    period: 'monthly',
+    category: 'tools',
+    apps: {},
+    status: 'active',
+  };
+}
+
+export default function SubscriptionsDashboard({ projects = [] }) {
   const [subscriptions, setSubscriptions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [seeded, setSeeded] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [editAmount, setEditAmount] = useState('');
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [newSubsEnsured, setNewSubsEnsured] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [editingSubscription, setEditingSubscription] = useState(null);
+
+  const modalApps = useMemo(() => {
+    if (!projects.length) return SUBSCRIPTION_APPS;
+
+    const subByName = new Map(
+      SUBSCRIPTION_APPS.map((a) => [a.name.toLowerCase(), a])
+    );
+    const result = [];
+    const usedSubIds = new Set();
+
+    projects.forEach((p) => {
+      if (!p?.id) return;
+      const match = subByName.get((p.name || '').toLowerCase());
+      if (match) {
+        if (!usedSubIds.has(match.id)) {
+          result.push({ id: match.id, name: match.name });
+          usedSubIds.add(match.id);
+        }
+      } else {
+        result.push({ id: p.id, name: p.name || p.id });
+      }
+    });
+
+    SUBSCRIPTION_APPS.forEach((app) => {
+      if (!usedSubIds.has(app.id)) result.push(app);
+    });
+
+    return result;
+  }, [projects]);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'subscriptions'), async (snapshot) => {
@@ -41,7 +91,7 @@ export default function SubscriptionsDashboard() {
         setSeeded(true);
         await Promise.all(
           SUBSCRIPTIONS.map(sub =>
-            setDoc(doc(db, 'subscriptions', sub.id), seedSubscription(sub))
+            setDoc(doc(db, 'subscriptions', sub.id), seedSubscription(sub), { merge: true })
           )
         );
         return;
@@ -56,6 +106,29 @@ export default function SubscriptionsDashboard() {
     return () => unsub();
   }, [seeded]);
 
+  useEffect(() => {
+    if (loading || newSubsEnsured) return;
+
+    const ensureNewSubscriptions = async () => {
+      const missing = REQUIRED_NEW_SUBSCRIPTIONS.filter(
+        req => !subscriptions.some(s => s.name.toLowerCase() === req.name.toLowerCase())
+      );
+
+      if (missing.length > 0) {
+        await Promise.all(
+          missing.map(req => {
+            const newSub = buildNewSubscription(req.name);
+            return setDoc(doc(db, 'subscriptions', newSub.id), newSub, { merge: true });
+          })
+        );
+      }
+
+      setNewSubsEnsured(true);
+    };
+
+    ensureNewSubscriptions();
+  }, [loading, subscriptions, newSubsEnsured]);
+
   const getAllocations = () => {
     const allocations = {};
     subscriptions.forEach(sub => {
@@ -69,34 +142,46 @@ export default function SubscriptionsDashboard() {
   const totalMonthlyTools = subscriptions.reduce((sum, sub) => sum + getMonthlyCost(sub), 0);
   const totalAllocated = Object.values(appTotals).reduce((sum, value) => sum + value, 0);
   const allocatedSubs = subscriptions.filter(sub => getCheckedApps(allocations, sub.id, SUBSCRIPTION_APPS).length > 0).length;
+  const activeCount = subscriptions.filter(sub => !isSubscriptionSuspended(sub)).length;
 
   const toggleAllocation = async (subscriptionId, appId) => {
     const sub = subscriptions.find(s => s.id === subscriptionId);
-    if (!sub) return;
+    if (!sub || isSubscriptionSuspended(sub)) return;
     const apps = { ...(sub.apps || {}) };
     apps[appId] = !apps[appId];
-    await setDoc(doc(db, 'subscriptions', subscriptionId), { ...sub, apps });
+    await setDoc(doc(db, 'subscriptions', subscriptionId), { apps }, { merge: true });
   };
 
-  const startEditPrice = (sub) => {
-    setEditingId(sub.id);
-    setEditAmount(String(sub.amount));
+  const toggleStatus = async (sub) => {
+    const currentStatus = getSubscriptionStatus(sub);
+    const status = currentStatus === 'suspended' ? 'active' : 'suspended';
+    await setDoc(doc(db, 'subscriptions', sub.id), { status }, { merge: true });
   };
 
-  const savePrice = async (sub) => {
-    const amount = parseFloat(editAmount) || 0;
-    await setDoc(doc(db, 'subscriptions', sub.id), { ...sub, amount });
-    setEditingId(null);
+  const openAddModal = () => {
+    setEditingSubscription(null);
+    setShowModal(true);
   };
 
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditAmount('');
+  const openEditModal = (sub) => {
+    setEditingSubscription(sub);
+    setShowModal(true);
   };
 
-  const handleAddSubscription = async (newSub) => {
-    await setDoc(doc(db, 'subscriptions', newSub.id), newSub);
-    setShowAddModal(false);
+  const closeModal = () => {
+    setShowModal(false);
+    setEditingSubscription(null);
+  };
+
+  const handleSaveSubscription = async (payload) => {
+    const { id, ...fields } = payload;
+    await setDoc(doc(db, 'subscriptions', id), fields, { merge: true });
+    closeModal();
+  };
+
+  const handleDeleteSubscription = async (sub) => {
+    if (!window.confirm(`Delete ${sub.name}? This cannot be undone.`)) return;
+    await deleteDoc(doc(db, 'subscriptions', sub.id));
   };
 
   if (loading) {
@@ -115,8 +200,8 @@ export default function SubscriptionsDashboard() {
           <p className="page-subtitle">Split shared tool costs across apps — check which apps use each subscription</p>
         </div>
         <div className="page-actions" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button className="btn btn-primary" onClick={() => setShowAddModal(true)}>
-            + Add Subscription
+          <button className="btn btn-primary" onClick={openAddModal}>
+            ＋ Add Subscription
           </button>
           <div className="live-indicator">
             <span className="live-dot" />
@@ -129,7 +214,7 @@ export default function SubscriptionsDashboard() {
         <div className="stat-card teal">
           <div className="stat-label">Monthly Tool Spend</div>
           <div className="stat-value" style={{ color: 'var(--teal)' }}>{formatMoney(totalMonthlyTools)}</div>
-          <div className="stat-sub">{subscriptions.length} subscriptions tracked</div>
+          <div className="stat-sub">{activeCount} active of {subscriptions.length} subscriptions</div>
         </div>
         <div className="stat-card amber">
           <div className="stat-label">Allocated</div>
@@ -159,44 +244,52 @@ export default function SubscriptionsDashboard() {
                 const monthly = getMonthlyCost(sub);
                 const checked = getCheckedApps(allocations, sub.id, SUBSCRIPTION_APPS);
                 const share = checked.length ? monthly / checked.length : 0;
-                const isEditing = editingId === sub.id;
+                const status = getSubscriptionStatus(sub);
+                const suspended = isSubscriptionSuspended(sub);
 
                 return (
-                  <tr key={sub.id}>
+                  <tr key={sub.id} className={suspended ? 'subscriptions-row-suspended' : ''}>
                     <td className="subscriptions-sticky-col">
                       <div className="subscriptions-name-row">
                         <div className="subscriptions-name">{sub.name}</div>
-                        {!isEditing && (
-                          <button
-                            className="subscriptions-edit-btn"
-                            onClick={() => startEditPrice(sub)}
-                            title="Edit price"
-                          >
-                            ✏️
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          className="subscriptions-edit-btn"
+                          onClick={() => openEditModal(sub)}
+                          title="Edit subscription"
+                          aria-label={`Edit ${sub.name}`}
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          type="button"
+                          className="subscriptions-edit-btn"
+                          onClick={() => handleDeleteSubscription(sub)}
+                          title="Delete subscription"
+                          aria-label={`Delete ${sub.name}`}
+                        >
+                          🗑
+                        </button>
                       </div>
-                      {isEditing ? (
-                        <div className="subscriptions-price-edit">
-                          <input
-                            className="form-input"
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={editAmount}
-                            onChange={e => setEditAmount(e.target.value)}
-                            style={{ width: 80, fontSize: 12, padding: '4px 8px' }}
-                            autoFocus
-                          />
-                          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>/{sub.period === 'yearly' ? 'yr' : 'mo'}</span>
-                          <button className="btn btn-primary btn-sm" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => savePrice(sub)}>Save</button>
-                          <button className="btn btn-ghost btn-sm" style={{ padding: '2px 8px', fontSize: 11 }} onClick={cancelEdit}>Cancel</button>
-                        </div>
-                      ) : (
-                        <div className="subscriptions-cost">{formatSubscriptionCost(sub)}</div>
-                      )}
+                      <div className="subscriptions-cost">{formatSubscriptionCost(sub)}</div>
+                      <div className="subscriptions-status-row">
+                        <span className={`subscriptions-status-badge subscriptions-status-${status}`}>
+                          {status}
+                        </span>
+                        <button
+                          type="button"
+                          className={`btn btn-sm ${suspended ? 'btn-primary' : 'btn-ghost'}`}
+                          style={{ padding: '2px 8px', fontSize: 11 }}
+                          onClick={() => toggleStatus(sub)}
+                        >
+                          {suspended ? 'Resume' : 'Suspend'}
+                        </button>
+                      </div>
                       {sub.category && (
                         <div className="subscriptions-split" style={{ textTransform: 'capitalize' }}>{sub.category}</div>
+                      )}
+                      {sub.renewalDate && (
+                        <div className="subscriptions-split">Renews {sub.renewalDate}</div>
                       )}
                       {checked.length > 0 && monthly > 0 && (
                         <div className="subscriptions-split">{formatMoney(share)}/app</div>
@@ -206,11 +299,12 @@ export default function SubscriptionsDashboard() {
                       const isChecked = !!allocations[sub.id]?.[app.id];
                       return (
                         <td key={app.id} className="subscriptions-cell">
-                          <label className="subscriptions-checkbox-label">
+                          <label className={`subscriptions-checkbox-label ${suspended ? 'disabled' : ''}`}>
                             <input
                               type="checkbox"
                               className="subscriptions-checkbox"
                               checked={isChecked}
+                              disabled={suspended}
                               onChange={() => toggleAllocation(sub.id, app.id)}
                             />
                             {isChecked && monthly > 0 && (
@@ -241,10 +335,12 @@ export default function SubscriptionsDashboard() {
         </div>
       </div>
 
-      {showAddModal && (
+      {showModal && (
         <AddSubscriptionModal
-          onAdd={handleAddSubscription}
-          onClose={() => setShowAddModal(false)}
+          subscription={editingSubscription}
+          apps={modalApps}
+          onSave={handleSaveSubscription}
+          onClose={closeModal}
         />
       )}
     </div>

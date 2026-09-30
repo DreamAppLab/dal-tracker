@@ -209,18 +209,15 @@ export const INITIAL_PROJECTS = [
 ];
 
 export const PIPELINE_APPS = [
-  { id: "plantcare", name: "Plant Care Journal", logo: "🌿", color: "#22C55E", status: "ideation" },
-  { id: "petsymptom", name: "Pet Symptom Journal", logo: "🐾", color: "#8B5CF6", status: "ideation" },
-  { id: "yarnstash", name: "Yarn & Fabric Stash Tracker", logo: "🧶", color: "#EC4899", status: "ideation" },
-  { id: "medsideeffect", name: "Medication Side Effect Journal", logo: "💊", color: "#06B6D4", status: "ideation" },
-  { id: "migrainelogger", name: "Migraine Pattern Logger", logo: "🧠", color: "#7C3AED", status: "ideation" },
-  { id: "parentcare", name: "Aging Parent Care Journal", logo: "❤️", color: "#F43F5E", status: "ideation" }
+  { id: "yarnstash", name: "Yarn & Fabric Stash Tracker", logo: "🧶", color: "#EC4899", status: "ideation" }
 ];
 
 export const STATUS_CONFIG = {
   live: { label: "Live", color: "#00D4B8", bg: "rgba(0,212,184,0.15)" },
   submitted: { label: "Submitted", color: "#6366F1", bg: "rgba(99,102,241,0.15)" },
   "in-development": { label: "In Development", color: "#F59E0B", bg: "rgba(245,158,11,0.15)" },
+  "In Progress": { label: "In Progress", color: "#F59E0B", bg: "rgba(245,158,11,0.15)" },
+  "in-progress": { label: "In Progress", color: "#F59E0B", bg: "rgba(245,158,11,0.15)" },
   ideation: { label: "Ideation", color: "#94A3B8", bg: "rgba(148,163,184,0.15)" },
   paused: { label: "Paused", color: "#FF5B5B", bg: "rgba(255,91,91,0.15)" }
 };

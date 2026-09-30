@@ -24,15 +24,31 @@ export const SUBSCRIPTIONS = [
   { id: 'aso-dev', name: 'ASO.dev', amount: 25, period: 'monthly' }
 ];
 
+export function getSubscriptionStatus(subscription) {
+  return subscription.status || 'active';
+}
+
+export function isSubscriptionSuspended(subscription) {
+  return getSubscriptionStatus(subscription) === 'suspended';
+}
+
 export function getMonthlyCost(subscription) {
+  if (isSubscriptionSuspended(subscription)) return 0;
   if (!subscription.amount) return 0;
-  return subscription.period === 'yearly' ? subscription.amount / 12 : subscription.amount;
+  if (subscription.period === 'one-time') return 0;
+  if (subscription.period === 'yearly' || subscription.period === 'annual') {
+    return subscription.amount / 12;
+  }
+  return subscription.amount;
 }
 
 export function formatSubscriptionCost(subscription) {
   if (!subscription.amount) return 'free';
-  const suffix = subscription.period === 'yearly' ? '/yr' : '/mo';
-  return `$${subscription.amount}${suffix}`;
+  if (subscription.period === 'one-time') return `$${subscription.amount} one-time`;
+  if (subscription.period === 'yearly' || subscription.period === 'annual') {
+    return `$${subscription.amount}/yr`;
+  }
+  return `$${subscription.amount}/mo`;
 }
 
 export function getCheckedApps(allocations, subscriptionId, apps) {
@@ -43,6 +59,7 @@ export function getAppMonthlyTotals(subscriptions, allocations, apps) {
   const totals = Object.fromEntries(apps.map(app => [app.id, 0]));
 
   subscriptions.forEach(sub => {
+    if (isSubscriptionSuspended(sub)) return;
     const monthly = getMonthlyCost(sub);
     const checked = getCheckedApps(allocations, sub.id, apps);
     if (!checked.length) return;

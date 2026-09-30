@@ -1,13 +1,28 @@
 // src/components/ProjectDetail.js
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { STATUS_CONFIG, PRIORITY_CONFIG } from '../data/initialData';
+import { storage, db } from '../firebase';
+import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import MilestoneModal from './MilestoneModal';
 import EditModal from './EditModal';
 import ExpenseModal from './ExpenseModal';
 import TechStackModal from './TechStackModal';
 import PaymentModal from './PaymentModal';
 import AppChecklist from './AppChecklist';
-import ProjectVault from '../ProjectVault';
+import AppPipelineChecklist from './AppPipelineChecklist';
+import WebsitePipelineChecklist from './WebsitePipelineChecklist';
+import PWAPipelineChecklist from './PWAPipelineChecklist';
+import AppLogo from './AppLogo';
+import BlackBox from './BlackBox';
+import { FamilyThreadAdminTab } from '../pages/FamilyThreadAdmin';
+import QuotesTab from '../tabs/QuotesTab';
+import PostcardsTab, { PostcardsCountListener } from '../tabs/PostcardsTab';
+import BuildBoardTab from '../tabs/BuildBoardTab';
+import ClientTab from './ClientTab';
+import { hasPipelineTab, pipelineKindForProjectType, PROJECT_TYPE_BADGE } from '../data/projectTypes';
+import { openProjectHandoffPrint } from '../utils/projectHandoffPrint';
+import BlogAdmin from '../pages/BlogAdmin';
 
 function getProgress(project) {
   const allTasks = [...(project.milestones || []), ...(project.edits || [])];
@@ -50,39 +65,93 @@ function generateEditsPDF(project, filter) {
   const priorityOrder = { high: 0, medium: 1, low: 2 };
   const sorted = [...edits].sort((a, b) => (priorityOrder[a.priority] ?? 1) - (priorityOrder[b.priority] ?? 1));
   const totalCost = sorted.filter(e => e.amount > 0).reduce((s, e) => s + e.amount, 0);
+  const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
-  const rows = sorted.map((e, i) => `
-    <tr style="background:${i % 2 === 0 ? '#f8f9fa' : '#ffffff'}">
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px">${e.page}</td>
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px">${e.location}</td>
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px;font-weight:600">${e.item}</td>
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px">
-        <span style="background:${e.priority === 'high' ? '#fee2e2' : e.priority === 'medium' ? '#fef9c3' : '#dbeafe'};
-          color:${e.priority === 'high' ? '#dc2626' : e.priority === 'medium' ? '#d97706' : '#2563eb'};
-          padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">${e.priority.toUpperCase()}</span>
-      </td>
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px">${e.notes || '—'}</td>
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px;text-align:center;color:${e.amount > 0 ? '#d97706' : '#666'};font-weight:${e.amount > 0 ? '700' : '400'}">${e.amount > 0 ? '$' + e.amount.toFixed(2) : '—'}</td>
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px">${formatDate(e.createdAt)}</td>
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px;text-align:center">${e.sentToDev ? 'Yes' + (e.sentToDevAt ? ' (' + formatDate(e.sentToDevAt) + ')' : '') : 'No'}</td>
-      <td style="padding:10px;border:1px solid #dee2e6;font-size:13px;text-align:center">${e.completed ? 'Done' : 'Open'}</td>
-    </tr>
-  `).join('');
+  const priorityColors = {
+    high: { bg: '#fee2e2', text: '#dc2626', label: 'HIGH' },
+    medium: { bg: '#fef3c7', text: '#d97706', label: 'MEDIUM' },
+    low: { bg: '#dbeafe', text: '#2563eb', label: 'LOW' },
+  };
 
-  const html = `<!DOCTYPE html><html><head><title>${project.name} - Edits Needed</title>
-    <style>body{font-family:Arial,sans-serif;margin:40px;color:#1a1a1a}h1{font-size:22px;margin-bottom:4px}.meta{color:#666;font-size:13px;margin-bottom:24px}.total{margin-top:16px;padding:12px 16px;background:#fef9c3;border-radius:8px;font-weight:700;font-size:14px;color:#d97706}table{width:100%;border-collapse:collapse}th{background:#1a2234;color:white;padding:10px;text-align:left;font-size:12px;border:1px solid #dee2e6}</style>
-    </head><body>
-    <h1>${project.name} — Edits Needed</h1>
-    <div class="meta">Generated: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} | Filter: ${filter} | ${sorted.length} item(s)</div>
-    <table><thead><tr><th>Page</th><th>Location</th><th>Item</th><th>Priority</th><th>Notes</th><th>Cost</th><th>Date Added</th><th>Sent to Dev</th><th>Status</th></tr></thead>
-    <tbody>${rows}</tbody></table>
-    ${totalCost > 0 ? `<div class="total">Total Outstanding Dev Costs: $${totalCost.toFixed(2)}</div>` : ''}
-    </body></html>`;
+  const rowsHtml = sorted.map((e, i) => {
+    const images = e.images || [];
+    const pc = priorityColors[e.priority] || { bg: '#f3f4f6', text: '#6b7280', label: (e.priority || '').toUpperCase() };
+    const sentText = e.sentToDev
+      ? `Sent to Dev: Yes${e.sentToDevAt ? ' (' + formatDate(e.sentToDevAt) + ')' : ''}`
+      : 'Sent to Dev: No';
 
-  const win = window.open('', '_blank');
-  win.document.write(html);
-  win.document.close();
-  win.print();
+    const imagesHtml = images.map((img) => {
+      const rawUrl = typeof img === 'string' ? img : img.downloadUrl;
+      if (!rawUrl) return '';
+      const url = rawUrl.includes('alt=media') ? rawUrl : (rawUrl.includes('?') ? rawUrl + '&alt=media' : rawUrl + '?alt=media');
+      return `<img src="${url}" style="max-width:280px;max-height:500px;width:auto;height:auto;object-fit:contain;margin:4px 8px 4px 0;display:inline-block;vertical-align:top;border-radius:6px;border:1px solid #e5e7eb;" />`;
+    }).join('');
+
+    return `
+      <div style="background:${i % 2 === 0 ? '#f8f9fa' : '#ffffff'};border-radius:8px;padding:14px 16px;margin-bottom:10px;border:1px solid #e5e7eb;page-break-inside:avoid;">
+        <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:6px;">
+          <span style="color:#9ca3af;font-size:12px;min-width:24px;margin-top:2px;">#${i + 1}</span>
+          <div style="flex:1;">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <span style="font-weight:700;font-size:14px;color:#1a2234;">${e.item || ''}</span>
+              <span style="background:${pc.bg};color:${pc.text};font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;">${pc.label}</span>
+              ${e.amount > 0 ? `<span style="color:#b45309;font-weight:700;font-size:13px;">$${e.amount.toFixed(2)}</span>` : ''}
+            </div>
+            <div style="color:#6b7280;font-size:12px;margin-top:4px;">
+              Page: ${e.page || '—'} &nbsp;|&nbsp; Location: ${e.location || '—'}
+              ${e.createdAt ? `&nbsp;|&nbsp; ${formatDate(e.createdAt)}` : ''}
+            </div>
+            <div style="color:#6b7280;font-size:11px;margin-top:3px;">
+              ${sentText} &nbsp;|&nbsp; Status: ${e.completed ? 'Done' : 'Open'}
+            </div>
+            ${e.notes ? `<div style="color:#4b5563;font-size:12px;font-style:italic;margin-top:6px;padding:8px;background:#f0f4ff;border-radius:4px;">Note: ${e.notes}</div>` : ''}
+            ${imagesHtml ? `<div style="margin-top:10px;">${imagesHtml}</div>` : ''}
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  const totalFooter = totalCost > 0
+    ? `<div style="background:#fef9c3;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;margin-top:16px;">
+        <span style="font-weight:700;font-size:15px;color:#b45309;">Total Outstanding Dev Costs: $${totalCost.toFixed(2)}</span>
+       </div>`
+    : '';
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${project.name} — Edits Needed</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #fff; color: #1a2234; padding: 32px; }
+    @media print {
+      body { padding: 16px; }
+      @page { margin: 16mm; }
+      img { max-width: 280px !important; max-height: 500px !important; }
+    }
+  </style>
+</head>
+<body>
+  <div style="margin-bottom:6px;">
+    <span style="font-size:11px;font-weight:700;color:#6b7280;letter-spacing:0.08em;text-transform:uppercase;">DAL Mission Control</span>
+  </div>
+  <h1 style="font-size:22px;font-weight:800;color:#1a2234;margin-bottom:6px;">${project.name} — Edits Needed</h1>
+  <p style="font-size:12px;color:#6b7280;margin-bottom:16px;">Generated: ${dateStr} &nbsp;|&nbsp; Filter: ${filter} &nbsp;|&nbsp; ${sorted.length} item(s)</p>
+  <hr style="border:none;border-top:1px solid #e5e7eb;margin-bottom:20px;" />
+  ${rowsHtml}
+  ${totalFooter}
+</body>
+</html>`;
+
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) return;
+  printWindow.document.write(html);
+  printWindow.document.close();
+  printWindow.onload = () => {
+    printWindow.focus();
+    printWindow.print();
+  };
 }
 
 function getFilteredEdits(edits, filter) {
@@ -102,7 +171,7 @@ const BASE_TABS = [
   { key: "edits", label: "Edits Needed" },
   { key: "stack", label: "Tech Stack" },
   { key: "financials", label: "Financials" },
-  { key: "vault", label: "🔑 Vault" }
+  { key: "vault", label: "🔒 Black Box" }
 ];
 
 function isAppProject(project) {
@@ -110,21 +179,75 @@ function isAppProject(project) {
   return project.type === 'own-app' || project.type === 'client-app';
 }
 
-export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
+function isFamilyThreadProject(project) {
+  const bundleId = (project.bundleId || '').toLowerCase();
+  const name = (project.name || '').toLowerCase().replace(/\s+/g, '');
+  const id = (project.id || '').toLowerCase();
+  return (
+    bundleId === 'com.dreamapplab.familythread' ||
+    name === 'familythread' ||
+    id.includes('familythread')
+  );
+}
+
+function isDalWebsiteProject(project) {
+  const id = (project.id || '').toLowerCase();
+  const name = (project.name || '').toLowerCase();
+  return id === 'dal-website' || name.includes('dream app lab');
+}
+
+function isZerbiqProject(project) {
+  const name = (project.name || '').toLowerCase().replace(/\s+/g, '');
+  const id = (project.id || '').toLowerCase();
+  return name === 'zerbiq' || id === 'zerbiq' || id.includes('zerbiq');
+}
+
+export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, onDelete, onBack, onOpenProject, onToast, quotesUnread = 0, onQuotesUnread, onboardingUploadsByClientId = {} }) {
   const [activeTab, setActiveTab] = useState('overview');
+  const [clientUnread, setClientUnread] = useState(0);
+  const [postcardsToday, setPostcardsToday] = useState(0);
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [showStackModal, setShowStackModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deletingProject, setDeletingProject] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const [paymentType, setPaymentType] = useState('out');
   const [editingItem, setEditingItem] = useState(null);
   const [editsFilter, setEditsFilter] = useState('all');
+  const [uploadingEditId, setUploadingEditId] = useState(null);
+  const [editUploadError, setEditUploadError] = useState(null);
+  const [printBusy, setPrintBusy] = useState(false);
+  const editImageInputRef = useRef(null);
+  const pendingEditIdRef = useRef(null);
+  const logoInputRef = useRef(null);
+  const [logoUploading, setLogoUploading] = useState(false);
 
-  const isApp = isAppProject(project);
-  const TABS = isApp
-    ? [...BASE_TABS, { key: 'checklist', label: '📋 Pub Checklist' }]
-    : BASE_TABS;
+  const isApp = isAppProject(project) || project.projectType === 'Own App' || project.projectType === 'Client App';
+  const showPipeline = hasPipelineTab(project.projectType);
+  const pipelineKind = pipelineKindForProjectType(project.projectType);
+  const typeBadge = PROJECT_TYPE_BADGE[project.projectType];
+  const isFamilyThread = isFamilyThreadProject(project);
+  const isDalWebsite = isDalWebsiteProject(project);
+  const isZerbiq = isZerbiqProject(project);
+  const totalOnboardingUploads = Object.values(onboardingUploadsByClientId).reduce((s, arr) => s + arr.length, 0);
+  const TABS = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'client', label: 'Client', badge: clientUnread },
+    ...(isDalWebsite ? [
+      { key: 'quotes', label: 'Quotes', badge: quotesUnread, uploadBadge: totalOnboardingUploads },
+      { key: 'postcards', label: 'Postcards', badge: postcardsToday },
+      { key: 'builds', label: 'Build Board' },
+    ] : []),
+    ...(isFamilyThread ? [{ key: 'admin', label: 'Admin Panel' }] : []),
+    ...(showPipeline ? [{ key: 'pipeline', label: 'Pipeline' }] : []),
+    ...(project.hasBlog === true ? [{ key: 'blog', label: 'Blog' }] : []),
+    ...BASE_TABS.filter((t) => t.key !== 'overview'),
+    ...(isApp ? [{ key: 'checklist', label: 'Checklists' }] : []),
+  ];
   const prog = getProgress(project);
   const monthlyExp = getMonthlyExpenses(project);
   const outstandingEditCosts = getOutstandingEditCosts(project);
@@ -133,6 +256,40 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
   const totalPaidOut = getTotalPaidOut(project);
   const totalPaidIn = getTotalPaidIn(project);
   const sc = STATUS_CONFIG[project.status] || STATUS_CONFIG.ideation;
+
+  useEffect(() => {
+    if (activeTab === 'admin' && !isFamilyThread) {
+      setActiveTab('overview');
+    }
+    if (activeTab === 'quotes' && !isDalWebsite) {
+      setActiveTab('overview');
+    }
+    if (activeTab === 'postcards' && !isDalWebsite) {
+      setActiveTab('overview');
+    }
+    if (activeTab === 'builds' && !isDalWebsite) {
+      setActiveTab('overview');
+    }
+    if (activeTab === 'pipeline' && !showPipeline) {
+      setActiveTab('overview');
+    }
+    if (activeTab === 'blog' && project.hasBlog !== true) {
+      setActiveTab('overview');
+    }
+  }, [activeTab, isFamilyThread, isDalWebsite, showPipeline, project.hasBlog, project.id]);
+
+  useEffect(() => {
+    if (!project?.id) return;
+    const q = query(
+      collection(db, 'clientEmails'),
+      where('projectId', '==', project.id),
+      where('source', '==', 'project'),
+      where('direction', '==', 'inbound'),
+      where('read', '==', false)
+    );
+    const unsub = onSnapshot(q, snap => setClientUnread(snap.size));
+    return () => unsub();
+  }, [project?.id]);
 
   const toggleMilestone = (id) => {
     const milestone = project.milestones.find(m => m.id === id);
@@ -221,6 +378,69 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
     onUpdate({ ...project, revenue: { ...project.revenue, [field]: value } });
   };
 
+  const handleEditImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    const editId = pendingEditIdRef.current;
+    if (!editId) return;
+    const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
+    if (!allowed.includes(file.type) && !file.name.match(/\.(png|jpe?g|gif|webp)$/i)) {
+      setEditUploadError('Unsupported type. Allowed: PNG, JPG, GIF, WEBP');
+      return;
+    }
+    setUploadingEditId(editId);
+    setEditUploadError(null);
+    try {
+      const fileId = `img${Date.now()}`;
+      const path = `projects/${project.id}/edits/${editId}/${fileId}_${file.name}`;
+      const sRef = storageRef(storage, path);
+      await uploadBytes(sRef, file);
+      const downloadUrl = await getDownloadURL(sRef);
+      const newImage = { id: fileId, name: file.name, storagePath: path, downloadUrl, uploadedAt: new Date().toISOString() };
+      const updatedEdits = project.edits.map(ed =>
+        ed.id === editId ? { ...ed, images: [...(ed.images || []), newImage] } : ed
+      );
+      onUpdate({ ...project, edits: updatedEdits });
+    } catch (err) {
+      setEditUploadError(err.message || 'Upload failed');
+    } finally {
+      setUploadingEditId(null);
+      pendingEditIdRef.current = null;
+    }
+  };
+
+  const deleteEditImage = async (editId, img) => {
+    if (!window.confirm(`Delete screenshot "${img.name}"?`)) return;
+    try {
+      await deleteObject(storageRef(storage, img.storagePath));
+    } catch {}
+    const updatedEdits = project.edits.map(ed =>
+      ed.id === editId ? { ...ed, images: (ed.images || []).filter(i => i.id !== img.id) } : ed
+    );
+    onUpdate({ ...project, edits: updatedEdits });
+  };
+
+  const handleProjectLogoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !project.id) return;
+    const ext = (file.name.split('.').pop() || 'webp').toLowerCase();
+    setLogoUploading(true);
+    try {
+      const path = `projectLogos/${project.id}/logo.${ext}`;
+      const sRef = storageRef(storage, path);
+      await uploadBytes(sRef, file, { contentType: file.type || undefined });
+      const downloadUrl = await getDownloadURL(sRef);
+      await onUpdate({ ...project, logoUrl: downloadUrl });
+      if (typeof onToast === 'function') onToast('Logo updated');
+    } catch (err) {
+      if (typeof onToast === 'function') onToast(err.message || 'Logo upload failed');
+    } finally {
+      setLogoUploading(false);
+    }
+  };
+
   const filteredEdits = getFilteredEdits(project.edits || [], editsFilter);
   const sortedEdits = [...filteredEdits].sort((a, b) => {
     const order = { high: 0, medium: 1, low: 2 };
@@ -239,9 +459,33 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
     <div>
       <div className="detail-header">
         <button className="btn btn-ghost btn-sm" onClick={onBack}>Back</button>
-        <div className="detail-logo" style={{ background: `${project.color}18`, border: `1px solid ${project.color}30` }}>{project.logo}</div>
+        <div className="detail-logo">
+          <AppLogo logoUrl={project.logoUrl || revenueLogos[project.id]} fallback={project.logo} color={project.color} size={48} />
+        </div>
         <div style={{ flex: 1 }}>
-          <div className="detail-title">{project.name}</div>
+          <div className="detail-title" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            {project.websiteUrl ? (
+              <a
+                href={project.websiteUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="detail-title-link"
+              >
+                {project.name}
+                <span className="detail-title-link-icon" aria-hidden="true">🔗</span>
+              </a>
+            ) : (
+              project.name
+            )}
+            {project.projectType && typeBadge && (
+              <span
+                className="status-badge"
+                style={{ background: typeBadge.bg, color: typeBadge.color, fontSize: 11 }}
+              >
+                {project.projectType}
+              </span>
+            )}
+          </div>
           <div className="detail-meta">
             <span className="status-badge" style={{ background: sc.bg, color: sc.color }}>
               <span className="status-dot" style={{ background: sc.color }} /> {sc.label}
@@ -252,7 +496,33 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
           </div>
         </div>
         <div className="detail-header-actions">
-          <button className="btn btn-danger btn-sm" onClick={() => { if (window.confirm('Delete this project?')) onDelete(project.id); }}>Delete</button>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={printBusy}
+            onClick={async () => {
+              setPrintBusy(true);
+              try {
+                await openProjectHandoffPrint(project);
+              } catch (err) {
+                console.error(err);
+              } finally {
+                setPrintBusy(false);
+              }
+            }}
+          >
+            {printBusy ? 'Preparing…' : 'Print / Export'}
+          </button>
+          <button
+            className="btn btn-danger btn-sm"
+            onClick={() => {
+              setDeleteConfirmText('');
+              setDeleteError('');
+              setShowDeleteModal(true);
+            }}
+          >
+            Delete
+          </button>
         </div>
       </div>
 
@@ -267,14 +537,57 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
           return (
             <button key={t.key} className={`tab-btn ${activeTab === t.key ? 'active' : ''}`} onClick={() => setActiveTab(t.key)}>
               {t.label}
+              {t.badge > 0 && (
+                <span style={{ background: 'var(--coral)', color: 'white', borderRadius: 10, padding: '1px 5px', fontSize: 10, fontWeight: 700, marginLeft: 6 }}>
+                  {t.badge}
+                </span>
+              )}
+              {t.uploadBadge > 0 && (
+                <span style={{ background: '#e6a817', color: 'white', borderRadius: 10, padding: '1px 5px', fontSize: 10, fontWeight: 700, marginLeft: 4 }}>
+                  {t.uploadBadge}
+                </span>
+              )}
               {count !== null && count > 0 && <span className="tab-count">{count}</span>}
             </button>
           );
         })}
       </div>
 
+      {activeTab === 'client' && <ClientTab project={project} />}
+
+      {isDalWebsite && (
+        <PostcardsCountListener onCount={setPostcardsToday} />
+      )}
+
       {activeTab === 'overview' && (
         <div className="data-section">
+          <div className="overview-logo-area">
+            <div className="detail-logo">
+              <AppLogo logoUrl={project.logoUrl || revenueLogos[project.id]} fallback={project.logo} color={project.color} size={48} />
+            </div>
+            <input
+              ref={logoInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/jpg,image/gif,image/webp,image/svg+xml"
+              style={{ display: 'none' }}
+              onChange={handleProjectLogoUpload}
+            />
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={logoUploading}
+              onClick={() => logoInputRef.current?.click()}
+            >
+              {logoUploading ? (
+                <>
+                  <span className="logo-upload-spinner" aria-hidden="true" />
+                  Uploading…
+                </>
+              ) : (
+                'Update Logo'
+              )}
+            </button>
+          </div>
           <div className="stats-grid" style={{ marginBottom: 24 }}>
             <div className="stat-card teal">
               <div className="stat-label">Overall Progress</div>
@@ -335,6 +648,30 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
         </div>
       )}
 
+      {activeTab === 'admin' && isFamilyThread && <FamilyThreadAdminTab />}
+
+      {activeTab === 'quotes' && isDalWebsite && (
+        <QuotesTab
+          onOpenProject={onOpenProject}
+          onToast={onToast}
+          onUnreadCount={onQuotesUnread}
+          onboardingUploadsByClientId={onboardingUploadsByClientId}
+        />
+      )}
+
+      {activeTab === 'pipeline' && showPipeline && pipelineKind === 'app' && (
+        <AppPipelineChecklist project={project} />
+      )}
+      {activeTab === 'pipeline' && showPipeline && pipelineKind === 'website' && (
+        <WebsitePipelineChecklist project={project} />
+      )}
+      {activeTab === 'pipeline' && showPipeline && pipelineKind === 'pwa' && (
+        <PWAPipelineChecklist project={project} />
+      )}
+
+      {activeTab === 'builds' && isDalWebsite && <BuildBoardTab />}
+
+      {activeTab === 'postcards' && isDalWebsite && <PostcardsTab />}
       {activeTab === 'milestones' && (
         <div className="data-section">
           <div className="data-section-header">
@@ -393,6 +730,12 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
               <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--amber)', fontSize: 18, fontWeight: 700 }}>${outstandingEditCosts.toFixed(2)}</span>
             </div>
           )}
+          <input ref={editImageInputRef} type="file" accept=".png,.jpg,.jpeg,.gif,.webp" style={{ display: 'none' }} onChange={handleEditImageUpload} />
+          {editUploadError && (
+            <div style={{ color: 'var(--coral)', fontSize: 12, marginBottom: 8, padding: '6px 10px', background: 'rgba(239,68,68,0.1)', borderRadius: 6, border: '1px solid rgba(239,68,68,0.2)' }}>
+              {editUploadError}
+            </div>
+          )}
           {sortedEdits.length === 0 ? (
             <div className="empty-state"><div className="empty-state-icon"></div><div className="empty-state-text">No edits in this filter.</div></div>
           ) : (
@@ -416,9 +759,52 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
                         {e.sentToDevAt && <span style={{ fontSize: 10, color: 'var(--green)', marginLeft: 4 }}>Sent {formatDate(e.sentToDevAt)}</span>}
                       </div>
                       {e.notes && <div className="item-desc" style={{ marginTop: 6 }}>Note: {e.notes}</div>}
+                      {(e.images || []).length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                          {(e.images || []).map(img => (
+                            <div key={img.id} style={{ position: 'relative', display: 'inline-block' }}>
+                              <img
+                                src={img.downloadUrl}
+                                alt={img.name}
+                                style={{
+                                  maxWidth: 150,
+                                  maxHeight: 100,
+                                  borderRadius: 6,
+                                  border: '1px solid var(--border)',
+                                  objectFit: 'cover',
+                                  display: 'block',
+                                }}
+                              />
+                              <button
+                                onClick={() => deleteEditImage(e.id, img)}
+                                title={`Delete ${img.name}`}
+                                style={{
+                                  position: 'absolute',
+                                  top: 3,
+                                  right: 3,
+                                  background: 'rgba(0,0,0,0.65)',
+                                  color: '#fff',
+                                  border: 'none',
+                                  borderRadius: 4,
+                                  cursor: 'pointer',
+                                  fontSize: 10,
+                                  padding: '2px 5px',
+                                  lineHeight: 1.3,
+                                }}
+                              >✕</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className="item-actions">
                       <button className="icon-btn" title={e.sentToDev ? 'Unmark sent' : 'Mark sent to dev'} onClick={() => toggleSentToDev(e.id)} style={e.sentToDev ? { color: 'var(--green)', borderColor: 'var(--green)' } : {}}>{e.sentToDev ? 'Sent' : 'Send'}</button>
+                      <button
+                        className="icon-btn"
+                        title="Add screenshot"
+                        disabled={uploadingEditId === e.id}
+                        onClick={() => { pendingEditIdRef.current = e.id; editImageInputRef.current?.click(); }}
+                      >{uploadingEditId === e.id ? '...' : '📷'}</button>
                       <button className="icon-btn" onClick={() => { setEditingItem(e); setShowEditModal(true); }}>Edit</button>
                       <button className="icon-btn danger" onClick={() => deleteEdit(e.id)}>Del</button>
                     </div>
@@ -664,8 +1050,18 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
         <AppChecklist project={project} />
       )}
 
+      {activeTab === 'blog' && project.hasBlog === true && (
+        <BlogAdmin
+          apiBase={isZerbiq ? '/api/blog/zerbiq' : '/api/blog'}
+          subtitle={isZerbiq
+            ? `zerbiq.app posts · ${process.env.REACT_APP_ZERBIQ_FIREBASE_PROJECT_ID || 'fieldbase-prod-42be2'}`
+            : 'dreamapplab.com posts · dal-website-c9dd8'
+          }
+        />
+      )}
+
       {activeTab === 'vault' && (
-        <ProjectVault project={project} onUpdate={onUpdate} />
+        <BlackBox project={project} />
       )}
 
       {showMilestoneModal && <MilestoneModal milestone={editingItem} onSave={handleSaveMilestone} onClose={() => { setShowMilestoneModal(false); setEditingItem(null); }} />}
@@ -673,6 +1069,79 @@ export default function ProjectDetail({ project, onUpdate, onDelete, onBack }) {
       {showExpenseModal && <ExpenseModal expense={editingItem} onSave={handleSaveExpense} onClose={() => { setShowExpenseModal(false); setEditingItem(null); }} />}
       {showStackModal && <TechStackModal onSave={handleSaveStack} onClose={() => setShowStackModal(false)} />}
       {showPaymentModal && <PaymentModal type={paymentType} onSave={handleSavePayment} onClose={() => setShowPaymentModal(false)} />}
+      {showDeleteModal && (
+        <div className="modal-overlay" onClick={() => { if (deletingProject) return; setDeleteConfirmText(''); setDeleteError(''); setShowDeleteModal(false); }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">Delete project</div>
+              <button type="button" className="btn btn-ghost btn-sm" disabled={deletingProject} onClick={() => { setDeleteConfirmText(''); setDeleteError(''); setShowDeleteModal(false); }}>✕</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ color: 'var(--coral)', marginBottom: 12, lineHeight: 1.5 }}>
+                This will permanently delete this project and cannot be undone.
+              </p>
+              <p style={{ marginBottom: 16, lineHeight: 1.5 }}>
+                You are about to delete <strong>{project.name}</strong>.
+              </p>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Type DELETE to confirm</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder="Type DELETE to confirm"
+                  autoFocus
+                  disabled={deletingProject}
+                />
+              </div>
+              {deleteError && <div className="quotes-error" style={{ marginTop: 12 }}>{deleteError}</div>}
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={deletingProject}
+                onClick={() => {
+                  setDeleteConfirmText('');
+                  setDeleteError('');
+                  setShowDeleteModal(false);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={deleteConfirmText !== 'DELETE' || deletingProject}
+                onClick={async () => {
+                  if (deleteConfirmText !== 'DELETE') return;
+                  setDeletingProject(true);
+                  setDeleteError('');
+                  try {
+                    const res = await fetch('/api/delete-project', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ id: project.id }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok || !data.ok) {
+                      throw new Error(data.error || data.detail || 'Failed to delete project');
+                    }
+                    onDelete(project.id);
+                  } catch (err) {
+                    console.error(err);
+                    setDeleteError(err.message || String(err));
+                    setDeletingProject(false);
+                  }
+                }}
+              >
+                {deletingProject ? 'Deleting…' : 'Delete Project'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,8 +1,10 @@
 // src/components/Dashboard.js
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { STATUS_CONFIG, PIPELINE_APPS } from '../data/initialData';
+import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
+import { STATUS_CONFIG } from '../data/initialData';
+import AddPipelineModal from './AddPipelineModal';
+import { sumClientProjectRevenue } from '../utils/revenueTotals';
 
 function getProgress(project) {
   const allTasks = [
@@ -34,7 +36,7 @@ function StatusBadge({ status }) {
   );
 }
 
-function ProjectCard({ project, onClick }) {
+function ProjectCard({ project, onClick, projectsUnread = {} }) {
   const prog = getProgress(project);
   const monthlyRev = project.revenue?.monthly || 0;
   const monthlyExp = getMonthlyExpenses(project);
@@ -96,13 +98,45 @@ function ProjectCard({ project, onClick }) {
           </div>
           <div className="card-mini-stat-label">Open Edits</div>
         </div>
+        {(projectsUnread[project.id] || 0) > 0 && (
+          <div className="card-mini-stat">
+            <div className="card-mini-stat-value" style={{ color: 'var(--coral)' }}>
+              {projectsUnread[project.id]}
+            </div>
+            <div className="card-mini-stat-label">New Messages</div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-export default function Dashboard({ projects, pipeline, onSelectProject, onAddProject, onShowRevenue }) {
+function currentMonthRange() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const lastDay = String(new Date(year, now.getMonth() + 1, 0).getDate()).padStart(2, '0');
+  return {
+    from: `${year}-${month}-01`,
+    to: `${year}-${month}-${lastDay}`,
+  };
+}
+
+function formatDashboardMoney(amount) {
+  const n = Number(amount) || 0;
+  return n.toLocaleString('en-US', {
+    maximumFractionDigits: n % 1 === 0 ? 0 : 2,
+    minimumFractionDigits: n % 1 === 0 ? 0 : 2,
+  });
+}
+
+const Dashboard = React.memo(function Dashboard({ projects, pipelineItems, onSelectProject, onAddProject, onShowRevenue, projectsUnread = {} }) {
   const [dashboardSummary, setDashboardSummary] = useState(null);
+  const [showAddPipelineModal, setShowAddPipelineModal] = useState(false);
+  const [hoveredPipelineId, setHoveredPipelineId] = useState(null);
+  const [movingPipelineId, setMovingPipelineId] = useState(null);
+  const [monthlyExpensesTotal, setMonthlyExpensesTotal] = useState(0);
+  const [clientMonthNet, setClientMonthNet] = useState(0);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'dashboard', 'summary'), (snapshot) => {
@@ -111,11 +145,47 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
     return () => unsub();
   }, []);
 
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'expenses'), (snapshot) => {
+      const now = new Date();
+      const prefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const total = snapshot.docs.reduce((sum, d) => {
+        const data = d.data() || {};
+        if (String(data.date || '').startsWith(prefix)) {
+          return sum + Number(data.amount || 0);
+        }
+        return sum;
+      }, 0);
+      setMonthlyExpensesTotal(total);
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const { from, to } = currentMonthRange();
+    const params = new URLSearchParams({ from, to });
+    let cancelled = false;
+    fetch(`/api/revenue-entries?${params.toString()}`)
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Failed to load revenue entries');
+        return data;
+      })
+      .then((data) => {
+        if (!cancelled) setClientMonthNet(sumClientProjectRevenue(data.entries || []).net);
+      })
+      .catch(() => {
+        if (!cancelled) setClientMonthNet(0);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   const projectsMRR = projects.reduce((s, p) => s + (p.revenue?.monthly || 0), 0);
   const projectsRevenue = projects.reduce((s, p) => s + (p.revenue?.total || 0), 0);
-  const totalMRR = dashboardSummary?.monthlyRevenue ?? projectsMRR;
+  const appMonthlyRevenue = dashboardSummary?.monthlyRevenue ?? projectsMRR;
+  const totalMRR = (Number(appMonthlyRevenue) || 0) + (Number(clientMonthNet) || 0);
   const totalRevenue = dashboardSummary?.totalRevenue ?? projectsRevenue;
-  const totalMonthlyExp = projects.reduce((s, p) => s + getMonthlyExpenses(p), 0);
+  const totalMonthlyExp = monthlyExpensesTotal;
   const liveCount = projects.filter(p => p.status === 'live').length;
   const inDevCount = projects.filter(p => p.status === 'in-development').length;
   const openEdits = projects.reduce((s, p) => s + (p.edits || []).filter(e => !e.completed).length, 0);
@@ -130,8 +200,38 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
     return s + all.filter(t => t.completed).length;
   }, 0);
 
-  const ownApps = projects.filter(p => p.type === 'own-app');
-  const clientProjects = projects.filter(p => p.type !== 'own-app');
+  const byName = (a, b) =>
+    String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+  const ownApps = projects.filter(p => p.type === 'own-app').slice().sort(byName);
+  const clientProjects = projects.filter(p => p.type !== 'own-app').slice().sort(byName);
+
+  const handleMoveToProject = async (item) => {
+    setMovingPipelineId(item.id);
+    try {
+      const newProject = {
+        id: item.id,
+        name: item.name,
+        logo: item.logo,
+        color: item.color,
+        type: 'own-app',
+        platform: 'mobile',
+        status: 'ideation',
+        tagline: '',
+        bundleId: '',
+        launchDate: null,
+        pricing: '',
+        revenue: { monthly: 0, total: 0, model: 'paid' },
+        expenses: [],
+        techStack: [],
+        milestones: [],
+        edits: [],
+      };
+      await setDoc(doc(db, 'projects', item.id), newProject, { merge: true });
+      await deleteDoc(doc(db, 'pipeline', item.id));
+    } finally {
+      setMovingPipelineId(null);
+    }
+  };
 
   return (
     <div className="page">
@@ -155,13 +255,13 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
       <div className="stats-grid">
         <div className="stat-card teal">
           <div className="stat-label">Monthly Revenue</div>
-          <div className="stat-value" style={{ color: 'var(--teal)' }}>${totalMRR}</div>
+          <div className="stat-value" style={{ color: 'var(--teal)' }}>${formatDashboardMoney(totalMRR)}</div>
           <div className="stat-sub">Across all live apps</div>
         </div>
         <div className="stat-card coral">
           <div className="stat-label">Monthly Expenses</div>
           <div className="stat-value" style={{ color: 'var(--coral)' }}>${totalMonthlyExp.toFixed(0)}</div>
-          <div className="stat-sub">APIs, hosting, tools</div>
+          <div className="stat-sub">This calendar month</div>
         </div>
         <div className="stat-card green">
           <div className="stat-label">Net Monthly</div>
@@ -215,7 +315,7 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
           </div>
           <div className="projects-grid">
             {ownApps.map(p => (
-              <ProjectCard key={p.id} project={p} onClick={onSelectProject} />
+              <ProjectCard key={p.id} project={p} onClick={onSelectProject} projectsUnread={projectsUnread} />
             ))}
           </div>
         </>
@@ -232,7 +332,7 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
           </div>
           <div className="projects-grid">
             {clientProjects.map(p => (
-              <ProjectCard key={p.id} project={p} onClick={onSelectProject} />
+              <ProjectCard key={p.id} project={p} onClick={onSelectProject} projectsUnread={projectsUnread} />
             ))}
           </div>
         </>
@@ -242,17 +342,51 @@ export default function Dashboard({ projects, pipeline, onSelectProject, onAddPr
       <div className="section-header">
         <h2 className="section-title">
           <span>🚀</span> App Pipeline
-          <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--text-secondary)' }}>({(pipeline || []).length} ideas)</span>
+          <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--text-secondary)' }}>({(pipelineItems || []).length} ideas)</span>
         </h2>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowAddPipelineModal(true)}>
+          + Add Idea
+        </button>
       </div>
       <div className="pipeline-grid">
-        {(pipeline || []).map(app => (
-          <div key={app.id} className="pipeline-chip" style={{ borderColor: `${app.color}40` }}>
+        {(pipelineItems || []).map(app => (
+          <div
+            key={app.id}
+            className="pipeline-chip"
+            style={{ borderColor: `${app.color}40`, position: 'relative' }}
+            onMouseEnter={() => setHoveredPipelineId(app.id)}
+            onMouseLeave={() => setHoveredPipelineId(null)}
+          >
             <span>{app.logo}</span>
             <span style={{ color: app.color }}>{app.name}</span>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              title="Move to Projects"
+              disabled={movingPipelineId === app.id}
+              onClick={() => handleMoveToProject(app)}
+              style={{
+                position: 'absolute',
+                right: 8,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                fontSize: 11,
+                padding: '4px 8px',
+                opacity: hoveredPipelineId === app.id || movingPipelineId === app.id ? 1 : 0,
+                transition: 'opacity 0.15s',
+              }}
+            >
+              {movingPipelineId === app.id ? 'Moving...' : '→ Move to Projects'}
+            </button>
           </div>
         ))}
       </div>
+
+      {showAddPipelineModal && (
+        <AddPipelineModal onClose={() => setShowAddPipelineModal(false)} />
+      )}
     </div>
   );
-}
+});
+
+export default Dashboard;

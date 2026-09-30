@@ -28,15 +28,20 @@ import { getRevenueEntries, REVENUE_MOBILE_APPS, getDefaultRevenueDoc } from '..
 import { syncRevenueCatToFirestore } from '../utils/revenueCatApi';
 import {
   getCombinedTotalRevenue,
+  isClientProjectRevenueEntry,
+  sumClientProjectRevenue,
   sumManualSales,
   syncDashboardRevenueTotals,
 } from '../utils/revenueTotals';
 import { uploadAppLogo } from '../utils/uploadAppLogo';
 import AppLogo from './AppLogo';
+import ClientProjectRevenueSection from '../tabs/RevenueTab';
 
 const LAYOUT_DOC_ID = 'layout';
 const DEFAULT_CARD_WIDTH = 300;
 const DEFAULT_CARD_HEIGHT = 200;
+const STORE_FEE_RATE = 0.15;
+const NET_KEEP_RATE = 0.85;
 
 function formatMoney(amount) {
   return `$${(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -44,6 +49,16 @@ function formatMoney(amount) {
 
 function todayISO() {
   return new Date().toISOString().split('T')[0];
+}
+
+function currentYearStartISO() {
+  return `${new Date().getFullYear()}-01-01`;
+}
+
+function formatDateLabel(iso) {
+  const [y, m, d] = iso.split('-');
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${months[parseInt(m, 10) - 1]} ${parseInt(d, 10)}, ${y}`;
 }
 
 function getDefaultLayout(revenueEntries) {
@@ -197,11 +212,11 @@ function RevenueAppDetail({
 
       <div className="stats-grid" style={{ marginBottom: 24 }}>
         {[
-          { key: 'mrr', label: 'MRR', color: 'var(--green)' },
+          { key: 'mrr', label: 'MRR', color: '#2196F3' },
           { key: 'subscribers', label: 'Active Subscribers', color: 'var(--teal)' },
           { key: 'trials', label: 'Trial Conversions', color: 'var(--amber)' },
           { key: 'churnRate', label: 'Churn Rate (%)', color: 'var(--coral)' },
-          { key: 'totalRevenue', label: 'RevenueCat Total', color: 'var(--indigo)' },
+          { key: 'totalRevenue', label: 'RevenueCat Total', color: '#4CAF50' },
         ].map(({ key, label, color }) => (
           <div key={key} className="stat-card">
             <div className="stat-label">{label}</div>
@@ -217,7 +232,7 @@ function RevenueAppDetail({
         ))}
         <div className="stat-card">
           <div className="stat-label">Combined Total Revenue</div>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 700, color: 'var(--amber)', marginTop: 8 }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 700, color: '#4CAF50', marginTop: 8 }}>
             {formatMoney(combinedTotal)}
           </div>
           <div className="stat-sub" style={{ marginTop: 4 }}>RevenueCat + Manual Sales</div>
@@ -435,7 +450,7 @@ function SortableRevenueCard({
           </div>
           <div className="card-mini-stats">
             <div className="card-mini-stat">
-              <div className="card-mini-stat-value" style={{ color: 'var(--green)' }}>{formatMoney(data.mrr)}</div>
+              <div className="card-mini-stat-value" style={{ color: '#2196F3' }}>{formatMoney(data.mrr)}</div>
               <div className="card-mini-stat-label">MRR</div>
             </div>
             <div className="card-mini-stat">
@@ -443,7 +458,7 @@ function SortableRevenueCard({
               <div className="card-mini-stat-label">Subscribers</div>
             </div>
             <div className="card-mini-stat">
-              <div className="card-mini-stat-value" style={{ color: 'var(--indigo)' }}>{formatMoney(combinedTotal)}</div>
+              <div className="card-mini-stat-value" style={{ color: '#4CAF50' }}>{formatMoney(combinedTotal)}</div>
               <div className="card-mini-stat-label">Total Revenue</div>
             </div>
           </div>
@@ -458,7 +473,7 @@ function SortableRevenueCard({
   );
 }
 
-export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
+const RevenueDashboard = React.memo(function RevenueDashboard({ projects = [], onLogoUpdated }) {
   const revenueEntries = useMemo(() => getRevenueEntries(projects), [projects]);
   const revenueAppIds = useMemo(() => revenueEntries.map(e => e.appId), [revenueEntries]);
 
@@ -470,6 +485,57 @@ export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
   const [appErrors, setAppErrors] = useState({});
   const [selectedAppId, setSelectedAppId] = useState(null);
   const autoSyncStarted = useRef(false);
+
+  const [filterFrom, setFilterFrom] = useState(currentYearStartISO());
+  const [filterTo, setFilterTo] = useState(todayISO());
+  const [isAllTime, setIsAllTime] = useState(false);
+  const [clientEntries, setClientEntries] = useState([]);
+  const [clientLoading, setClientLoading] = useState(true);
+  const [clientError, setClientError] = useState('');
+
+  const filteredManualSalesByApp = useMemo(() => {
+    const inRange = (sales) => {
+      if (isAllTime) return sales || [];
+      return (sales || []).filter(s => s.date && s.date >= filterFrom && s.date <= filterTo);
+    };
+    return Object.fromEntries(
+      Object.entries(manualSalesByApp).map(([appId, sales]) => [
+        appId,
+        inRange(sales).filter(s => !isClientProjectRevenueEntry(s)),
+      ])
+    );
+  }, [manualSalesByApp, filterFrom, filterTo, isAllTime]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const params = new URLSearchParams();
+    if (!isAllTime) {
+      if (filterFrom) params.set('from', filterFrom);
+      if (filterTo) params.set('to', filterTo);
+    }
+    const qs = params.toString();
+    setClientLoading(true);
+    setClientError('');
+    fetch(`/api/revenue-entries${qs ? `?${qs}` : ''}`)
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || data.detail || 'Failed to load revenue entries');
+        return data;
+      })
+      .then((data) => {
+        if (!cancelled) setClientEntries(data.entries || []);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setClientEntries([]);
+          setClientError(err.message || 'Failed to load client project revenue');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setClientLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [filterFrom, filterTo, isAllTime]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -572,11 +638,36 @@ export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
   const missingApps = revenueEntries.filter(a => !cardLayout.order?.includes(a.appId));
   const displayApps = [...orderedApps, ...missingApps];
 
-  const totalRevenue = revenueEntries.reduce((sum, a) => {
+  const appRevenue = revenueEntries.reduce((sum, a) => {
     const d = revenueData[a.appId] || {};
-    const manual = sumManualSales(manualSalesByApp[a.appId]);
+    const manual = sumManualSales(filteredManualSalesByApp[a.appId]);
     return sum + getCombinedTotalRevenue(d, manual);
   }, 0);
+  const clientRevenueTotals = sumClientProjectRevenue(clientEntries);
+  const grandTotalRevenue = appRevenue + clientRevenueTotals.net;
+
+  const netSalesRows = displayApps
+    .map((app) => {
+      const d = revenueData[app.appId] || {};
+      const gross = Number(d.totalRevenue) || 0;
+      return {
+        app,
+        data: d,
+        gross,
+        storeFee: gross * STORE_FEE_RATE,
+        net: gross * NET_KEEP_RATE,
+      };
+    })
+    .filter((row) => row.gross > 0);
+
+  const netSalesTotals = netSalesRows.reduce(
+    (acc, row) => ({
+      gross: acc.gross + row.gross,
+      fees: acc.fees + row.storeFee,
+      net: acc.net + row.net,
+    }),
+    { gross: 0, fees: 0, net: 0 }
+  );
 
   const handleSave = async (appId, updated) => {
     await setDoc(doc(db, 'revenue', appId), updated, { merge: true });
@@ -610,11 +701,11 @@ export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
     });
   }, []);
 
-  if (loading || refreshing) {
+  if (loading) {
     return (
       <div className="page" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 300 }}>
         <span style={{ color: 'var(--text-muted)' }}>
-          {refreshing ? 'Syncing from RevenueCat...' : 'Loading revenue data...'}
+          Loading revenue data...
         </span>
       </div>
     );
@@ -660,18 +751,75 @@ export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
         <div className="page-actions">
           <button
             type="button"
-            className={`btn ${refreshing ? 'btn-disabled' : 'btn-secondary'}`}
             onClick={handleRefresh}
             disabled={refreshing}
+            style={{
+              background: 'transparent',
+              border: '1px solid #4cc1f3',
+              color: '#4cc1f3',
+              borderRadius: 8,
+              padding: '6px 14px',
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: refreshing ? 'wait' : 'pointer',
+              opacity: refreshing ? 0.7 : 1,
+              fontFamily: 'inherit',
+            }}
           >
-            ↻ Refresh from RevenueCat
+            {refreshing ? '↻ Refreshing...' : '↻ Refresh'}
           </button>
         </div>
       </div>
 
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16, padding: '12px 16px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label style={{ color: 'var(--text-secondary)', fontSize: 13 }}>From</label>
+          <input
+            type="date"
+            className="form-input"
+            value={filterFrom}
+            onChange={e => { setFilterFrom(e.target.value); setIsAllTime(false); }}
+            style={{ fontSize: 13, padding: '6px 10px' }}
+          />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label style={{ color: 'var(--text-secondary)', fontSize: 13 }}>To</label>
+          <input
+            type="date"
+            className="form-input"
+            value={filterTo}
+            onChange={e => { setFilterTo(e.target.value); setIsAllTime(false); }}
+            style={{ fontSize: 13, padding: '6px 10px' }}
+          />
+        </div>
+        <button
+          type="button"
+          className={`btn ${isAllTime ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setIsAllTime(true)}
+          style={{ fontSize: 13 }}
+        >
+          All Time
+        </button>
+        <span style={{ color: 'var(--text-muted)', fontSize: 13, marginLeft: 4 }}>
+          Showing: {isAllTime ? 'All Time' : `${formatDateLabel(filterFrom)} — ${formatDateLabel(filterTo)}`}
+        </span>
+      </div>
+
       <div className="revenue-total-banner">
-        <div className="revenue-total-label">Total Revenue — All Apps & Websites</div>
-        <div className="revenue-total-value">{formatMoney(totalRevenue)}</div>
+        <div className="revenue-total-breakdown">
+          <div className="revenue-total-item">
+            <div className="revenue-total-label">App Revenue</div>
+            <div className="revenue-total-value revenue-total-value--sub">{formatMoney(appRevenue)}</div>
+          </div>
+          <div className="revenue-total-item">
+            <div className="revenue-total-label">Client Project Revenue</div>
+            <div className="revenue-total-value revenue-total-value--sub">{formatMoney(clientRevenueTotals.net)}</div>
+          </div>
+          <div className="revenue-total-item">
+            <div className="revenue-total-label">Grand Total</div>
+            <div className="revenue-total-value">{formatMoney(grandTotalRevenue)}</div>
+          </div>
+        </div>
       </div>
 
       <div className="revenue-cards-canvas">
@@ -684,7 +832,7 @@ export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
             {displayApps.map(app => {
               const d = revenueData[app.appId] || {};
               const syncError = appErrors[app.appId];
-              const manualTotal = sumManualSales(manualSalesByApp[app.appId]);
+              const manualTotal = sumManualSales(filteredManualSalesByApp[app.appId]);
               return (
                 <SortableRevenueCard
                   key={app.appId}
@@ -701,6 +849,176 @@ export default function RevenueDashboard({ projects = [], onLogoUpdated }) {
           </SortableContext>
         </DndContext>
       </div>
+
+      <ClientProjectRevenueSection
+        entries={clientEntries}
+        loading={clientLoading}
+        error={clientError}
+        onEntryPatched={(id, fields) => {
+          setClientEntries((prev) => prev.map((row) => (row.id === id ? { ...row, ...fields } : row)));
+        }}
+      />
+
+      {netSalesRows.length > 0 && (
+        <div className="data-section" style={{ marginTop: 32 }}>
+          <div
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 18,
+              fontWeight: 700,
+              color: 'var(--text-primary)',
+              marginBottom: 4,
+            }}
+          >
+            Net Sales (After Store Fees)
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 18 }}>
+            Estimated take-home after Apple (15%) and Google (15%) platform fees
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {netSalesRows.map(({ app, data, gross, storeFee, net }) => (
+              <div
+                key={app.appId}
+                style={{
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 12,
+                  padding: '14px 16px',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    marginBottom: 12,
+                  }}
+                >
+                  <AppLogo
+                    logoUrl={data.logoUrl}
+                    fallback={app.logo}
+                    color={app.color}
+                    size={36}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontWeight: 650,
+                        fontSize: 14,
+                        color: 'var(--text-primary)',
+                      }}
+                    >
+                      {app.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                      Apple 15% · Google 15% · Small Business Program
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                    gap: 12,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+                      Gross Revenue
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {formatMoney(gross)}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+                      Store Fee (15%)
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                      {formatMoney(storeFee)}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+                      Net Revenue
+                    </div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: '#4cc1f3' }}>
+                      {formatMoney(net)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div
+            style={{
+              marginTop: 16,
+              padding: '18px 20px',
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border-active, var(--border))',
+              borderRadius: 12,
+            }}
+          >
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                gap: 16,
+                alignItems: 'end',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+                  Total Gross Revenue
+                </div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>
+                  {formatMoney(netSalesTotals.gross)}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+                  Total Store Fees
+                </div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                  {formatMoney(netSalesTotals.fees)}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+                  Estimated total take-home this period
+                </div>
+                <div
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: 22,
+                    fontWeight: 700,
+                    color: '#4cc1f3',
+                  }}
+                >
+                  {formatMoney(netSalesTotals.net)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <p
+            style={{
+              marginTop: 12,
+              fontSize: 11,
+              color: 'var(--text-muted)',
+              lineHeight: 1.45,
+            }}
+          >
+            Estimates based on 15% store fee. Actual fees may vary by transaction type and
+            territory.
+          </p>
+        </div>
+      )}
     </div>
   );
-}
+});
+
+export default RevenueDashboard;

@@ -1,350 +1,385 @@
 // src/components/AppChecklist.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { db } from '../firebase';
+import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
 
-const CHECKLIST_PHASES = [
-  {
-    id: 'p1', title: '1 · Concept & name validation',
-    steps: [
-      { id: 's1_1', label: 'Define app concept — one sentence: who it\'s for, what problem it solves', note: 'Write this before touching Cursor. It becomes your Cursor build prompt foundation.' },
-      { id: 's1_2', label: 'Check app name availability on Apple App Store', note: 'Search appstoreconnect.apple.com or the App Store on your phone. Check exact match + close variations.' },
-      { id: 's1_3', label: 'Check app name availability on Google Play Store', note: 'Search play.google.com. If the name is taken, choose a different one before building anything.' },
-      { id: 's1_4', label: 'Confirm bundle ID format: com.dreamapplab.appname', note: 'All lowercase, no hyphens. e.g. com.dreamapplab.appname — confirm it is not already registered.' },
-      { id: 's1_5', label: 'Decide on pricing — paid, free, or freemium', note: 'Research comparable apps in the category. Consider whether the app justifies a subscription model (requires backend like Firebase + RevenueCat).' },
-      { id: 's1_6', label: 'Decide on backend requirements', note: 'No backend = AsyncStorage only, simplest path. Backend needed = plan for Firebase or similar, login flow, data sync, and additional review questions at submission.' },
-    ]
-  },
-  {
-    id: 'p2', title: '2 · Cursor build prompt',
-    steps: [
-      { id: 's2_1', label: 'Write full Cursor build prompt using DAL template', note: 'Include: app name, bundle ID, color palette, all screens, all features, data storage approach, auth requirements if any, Expo SDK 54.' },
-      { id: 's2_2', label: 'Specify app icon concept in prompt', note: 'Describe the icon shape, symbol, and primary color before going to Canva.' },
-      { id: 's2_3', label: 'Specify all screenshot screens needed in prompt', note: 'List every distinct screen. Minimum 3-4 screens showing real populated data.' },
-      { id: 's2_4', label: 'Include in-app review prompt logic in Cursor prompt', note: 'Add expo-store-review triggered after a meaningful positive action. See Phase 3b for full timing rules.' },
-      { id: 's2_5', label: 'Include onboarding or empty state screens in prompt', note: 'These make great screenshots and improve first-run UX.' },
-      { id: 's2_6', label: 'If app has backend — plan auth, data model, and sync strategy before building', note: 'Decide on Firebase, Supabase, or other. Plan login flow, user data structure, and offline behavior upfront — much harder to add later.' },
-    ]
-  },
-  {
-    id: 'p3', title: '3 · Build in Cursor',
-    steps: [
-      { id: 's3_1', label: 'Create new project folder on desktop', note: 'Name it cleanly with no spaces in the path.' },
-      { id: 's3_2', label: 'Run: npx create-expo-app@latest inside folder', note: 'Choose blank template. Confirm SDK 54 is used.' },
-      { id: 's3_3', label: 'Paste build prompt into Cursor and build', note: 'Let it scaffold all screens, navigation, and data layer before tweaking.' },
-      { id: 's3_4', label: 'Test thoroughly in Expo Go on a real device', note: 'Test every screen, every button, every edge case — empty states, data entry, deletion, error states.' },
-      { id: 's3_5', label: 'If app has backend — test auth flows, data sync, and offline behavior', note: 'Test login, logout, password reset, data persistence across sessions, and what happens with no internet.' },
-      { id: 's3_6', label: 'Fix all bugs before moving to EAS builds', note: 'Do NOT proceed with known bugs. Much harder to fix post-submission.' },
-      { id: 's3_7', label: 'Set up RevenueCat — even if no IAP planned yet', note: 'Install react-native-purchases, create project in RevenueCat dashboard, connect iOS and Android apps. Do this for EVERY app. It takes 30 mins now vs hours later if you need to add IAP after launch.' },
-      { id: 's3_8', label: 'Add in-app review prompt using expo-store-review', note: 'Trigger after a meaningful positive action (e.g. 3rd or 5th entry saved). One-time AsyncStorage flag. Check isAvailableAsync() before calling requestReview(). Never on first launch or timer.' },
-      { id: 's3_9', label: 'Add Share App button in Settings screen', note: 'Use React Native built-in Share API (no extra package). Share message should include App Store link. This drives organic word-of-mouth downloads at zero cost.' },
-    ]
-  },
-  {
-    id: 'p3b', title: '3b · In-app review prompt',
-    steps: [
-      { id: 's3b_1', label: 'Install expo-store-review: npx expo install expo-store-review', note: 'Add during the Cursor build phase, not as an afterthought.' },
-      { id: 's3b_2', label: 'Trigger review only after a meaningful positive action', note: 'The user must have experienced real value first — e.g. after saving their 3rd entry, completing a key action, or reaching a milestone in the app.' },
-      { id: 's3b_3', label: 'Never trigger on first launch, on a timer, or after an error', note: 'Apple and Google both reject apps that prompt immediately or aggressively. Once per app lifetime is the safe default.' },
-      { id: 's3b_4', label: 'Check availability before calling: StoreReview.isAvailableAsync()', note: 'Returns false on simulators and some Android devices. Only call StoreReview.requestReview() if it returns true.' },
-      { id: 's3b_5', label: 'Add a storage flag so the prompt only fires once ever', note: 'Use AsyncStorage or your backend to track whether the prompt has already been shown. Set it immediately after triggering.' },
-      { id: 's3b_6', label: 'Test review prompt on a real physical device', note: 'Simulators will not show the native review dialog.' },
-    ]
-  },
-  {
-    id: 'p4', title: '4 · App icon & assets',
-    steps: [
-      { id: 's4_1', label: 'Design app icon in Canva — 1024×1024px PNG', note: 'Solid color background only — transparent backgrounds are NOT allowed on iOS. This single file is all you provide; Expo auto-generates all required sizes for both platforms.' },
-      { id: 's4_2', label: 'You do NOT need to manually create multiple icon sizes', note: 'Expo SDK 54 auto-generates all iOS sizes and all Android sizes from your single 1024×1024 source. This applies to the ICON only — screenshots must still be exported manually per size.' },
-      { id: 's4_3', label: 'Replace assets/icon.png with your 1024×1024 icon', note: 'Confirm the file is named exactly icon.png.' },
-      { id: 's4_4', label: '[Android] Create adaptive icon — assets/adaptive-icon.png', note: '1024×1024px. Icon graphic only, centered with safe zone padding around edges. Background color is set separately in app.json — do not bake it into this file.' },
-      { id: 's4_5', label: '[Android] Set backgroundColor in app.json under android.adaptiveIcon', note: 'e.g. "backgroundColor": "#F59E0B". Easy to forget — causes a white or black background on Android home screen if missing.' },
-      { id: 's4_6', label: 'Verify icon looks correct in Expo Go before building', note: 'Check on both light and dark phone backgrounds. Adaptive icon should look centered and not clipped.' },
-      { id: 's4_7', label: '[Android] Create feature graphic in Canva — 1024×500px', note: 'Full color. Must include app icon + app name + short tagline. This is the banner shown at the top of your Play Store listing — make it look professional.' },
-    ]
-  },
-  {
-    id: 'p5', title: '5 · app.json & eas.json config',
-    steps: [
-      { id: 's5_1', label: 'Set name — display name shown under icon on home screen' },
-      { id: 's5_2', label: 'Set slug — URL-safe lowercase version of name', note: 'Lowercase, hyphens ok, no spaces.' },
-      { id: 's5_3', label: '[iOS] Set ios.bundleIdentifier', note: 'e.g. com.dreamapplab.appname — must match exactly what you register in App Store Connect.' },
-      { id: 's5_4', label: '[Android] Set android.package', note: 'e.g. com.dreamapplab.appname — must match exactly what you register in Play Console.' },
-      { id: 's5_5', label: 'Set version to "1.0.0" for first release' },
-      { id: 's5_6', label: '[Android] Set android.versionCode to 1', note: 'Integer. Must increment by 1 for every new Android build you upload to Play Console. Never reuse a versionCode.' },
-      { id: 's5_7', label: 'Confirm eas.json has production profile for both platforms', note: 'iOS profile: "simulator": false. Android profile: "buildType": "aab" for Play Store submission.' },
-      { id: 's5_8', label: 'Run npx expo-doctor and fix ALL issues before building', note: 'expo-doctor catches missing peer dependencies, duplicate packages, and version mismatches that work fine in Expo Go but crash in production builds. Fix every red X before running EAS build.' },
-      { id: 's5_9', label: 'If app uses backend — add any required environment variables or config keys', note: 'Firebase config, API keys etc. Use EAS Secrets for sensitive values — never hardcode them in the repo.' },
-    ]
-  },
-  {
-    id: 'p6', title: '6 · GitHub repo',
-    steps: [
-      { id: 's6_1', label: 'Create new repo at github.com/DreamAppLab/appname' },
-      { id: 's6_2', label: 'Initialize git in project folder: git init' },
-      { id: 's6_3', label: 'Connect remote: git remote add origin [repo url]' },
-      { id: 's6_4', label: 'Confirm .gitignore excludes node_modules, .env, and any files with secret keys' },
-      { id: 's6_5', label: 'Initial commit and push to main' },
-    ]
-  },
-  {
-    id: 'p7', title: '7 · EAS builds',
-    steps: [
-      { id: 's7_1', label: '[Android] Run: eas build --platform android --profile production', note: 'Android builds faster. Catch config issues here before running the iOS build.' },
-      { id: 's7_2', label: '[iOS] Run: eas build --platform ios --profile production' },
-      { id: 's7_3', label: '[iOS] When asked — reuse existing distribution certificate? → Yes', note: 'Your Apple distribution certificate covers all your apps. Always reuse it unless it has expired.' },
-      { id: 's7_4', label: '[iOS] When asked — generate new provisioning profile? → Yes', note: 'Each new app needs its own provisioning profile even though the distribution cert is shared across apps.' },
-      { id: 's7_5', label: '[iOS] If you get ECONNRESET error — just run the command again', note: 'This is a network dropout between your machine and Apple\'s servers. Not a real error. Simply rerun the exact same command.' },
-      { id: 's7_6', label: 'Monitor both builds at expo.dev dashboard', note: 'Builds run remotely on Expo\'s servers. You can run iOS and Android builds simultaneously.' },
-      { id: 's7_7', label: 'Download .ipa (iOS) and .aab (Android) when complete as a local backup' },
-    ]
-  },
-  {
-    id: 'p8', title: '8 · Screenshots in AppLaunchpad',
-    steps: [
-      { id: 's8_1', label: 'Create project in AppLaunchpad for this app' },
-      { id: 's8_2', label: 'Take real screenshots from Expo Go or a simulator first', note: 'Real UI with populated data looks far better than placeholder mockups. Show the app actually doing its job.' },
-      { id: 's8_3', label: '[iOS] Export 6.5" — 2778×1284px — covers all iPhone sizes', note: 'Apple scales 6.5" screenshots down to fit all smaller phone sizes automatically. If AppLaunchpad offers 6.9" (1290×2796px) export that too as it is Apple\'s newest primary size.' },
-      { id: 's8_4', label: '[iOS] Export 5.5" — 2208×1242px', note: 'Covers older iPhones. Always include — easy to export in AppLaunchpad and covers all bases.' },
-      { id: 's8_5', label: '[iOS] Export iPad 13" — 2064×2752px — REQUIRED for Universal apps', note: 'Expo apps are Universal (iPhone + iPad) by default. Apple requires iPad screenshots for Universal apps and will block submission without them. Use AppLaunchpad iPad template or resize existing screenshots.' },
-      { id: 's8_6', label: '[Android] Export phone screenshots — minimum 2, up to 8', note: 'Min 320px, max 3840px on longest side. 16:9 ratio recommended. JPG or PNG. Max 8MB per file.' },
-      { id: 's8_7', label: 'At least one screenshot must show the app with real populated data', note: 'Empty-state-only screenshots hurt conversions significantly. Show the app doing what it promises.' },
-      { id: 's8_8', label: '[Android] Feature graphic must be full color with icon + app name + tagline', note: '1024×500px. This is the most visible element on your Play Store listing. Not a black and white logo.' },
-    ]
-  },
-  {
-    id: 'p9', title: '9 · App Store Connect (iOS)',
-    steps: [
-      { id: 's9_1', label: 'Create new app in App Store Connect', note: 'appstoreconnect.apple.com → My Apps → + → New App' },
-      { id: 's9_2', label: 'Select bundle ID from dropdown', note: 'It appears automatically because EAS registered it during the build.' },
-      { id: 's9_3', label: 'Set SKU — must be unique across your account, never reused', note: 'Common approach: bundle ID without dots e.g. comdreamapplabappname.' },
-      { id: 's9_4', label: 'Set price — confirm price matches your pricing decision from Phase 1' },
-      { id: 's9_5', label: 'Select primary category — choose the most relevant category for the app', note: 'e.g. Productivity, Health & Fitness, Utilities, Lifestyle. Choose what your target user would search under.' },
-      { id: 's9_6', label: 'Set up Content Rights in App Information', note: 'Does your app contain third-party content? Answer honestly. Most apps answer No.' },
-      { id: 's9_7', label: 'Complete Age Ratings questionnaire in App Information', note: 'Answer based on your specific app content. Apps with user accounts, messaging, or mature content may need to answer Yes to some questions. Be accurate — Apple can reject for incorrect ratings.' },
-      { id: 's9_8', label: 'Enter keywords in App Store tab → Keywords field (100 char max)', note: 'Comma-separated, no spaces after commas. Research what terms your target users would search for. Do not repeat words already in your app name.' },
-      { id: 's9_9', label: 'Write app description (up to 4000 chars)', note: 'Lead with the strongest benefit. Plain language. No marketing fluff. Describe what the app does and who it is for.' },
-      { id: 's9_10', label: 'Write promotional text (up to 170 chars)', note: 'Shown above description. This is the only metadata field you can update without submitting a new app version.' },
-      { id: 's9_11', label: 'Add support URL', note: 'dreamapplab.com is fine as a default. Use a dedicated support page if one exists.' },
-      { id: 's9_12', label: 'Add privacy policy URL', note: 'Must be a live, accessible URL. Required for all apps regardless of whether data is collected.' },
-      { id: 's9_13', label: 'Complete App Privacy section — answer data collection questions accurately', note: 'If app collects no data: select Data Not Collected. If app collects user data (accounts, analytics, health data etc.) you must disclose each data type, its purpose, and whether it is linked to the user.' },
-      { id: 's9_14', label: 'Upload screenshots for all required device sizes', note: 'Required: 6.5" phones, 5.5" phones, iPad 13". Upload 6.9" too if available.' },
-      { id: 's9_15', label: 'Submit build via EAS: eas submit --platform ios --latest', note: 'Uploads your most recent EAS build directly to App Store Connect. Easier than Xcode.' },
-      { id: 's9_16', label: 'Select the uploaded build under the Build section in App Store Connect' },
-      { id: 's9_17', label: 'Answer export compliance questions', note: 'If app uses only standard HTTPS: answer No. If app uses custom encryption beyond HTTPS (e.g. end-to-end encrypted messaging): answer Yes and follow up steps.' },
-      { id: 's9_18', label: 'Submit for Apple review', note: 'Typically 24-48 hours. You will receive an email when approved or if action is needed.' },
-    ]
-  },
-  {
-    id: 'p10', title: '10 · Google Play Console (Android)',
-    steps: [
-      { id: 's10_1', label: 'Create new app in Google Play Console', note: 'play.google.com/console → Create app' },
-      { id: 's10_2', label: 'Complete store listing — title, short description, full description', note: 'Google has no keyword field — weave your target search terms naturally into the description copy. Google indexes all of it.' },
-      { id: 's10_3', label: 'Upload feature graphic (1024×500px full color with icon + name + tagline)' },
-      { id: 's10_4', label: 'Upload minimum 2 phone screenshots' },
-      { id: 's10_5', label: 'Complete content rating questionnaire', note: 'Answer accurately based on your app\'s actual content. Apps with user accounts, social features, or mature content will have different ratings than simple utility apps.' },
-      { id: 's10_6', label: 'Set price — confirm it matches your pricing decision from Phase 1' },
-      { id: 's10_7', label: 'Add privacy policy URL', note: 'Must be a live, accessible URL. Required for all apps.' },
-      { id: 's10_8', label: 'Complete Data Safety section — answer data collection questions accurately', note: 'If app collects no data: declare no data collected. If app collects user data (accounts, location, health etc.) you must disclose each type and its purpose. Be accurate — Google can suspend apps for false declarations.' },
-      { id: 's10_9', label: 'Upload .aab build to Internal Testing first', note: 'Always go Internal → Closed → Production. Never skip steps or Google will block promotion to production.' },
-      { id: 's10_10', label: 'Promote to Closed Testing', note: 'Minimum 12 testers required. Use Testers Community or recruit your own testers.' },
-      { id: 's10_11', label: 'Post opt-in link to testers', note: 'Get the shareable opt-in URL from Play Console → Closed Testing → Testers tab.' },
-      { id: 's10_12', label: 'Wait for 12+ testers to opt in — 14-day clock starts automatically', note: 'Google starts the clock once you have enough active testers. Monitor the countdown in Play Console dashboard.' },
-      { id: 's10_13', label: 'After 14 days — promote to Production', note: 'Play Console → Production → Create new release → promote the closed testing build.' },
-    ]
-  },
-  {
-    id: 'p11', title: '11 · Privacy policy',
-    steps: [
-      { id: 's11_1', label: 'Create privacy policy page on dreamapplab.com', note: 'URL format suggestion: dreamapplab.com/appnameprivacy. Must be live before submission.' },
-      { id: 's11_2', label: 'Policy must accurately reflect what data the app collects and how it is used', note: 'No backend/local only: state that no data is collected and everything stays on device. Backend apps: detail every data type collected, how it is stored, how it is used, and user rights.' },
-      { id: 's11_3', label: '[Android] Add privacy policy URL to Google Play store listing' },
-      { id: 's11_4', label: '[iOS] Add privacy policy URL in App Store Connect under App Privacy' },
-    ]
-  },
-  {
-    id: 'p12', title: '12 · Pre-submission final checks',
-    steps: [
-      { id: 's12_1', label: 'npx expo-doctor run and all issues resolved', note: 'Missing peer dependencies and duplicate packages cause white screen crashes in production that do not appear in Expo Go. Fix every red X before building.' },
-      { id: 's12_2', label: 'App name is identical on both stores' },
-      { id: 's12_2', label: 'Bundle ID matches exactly in app.json and both store consoles' },
-      { id: 's12_3', label: 'Version number is correct for this release' },
-      { id: 's12_4', label: 'Price is correct and consistent on both stores' },
-      { id: 's12_5', label: '[iOS] Primary category selected in App Information' },
-      { id: 's12_6', label: '[iOS] Content Rights completed in App Information' },
-      { id: 's12_7', label: '[iOS] Age Ratings questionnaire completed in App Information' },
-      { id: 's12_8', label: '[iOS] Keywords entered in App Store Connect Keywords field (100 char max)' },
-      { id: 's12_9', label: '[iOS] App Privacy / data collection section completed accurately' },
-      { id: 's12_10', label: '[Android] Data Safety section completed accurately' },
-      { id: 's12_11', label: '[iOS] All screenshot sizes uploaded: 6.5", 5.5", iPad 13"' },
-      { id: 's12_12', label: '[Android] Feature graphic uploaded — full color with icon + name + tagline' },
-      { id: 's12_13', label: 'Privacy policy URL is live and accessible' },
-      { id: 's12_14', label: 'RevenueCat SDK initialized and both iOS and Android apps connected in RC dashboard', note: 'Even if no IAP — always configure RevenueCat before submission.' },
-      { id: 's12_15', label: 'In-app review prompt fires at correct trigger and AsyncStorage flag prevents repeat', note: 'Test on a real device before submitting.' },
-      { id: 's12_16', label: 'Share App button in Settings opens native share sheet with correct App Store link', note: 'Test on real device.' },
-      { id: 's12_17', label: 'Final code pushed to GitHub' },
-      { id: 's12_18', label: 'Tested on a real physical device one final time before submitting' },
-    ]
-  },
+const FIREBASE_APPS = [
+  'familythread', 'familythread-1785694508315',
+  'familylens', 'familywatch',
+  'flarepad', 'logabode',
+  'dal-website', 'shady-duck',
 ];
 
-function getStorageKey(projectId) {
-  return 'dal_checklist_' + projectId;
+const PUB_PIPELINE_ITEMS = [
+  { key: 'expo_doctor', label: 'Run npx expo-doctor', description: 'Must show 0 warnings before every EAS build' },
+  { key: 'emulator_flag', label: 'Set emulator flag to false', description: 'EXPO_PUBLIC_USE_FIREBASE_EMULATOR=false in .env before EAS build' },
+  { key: 'git_status', label: 'Check git status', description: 'Never git add . blindly — review and stage specific files only' },
+  { key: 'commit_before_prebuild', label: 'Commit before prebuild', description: 'Always commit current work before running npx expo prebuild --clean' },
+  { key: 'firestore_rules_diff', label: 'Review Firestore rules diff', description: 'Always diff review before firebase deploy --only firestore:rules' },
+  { key: 'branch_created', label: 'Feature branch created', description: 'Never push directly to main/master — always work on a feature branch' },
+  { key: 'pr_reviewed', label: 'PR diff reviewed', description: 'Review Files Changed on GitHub before merging — confirm only expected files changed' },
+  { key: 'screenshots_ready', label: 'Screenshots ready', description: 'All required App Store and Play Store screenshots prepared' },
+  { key: 'metadata_updated', label: 'Metadata updated', description: 'App name, subtitle, description, keywords updated in App Store Connect / Play Console' },
+  { key: 'version_bumped', label: 'Version number bumped', description: 'app.json version and buildNumber/versionCode incremented correctly' },
+  { key: 'privacy_policy_live', label: 'Privacy policy URL live', description: 'Privacy policy accessible at public URL before submission' },
+  { key: 'tos_live', label: 'Terms of Service URL live', description: 'Terms of Service accessible at public URL before submission' },
+  { key: 'legal_consent_flow', label: 'Legal consent flow tested', description: 'ToS + Privacy Policy scroll-gate works on first launch in production build' },
+  { key: 'revenue_cat_tested', label: 'RevenueCat purchases tested', description: 'Subscription and IAP purchases tested in sandbox environment' },
+  { key: 'restore_purchases', label: 'Restore Purchases tested', description: 'Restore Purchases button tested and working — required by Apple' },
+  { key: 'in_app_review', label: 'In-app review prompt included', description: 'App Store review prompt wired and triggering at correct milestone' },
+  { key: 'share_app_button', label: 'Share App button included', description: 'Share App button present in settings or appropriate screen' },
+  { key: 'push_notifications_tested', label: 'Push notifications tested', description: 'All notification types tested on physical device in production build' },
+  { key: 'reviewer_notes', label: 'App reviewer notes written', description: 'Clear notes for App Store reviewer including test account credentials' },
+  { key: 'test_account_ready', label: 'Reviewer test account ready', description: 'Working test account created for App Store reviewer access' },
+  { key: 'app_check', label: 'App Check enabled', description: 'Firebase App Check configured before public launch' },
+  { key: 'black_box_updated', label: 'Black Box updated', description: 'All new credentials and IDs from this build saved to Black Box in Mission Control' },
+];
+
+const SECURITY_OPS_ITEMS = [
+  { key: 'pitr_enabled', label: 'Step 1 — Enable Firestore PITR', description: 'Firebase Console → Firestore → Disaster Recovery → Enable Point-in-Time Recovery + scheduled backups (daily + weekly)' },
+  { key: 'auth_settings', label: 'Step 2 — Auth settings', description: 'Firebase Console → Authentication → Settings → Verify authorized domains, enable Email enumeration protection, set sign-up quota to 100/hour' },
+  { key: 'storage_rules', label: 'Step 3 — Tighten Storage rules', description: 'Firebase Console → Storage → Rules → Tighten to family/user membership checks, add all storage paths, click Attach permissions when prompted' },
+  { key: 'firestore_rules', label: 'Step 4 — Audit Firestore rules', description: 'Firebase Console → Firestore → Rules → Audit all collections, fix overly permissive rules, publish' },
+  { key: 'budget_alert', label: 'Step 5 — Set $10 budget alert', description: 'Google Cloud Console → Billing → Budgets & Alerts → Set $10 budget with alerts at 50%, 90%, 100% — turn off auto-reload' },
+  { key: 'app_check_security', label: 'Step 6 — Add App Check', description: 'Requires Cursor prompt — do before public launch. Prevents unauthorized API access to Firebase.' },
+  { key: 'gemini_billing', label: 'Enable Gemini paid tier', description: 'Google Cloud → enable billing on Gemini API to remove data-training concern. Switch to gemini-2.5-flash-lite. Cost under $1/month at current scale.' },
+  { key: 'google_consolidation', label: 'Consolidate Google accounts', description: 'Move Firebase/Google Cloud project from eddieskehan@gmail.com to lab@dreamapplab.com. Do in a dedicated session with no active builds.' },
+];
+
+const ACCENT = '#4cc1f3';
+
+function projectHasFirebase(project) {
+  const id = project?.id || '';
+  return FIREBASE_APPS.some(
+    (fid) =>
+      id === fid ||
+      id.includes('familythread') ||
+      id.includes('familylens') ||
+      id.includes('familywatch')
+  );
 }
 
-function loadChecked(projectId) {
-  try {
-    return JSON.parse(localStorage.getItem(getStorageKey(projectId)) || '{}');
-  } catch (e) {
-    return {};
-  }
+function formatCompletedAt(ts) {
+  if (!ts) return '';
+  const d = ts?.toDate ? ts.toDate() : new Date(ts);
+  if (Number.isNaN(d.getTime())) return '';
+  return `Completed ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
 }
 
-function saveChecked(projectId, checked) {
-  try {
-    localStorage.setItem(getStorageKey(projectId), JSON.stringify(checked));
-  } catch (e) {}
+function isItemDone(items, key) {
+  return !!(items?.[key]?.completed);
+}
+
+function filterItems(list, items, filter) {
+  if (filter === 'open') return list.filter((i) => !isItemDone(items, i.key));
+  if (filter === 'completed') return list.filter((i) => isItemDone(items, i.key));
+  return list;
+}
+
+export function ChecklistFilterBar({ filter, onChange }) {
+  const options = [
+    { key: 'all', label: 'All' },
+    { key: 'open', label: 'Open' },
+    { key: 'completed', label: 'Completed' },
+  ];
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+      {options.map((opt) => {
+        const on = filter === opt.key;
+        return (
+          <button
+            key={opt.key}
+            type="button"
+            onClick={() => onChange(opt.key)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '6px 12px',
+              borderRadius: 999,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              border: `1px solid ${on ? ACCENT : 'var(--border)'}`,
+              background: on ? ACCENT : 'transparent',
+              color: on ? '#fff' : 'var(--text-secondary)',
+              transition: 'background 0.15s, border-color 0.15s, color 0.15s',
+            }}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export function ChecklistProgress({ done, total }) {
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  return (
+    <div className="progress-section" style={{ marginTop: 8, marginBottom: 14 }}>
+      <div className="progress-header">
+        <span>{done} of {total} complete</span>
+        <span>{pct}%</span>
+      </div>
+      <div className="progress-track" style={{ height: 8 }}>
+        <div
+          className="progress-fill"
+          style={{ width: `${pct}%`, background: ACCENT, transition: 'width 0.3s' }}
+        />
+      </div>
+    </div>
+  );
+}
+
+export function ChecklistItemRow({ item, state, onToggle }) {
+  const completed = !!state?.completed;
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 12,
+        padding: '12px 14px',
+        borderBottom: '1px solid var(--border)',
+        cursor: 'pointer',
+        background: completed ? 'rgba(76,193,243,0.04)' : 'transparent',
+      }}
+    >
+      <div
+        style={{
+          width: 22,
+          height: 22,
+          borderRadius: '50%',
+          flexShrink: 0,
+          marginTop: 1,
+          border: `2px solid ${completed ? ACCENT : 'var(--border)'}`,
+          background: completed ? ACCENT : 'transparent',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 12,
+          color: '#fff',
+          fontWeight: 700,
+        }}
+      >
+        {completed ? '✓' : ''}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: 14,
+            fontWeight: 600,
+            color: completed ? 'var(--text-muted)' : 'var(--text-primary)',
+            textDecoration: completed ? 'line-through' : 'none',
+            lineHeight: 1.35,
+          }}
+        >
+          {item.label}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.45 }}>
+          {item.description}
+        </div>
+      </div>
+      {completed && (
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>
+          {formatCompletedAt(state.completedAt)}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function AppChecklist({ project }) {
-  const [checked, setChecked] = useState(() => loadChecked(project.id));
-  const [openPhases, setOpenPhases] = useState({ p1: true });
+  const projectId = project?.id;
+  const hasFirebase = projectHasFirebase(project);
+
+  const [filter, setFilter] = useState('all');
+  const [loading, setLoading] = useState(true);
+  const [pubItems, setPubItems] = useState({});
+  const [secItems, setSecItems] = useState({});
+  const [toggling, setToggling] = useState(null);
+
+  const load = useCallback(async () => {
+    if (!projectId) return;
+    setLoading(true);
+    try {
+      const refs = [
+        getDoc(doc(db, 'projects', projectId, 'checklists', 'pub_pipeline')),
+      ];
+      if (hasFirebase) {
+        refs.push(getDoc(doc(db, 'projects', projectId, 'checklists', 'security_ops')));
+      }
+      const snaps = await Promise.all(refs);
+      setPubItems(snaps[0].exists() ? snaps[0].data().items || {} : {});
+      if (hasFirebase && snaps[1]) {
+        setSecItems(snaps[1].exists() ? snaps[1].data().items || {} : {});
+      } else {
+        setSecItems({});
+      }
+    } catch (err) {
+      console.error('Checklist load failed:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId, hasFirebase]);
 
   useEffect(() => {
-    setChecked(loadChecked(project.id));
-  }, [project.id]);
+    load();
+  }, [load]);
 
-  const toggle = (stepId) => {
-    const next = { ...checked, [stepId]: !checked[stepId] };
-    setChecked(next);
-    saveChecked(project.id, next);
+  const toggleItem = async (docId, itemKey, currentItems, setItems) => {
+    if (!projectId || toggling) return;
+    const prev = currentItems[itemKey] || {};
+    const nextCompleted = !prev.completed;
+    const nextState = {
+      completed: nextCompleted,
+      completedAt: nextCompleted ? Timestamp.now() : null,
+    };
+
+    setToggling(`${docId}:${itemKey}`);
+    setItems((items) => ({ ...items, [itemKey]: nextState }));
+
+    try {
+      const ref = doc(db, 'projects', projectId, 'checklists', docId);
+      // Read-merge so other item keys are never wiped (nested maps replace on shallow merge)
+      const snap = await getDoc(ref);
+      const existing = snap.exists() ? (snap.data().items || {}) : {};
+      await setDoc(ref, { items: { ...existing, [itemKey]: nextState } }, { merge: true });
+    } catch (err) {
+      console.error('Checklist save failed:', err);
+      setItems((items) => ({ ...items, [itemKey]: prev }));
+    } finally {
+      setToggling(null);
+    }
   };
 
-  const togglePhase = (phaseId) => {
-    setOpenPhases(p => ({ ...p, [phaseId]: !p[phaseId] }));
-  };
+  if (loading) {
+    return (
+      <div className="data-section" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
+        <div
+          style={{
+            width: 28,
+            height: 28,
+            border: '3px solid var(--border)',
+            borderTopColor: ACCENT,
+            borderRadius: '50%',
+            margin: '0 auto 12px',
+            animation: 'cl-spin 0.8s linear infinite',
+          }}
+        />
+        <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading checklists…</div>
+        <style>{`@keyframes cl-spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
 
-  const expandAll = () => {
-    const all = {};
-    CHECKLIST_PHASES.forEach(p => { all[p.id] = true; });
-    setOpenPhases(all);
-  };
-
-  const collapseAll = () => setOpenPhases({});
-
-  const resetChecklist = () => {
-    if (!window.confirm('Reset all checklist progress for this app? This cannot be undone.')) return;
-    setChecked({});
-    saveChecked(project.id, {});
-  };
-
-  const allSteps = CHECKLIST_PHASES.flatMap(p => p.steps);
-  const totalSteps = allSteps.length;
-  const doneSteps = allSteps.filter(s => checked[s.id]).length;
-  const pct = totalSteps ? Math.round((doneSteps / totalSteps) * 100) : 0;
+  const pubVisible = filterItems(PUB_PIPELINE_ITEMS, pubItems, filter);
+  const secVisible = hasFirebase ? filterItems(SECURITY_OPS_ITEMS, secItems, filter) : [];
+  const pubDone = PUB_PIPELINE_ITEMS.filter((i) => isItemDone(pubItems, i.key)).length;
+  const secDone = SECURITY_OPS_ITEMS.filter((i) => isItemDone(secItems, i.key)).length;
 
   return (
     <div className="data-section">
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-          <div>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 2 }}>
-              App Publishing Pipeline
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              {doneSteps} of {totalSteps} steps complete · {pct}%
-            </div>
+      <ChecklistFilterBar filter={filter} onChange={setFilter} />
+
+      {pubVisible.length > 0 && (
+        <div style={{ marginBottom: 28 }}>
+          <div
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 16,
+              fontWeight: 700,
+              color: 'var(--text-primary)',
+              marginBottom: 2,
+            }}
+          >
+            📋 Pre-Publish Pipeline
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-ghost btn-sm" onClick={expandAll}>Expand all</button>
-            <button className="btn btn-ghost btn-sm" onClick={collapseAll}>Collapse all</button>
-            <button className="btn btn-sm" style={{ color: 'var(--coral)', borderColor: 'rgba(255,91,91,0.3)', background: 'transparent' }} onClick={resetChecklist}>Reset</button>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>
+            Complete these steps before every App Store submission
+          </div>
+          <ChecklistProgress done={pubDone} total={PUB_PIPELINE_ITEMS.length} />
+          <div
+            style={{
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+              overflow: 'hidden',
+              background: 'var(--bg-card)',
+            }}
+          >
+            {pubVisible.map((item) => (
+              <ChecklistItemRow
+                key={item.key}
+                item={item}
+                state={pubItems[item.key]}
+                onToggle={() => toggleItem('pub_pipeline', item.key, pubItems, setPubItems)}
+              />
+            ))}
           </div>
         </div>
-        <div style={{ height: 6, background: 'var(--bg-card)', borderRadius: 3, overflow: 'hidden' }}>
-          <div style={{ height: '100%', width: pct + '%', background: 'var(--amber)', borderRadius: 3, transition: 'width 0.3s' }} />
-        </div>
-      </div>
+      )}
 
-      {CHECKLIST_PHASES.map(phase => {
-        const phaseDone = phase.steps.filter(s => checked[s.id]).length;
-        const phaseTotal = phase.steps.length;
-        const isOpen = !!openPhases[phase.id];
-        const allPhaseDone = phaseDone === phaseTotal;
-
-        return (
-          <div key={phase.id} style={{
-            border: '1px solid var(--border)',
-            borderRadius: 10,
-            marginBottom: 8,
-            overflow: 'hidden',
-            background: allPhaseDone ? 'rgba(34,197,94,0.04)' : 'var(--bg-card)'
-          }}>
-            <div
-              onClick={() => togglePhase(phase.id)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '12px 14px', cursor: 'pointer',
-                borderBottom: isOpen ? '1px solid var(--border)' : 'none'
-              }}
-            >
-              <div style={{
-                width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
-                background: allPhaseDone ? 'var(--green)' : 'var(--bg-elevated)',
-                border: '2px solid ' + (allPhaseDone ? 'var(--green)' : 'var(--border)'),
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 11, color: 'white', fontWeight: 700
-              }}>
-                {allPhaseDone ? '✓' : ''}
-              </div>
-              <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{phase.title}</span>
-              <span style={{ fontSize: 11, color: 'var(--text-muted)', marginRight: 6 }}>{phaseDone}/{phaseTotal}</span>
-              <span style={{ fontSize: 11, color: 'var(--text-muted)', transition: 'transform 0.2s', display: 'inline-block', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
-            </div>
-
-            {isOpen && (
-              <div>
-                {phase.steps.map((step, idx) => (
-                  <div
-                    key={step.id}
-                    onClick={() => toggle(step.id)}
-                    style={{
-                      display: 'flex', alignItems: 'flex-start', gap: 10,
-                      padding: '10px 14px',
-                      borderBottom: idx < phase.steps.length - 1 ? '1px solid var(--border)' : 'none',
-                      cursor: 'pointer',
-                      background: checked[step.id] ? 'rgba(34,197,94,0.04)' : 'transparent'
-                    }}
-                  >
-                    <div style={{
-                      width: 17, height: 17, borderRadius: 4, flexShrink: 0, marginTop: 2,
-                      border: '2px solid ' + (checked[step.id] ? 'var(--amber)' : 'var(--border)'),
-                      background: checked[step.id] ? 'var(--amber)' : 'transparent',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 10, color: 'white', fontWeight: 700, transition: 'all 0.15s'
-                    }}>
-                      {checked[step.id] ? '✓' : ''}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{
-                        fontSize: 13,
-                        color: checked[step.id] ? 'var(--text-muted)' : 'var(--text-primary)',
-                        textDecoration: checked[step.id] ? 'line-through' : 'none',
-                        lineHeight: 1.4
-                      }}>
-                        {step.label}
-                      </div>
-                      {step.note && (
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.5 }}>
-                          {step.note}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+      {hasFirebase && secVisible.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 16,
+              fontWeight: 700,
+              color: 'var(--text-primary)',
+              marginBottom: 2,
+            }}
+          >
+            🔒 Security & Ops
           </div>
-        );
-      })}
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>
+            Complete these steps for every Firebase app before public launch
+          </div>
+          <ChecklistProgress done={secDone} total={SECURITY_OPS_ITEMS.length} />
+          <div
+            style={{
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+              overflow: 'hidden',
+              background: 'var(--bg-card)',
+            }}
+          >
+            {secVisible.map((item) => (
+              <ChecklistItemRow
+                key={item.key}
+                item={item}
+                state={secItems[item.key]}
+                onToggle={() => toggleItem('security_ops', item.key, secItems, setSecItems)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {pubVisible.length === 0 && secVisible.length === 0 && (
+        <div
+          style={{
+            textAlign: 'center',
+            padding: '2rem 1rem',
+            color: 'var(--text-muted)',
+            fontSize: 13,
+            border: '1px dashed var(--border)',
+            borderRadius: 12,
+          }}
+        >
+          No checklist items match this filter
+        </div>
+      )}
     </div>
   );
 }
