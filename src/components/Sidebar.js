@@ -324,6 +324,15 @@ export default function Sidebar({
               onToggle={() => toggleSection('websites')}
               badge={websitesBadge}
             />
+            {showWebsites && (
+              <button
+                className={`sidebar-item ${activeView === 'web-projects' ? 'active' : ''}`}
+                onClick={() => onNavigate('web-projects')}
+              >
+                <span className="sidebar-item-icon">🌐</span>
+                <span className="sidebar-item-text">Web Projects</span>
+              </button>
+            )}
             {showWebsites && webApps.map(renderProject)}
           </>
         )}
