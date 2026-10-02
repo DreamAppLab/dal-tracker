@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { db } from '../firebase';
 import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc,
-  query, where, serverTimestamp,
+  query, where, orderBy, serverTimestamp,
 } from 'firebase/firestore';
 
 const BRAND = '#4CC1F3';
