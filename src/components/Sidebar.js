@@ -326,6 +326,15 @@ export default function Sidebar({
             />
             {showWebsites && (
               <button
+                className={`sidebar-item ${activeView === 'website-analytics' ? 'active' : ''}`}
+                onClick={() => onNavigate('website-analytics')}
+              >
+                <span className="sidebar-item-icon">📊</span>
+                <span className="sidebar-item-text">Site Analytics</span>
+              </button>
+            )}
+            {showWebsites && (
+              <button
                 className={`sidebar-item ${activeView === 'web-projects' ? 'active' : ''}`}
                 onClick={() => onNavigate('web-projects')}
               >
