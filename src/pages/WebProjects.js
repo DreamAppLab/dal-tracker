@@ -281,7 +281,9 @@ function AllProjectsView({ onSelectProject }) {
                 </td>
                 <td style={{ padding: '12px 12px' }}>
                   {pinCounts[p.project_id] > 0
-                    ? <span style={badgeStyle('#000', BRAND)}>{pinCounts[p.project_id]}</span>
+                    ? <button onClick={() => onSelectProject(p)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>
+                        <span style={badgeStyle('#000', BRAND)}>{pinCounts[p.project_id]}</span>
+                      </button>
                     : <span style={{ color: '#475569', fontSize: 13 }}>0</span>}
                 </td>
                 <td style={{ padding: '12px 12px' }}>
