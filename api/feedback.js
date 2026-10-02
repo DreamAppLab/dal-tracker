@@ -156,12 +156,18 @@ async function handleGetPins(req, res) {
   if (!project_id) return res.status(400).json({ error: 'Missing project_id' });
 
   const db = getMcDb();
+  // No composite index required — sort in-memory after fetch
   const snap = await db.collection('feedbackPins')
     .where('project_id', '==', project_id)
-    .orderBy('created_at', 'asc')
     .get();
 
-  const pins = snap.docs.map((doc) => {
+  const sorted = snap.docs.slice().sort((a, b) => {
+    const ta = a.data().created_at;
+    const tb = b.data().created_at;
+    const getMs = (t) => t && typeof t.toDate === 'function' ? t.toDate().getTime() : new Date(t || 0).getTime();
+    return getMs(ta) - getMs(tb);
+  });
+  const pins = sorted.map((doc) => {
     const p = serializeDoc(doc);
     // Strip session_id from response unless it matches the requester
     const isOwn = session_id && p.session_id === session_id;

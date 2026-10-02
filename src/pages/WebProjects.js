@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { db } from '../firebase';
 import {
-  collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc,
-  query, where, orderBy, serverTimestamp,
+  collection, doc, getDoc, getDocs, setDoc, updateDoc,
+  query, where, serverTimestamp,
 } from 'firebase/firestore';
 
 const BRAND = '#4CC1F3';
@@ -74,14 +74,13 @@ async function fetchProject(projectId) {
 }
 
 async function fetchPins(projectId) {
+  // Single-field query — no composite index needed; sort in-memory
   const snap = await getDocs(
-    query(
-      collection(db, 'feedbackPins'),
-      where('project_id', '==', projectId),
-      orderBy('created_at', 'asc')
-    )
+    query(collection(db, 'feedbackPins'), where('project_id', '==', projectId))
   );
-  return snap.docs.map(serializeSnap);
+  return snap.docs
+    .map(serializeSnap)
+    .sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
 }
 
 // ── New Project Modal ────────────────────────────────────────────────────────
