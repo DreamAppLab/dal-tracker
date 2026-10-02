@@ -55,8 +55,8 @@
     '.dal-pin:hover { box-shadow: 0 0 0 4px rgba(76,193,243,0.3); }',
     '.dal-pin.open-pin { background: ' + BRAND_COLOR + '; color: #000; }',
     '.dal-pin.resolved-pin { background: #22c55e; color: #fff; }',
-    '.dal-pin.pulse { animation: dal-pulse 1.5s ease-out 3; }',
-    '@keyframes dal-pulse { 0%,100%{box-shadow:0 2px 8px rgba(0,0,0,0.3)} 50%{box-shadow:0 0 0 18px rgba(253,224,71,0),0 2px 8px rgba(253,224,71,0.8)} }',
+    '.dal-pin.pulse { animation: dal-pulse 1.2s ease-out 3; }',
+    '@keyframes dal-pulse { 0%{box-shadow:0 2px 8px rgba(0,0,0,0.3)} 60%{box-shadow:0 0 0 20px rgba(253,224,71,0.5),0 2px 8px rgba(253,224,71,0.4)} 100%{box-shadow:0 2px 8px rgba(0,0,0,0.3)} }',
   ].join('\n');
   (document.head || document.documentElement).appendChild(pinStyle);
 
@@ -135,10 +135,13 @@
     shadow.appendChild(overlay);
     overlayEl = overlay;
 
-    shadow.getElementById('dal-start').addEventListener('click', function () {
-      var name = shadow.getElementById('dal-name').value.trim();
-      var email = shadow.getElementById('dal-email').value.trim();
-      if (!name) { shadow.getElementById('dal-name').focus(); return; }
+    var startBtn = shadow.querySelector('#dal-start') || shadow.getElementById('dal-start');
+    startBtn.addEventListener('click', function () {
+      var nameEl = shadow.querySelector('#dal-name') || shadow.getElementById('dal-name');
+      var emailEl = shadow.querySelector('#dal-email') || shadow.getElementById('dal-email');
+      var name = (nameEl && nameEl.value || '').trim();
+      var email = (emailEl && emailEl.value || '').trim();
+      if (!name) { nameEl && nameEl.focus(); return; }
       session = { session_id: genUUID(), client_name: name, client_email: email };
       saveSession(session);
       overlay.remove();
@@ -153,11 +156,14 @@
     fabEl.className = 'dal-btn dal-fab';
     fabEl.textContent = '💬 Feedback';
     fabEl.addEventListener('click', function () {
-      if (!session) {
-        showIdentityModal(function () { loadPins(); });
-        return;
-      }
-      toggleFeedbackMode();
+    if (!session) {
+      showIdentityModal(function () {
+        loadPins();
+        toggleFeedbackMode(); // enter feedback mode immediately after identity
+      });
+      return;
+    }
+    toggleFeedbackMode();
     });
     shadow.appendChild(fabEl);
   }
@@ -262,7 +268,7 @@
   // ── Deep-link highlight (#dal-pin-{id}) ─────────────────────────────────────
   function checkHighlight() {
     var hash = window.location.hash;
-    var match = hash.match(/^#dal-pin-([a-f0-9-]+)$/);
+    var match = hash.match(/^#dal-pin-([\w-]+)$/);
     if (!match) return;
     var pinId = match[1];
     var entry = pinEls[pinId];
