@@ -1,36 +1,54 @@
-// DAL Feedback API
+// DAL Feedback API — backed by Firebase/Firestore (dal-mission-control)
 // POST /api/feedback/pin      – submit a new feedback pin
 // GET  /api/feedback/pins     – get pins for a project
 // POST /api/feedback/resolve  – resolve or reopen a pin
 
-const { createClient } = require('@supabase/supabase-js');
+const { initializeApp, getApp } = require('firebase-admin/app');
+const { cert } = require('firebase-admin/app');
+const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 
-const SUPABASE_URL = process.env.SUPABASE_FEEDBACK_URL;
-const SUPABASE_ANON_KEY = process.env.SUPABASE_FEEDBACK_ANON_KEY;
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_FEEDBACK_SERVICE_KEY;
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
 const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN || 'inbound.dreamapplab.com';
 const MAILGUN_FROM = process.env.MAILGUN_FROM || 'Dream App Lab <lab@inbound.dreamapplab.com>';
 
-function getAnonClient() {
-  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// ── Firebase Admin (dal-mission-control) ────────────────────────────────────
+let _mcDb = null;
+
+function getMcDb() {
+  if (_mcDb) return _mcDb;
+
+  const projectId = process.env.DAL_MC_FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.DAL_MC_FIREBASE_CLIENT_EMAIL;
+  const privateKey = (process.env.DAL_MC_FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+
+  if (!projectId || !clientEmail || !privateKey) {
+    throw new Error('Missing DAL_MC_FIREBASE env vars');
+  }
+
+  const appName = 'dalMcFeedback';
+  let app;
+  try {
+    app = getApp(appName);
+  } catch (_) {
+    app = initializeApp({ credential: cert({ projectId, clientEmail, privateKey }) }, appName);
+  }
+  _mcDb = getFirestore(app);
+  return _mcDb;
 }
 
-function getServiceClient() {
-  return createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-}
-
+// ── CORS ─────────────────────────────────────────────────────────────────────
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 }
 
-async function sendFeedbackEmail({ project_name, preview_url, client_name, note, page_url, pin_id, screenshot_url }) {
+// ── Mailgun ───────────────────────────────────────────────────────────────────
+async function sendFeedbackEmail({ project_name, preview_url, client_name, note, page_url, pin_id, screenshot_data_url }) {
   if (!MAILGUN_API_KEY) return;
   const viewLink = preview_url ? `${preview_url}#dal-pin-${pin_id}` : page_url;
-  const screenshotHtml = screenshot_url
-    ? `<p><img src="${screenshot_url}" alt="Screenshot" style="max-width:400px;border-radius:8px;" /></p>`
+  const screenshotHtml = screenshot_data_url
+    ? `<p><img src="${screenshot_data_url}" alt="Screenshot" style="max-width:400px;border-radius:8px;" /></p>`
     : '';
   const html = `
     <p><strong>Client:</strong> ${client_name || 'Anonymous'}</p>
@@ -58,6 +76,21 @@ async function sendFeedbackEmail({ project_name, preview_url, client_name, note,
   }
 }
 
+// ── Serialize Firestore doc ───────────────────────────────────────────────────
+function serializeDoc(doc) {
+  const data = doc.data();
+  const result = { id: doc.id };
+  for (const [k, v] of Object.entries(data)) {
+    if (v && typeof v.toDate === 'function') {
+      result[k] = v.toDate().toISOString();
+    } else {
+      result[k] = v;
+    }
+  }
+  return result;
+}
+
+// ── POST /api/feedback/pin ───────────────────────────────────────────────────
 async function handlePostPin(req, res) {
   let body = req.body;
   if (typeof body === 'string') {
@@ -73,112 +106,80 @@ async function handlePostPin(req, res) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
-  const supabase = getAnonClient();
+  const db = getMcDb();
 
   // Validate project exists
-  const { data: project, error: projErr } = await supabase
-    .from('web_projects')
-    .select('project_id, project_name, preview_url')
-    .eq('project_id', project_id)
-    .single();
-
-  if (projErr || !project) {
+  const projectDoc = await db.collection('webProjects').doc(project_id).get();
+  if (!projectDoc.exists) {
     return res.status(404).json({ error: 'Project not found' });
   }
+  const project = projectDoc.data();
 
-  // Insert pin first to get ID
-  const { data: pin, error: pinErr } = await supabase
-    .from('feedback_pins')
-    .insert({
-      project_id,
-      session_id,
-      client_name,
-      client_email,
-      page_url,
-      page_title,
-      x_percent,
-      y_percent,
-      selector,
-      note,
-    })
-    .select()
-    .single();
+  // Build pin data
+  const pinData = {
+    project_id,
+    session_id,
+    client_name: client_name || null,
+    client_email: client_email || null,
+    page_url,
+    page_title: page_title || null,
+    x_percent,
+    y_percent,
+    selector: selector || null,
+    note,
+    resolved: false,
+    resolved_at: null,
+    created_at: FieldValue.serverTimestamp(),
+    screenshotDataUrl: screenshot_base64 || null,
+  };
 
-  if (pinErr || !pin) {
-    return res.status(500).json({ error: pinErr?.message || 'Failed to insert pin' });
-  }
+  const pinRef = await db.collection('feedbackPins').add(pinData);
 
-  let screenshot_url = null;
-
-  // Upload screenshot if provided
-  if (screenshot_base64) {
-    try {
-      const base64Data = screenshot_base64.replace(/^data:image\/\w+;base64,/, '');
-      const buffer = Buffer.from(base64Data, 'base64');
-      const storagePath = `${project_id}/${pin.id}.png`;
-
-      const serviceClient = getServiceClient();
-      const { error: uploadErr } = await serviceClient.storage
-        .from('feedback-screenshots')
-        .upload(storagePath, buffer, { contentType: 'image/png', upsert: true });
-
-      if (!uploadErr) {
-        const { data: urlData } = serviceClient.storage
-          .from('feedback-screenshots')
-          .getPublicUrl(storagePath);
-        screenshot_url = urlData?.publicUrl || null;
-
-        // Save screenshot record
-        await serviceClient.from('feedback_screenshots').insert({
-          pin_id: pin.id,
-          storage_path: storagePath,
-        });
-
-        // Update pin with screenshot_url
-        await serviceClient.from('feedback_pins').update({ screenshot_url }).eq('id', pin.id);
-      }
-    } catch (e) {
-      console.error('Screenshot upload error:', e.message);
-    }
-  }
-
-  // Send email notification
+  // Send email
   await sendFeedbackEmail({
     project_name: project.project_name,
     preview_url: project.preview_url,
     client_name,
     note,
     page_url,
-    pin_id: pin.id,
-    screenshot_url,
+    pin_id: pinRef.id,
+    screenshot_data_url: screenshot_base64 || null,
   });
 
-  return res.status(200).json({ ok: true, pin: { ...pin, screenshot_url } });
+  const pinSnap = await pinRef.get();
+  return res.status(200).json({ ok: true, pin: serializeDoc(pinSnap) });
 }
 
+// ── GET /api/feedback/pins ───────────────────────────────────────────────────
 async function handleGetPins(req, res) {
   const { project_id, session_id } = req.query;
   if (!project_id) return res.status(400).json({ error: 'Missing project_id' });
 
-  const supabase = getAnonClient();
-  const { data: pins, error } = await supabase
-    .from('feedback_pins')
-    .select('id, x_percent, y_percent, resolved, resolved_at, note, client_name, created_at, session_id, page_url, screenshot_url')
-    .eq('project_id', project_id)
-    .order('created_at', { ascending: true });
+  const db = getMcDb();
+  const snap = await db.collection('feedbackPins')
+    .where('project_id', '==', project_id)
+    .orderBy('created_at', 'asc')
+    .get();
 
-  if (error) return res.status(500).json({ error: error.message });
-
-  // Only include full details if session_id matches
-  const result = (pins || []).map((p) => {
-    if (session_id && p.session_id === session_id) return p;
-    const { session_id: _s, ...rest } = p;
-    return rest;
+  const pins = snap.docs.map((doc) => {
+    const p = serializeDoc(doc);
+    // Strip session_id from response unless it matches the requester
+    const isOwn = session_id && p.session_id === session_id;
+    if (!isOwn) delete p.session_id;
+    // Never expose full screenshotDataUrl in list (can be large); just flag presence
+    const hasScreenshot = !!p.screenshotDataUrl;
+    // Keep screenshotDataUrl for own pins or if it's small enough (< 50kb)
+    if (p.screenshotDataUrl && p.screenshotDataUrl.length > 100000) {
+      p.screenshotDataUrl = null;
+    }
+    p.hasScreenshot = hasScreenshot;
+    return p;
   });
 
-  return res.status(200).json({ ok: true, pins: result });
+  return res.status(200).json({ ok: true, pins });
 }
 
+// ── POST /api/feedback/resolve ───────────────────────────────────────────────
 async function handleResolve(req, res) {
   let body = req.body;
   if (typeof body === 'string') {
@@ -187,18 +188,17 @@ async function handleResolve(req, res) {
   const { pin_id, resolved } = body || {};
   if (!pin_id || resolved === undefined) return res.status(400).json({ error: 'Missing pin_id or resolved' });
 
-  const serviceClient = getServiceClient();
-  const { data: pin, error } = await serviceClient
-    .from('feedback_pins')
-    .update({ resolved: !!resolved, resolved_at: resolved ? new Date().toISOString() : null })
-    .eq('id', pin_id)
-    .select()
-    .single();
-
-  if (error) return res.status(500).json({ error: error.message });
-  return res.status(200).json({ ok: true, pin });
+  const db = getMcDb();
+  const ref = db.collection('feedbackPins').doc(pin_id);
+  await ref.update({
+    resolved: !!resolved,
+    resolved_at: resolved ? new Date().toISOString() : null,
+  });
+  const snap = await ref.get();
+  return res.status(200).json({ ok: true, pin: serializeDoc(snap) });
 }
 
+// ── Main handler ──────────────────────────────────────────────────────────────
 module.exports = async function handler(req, res) {
   cors(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -206,9 +206,13 @@ module.exports = async function handler(req, res) {
   const url = req.url || '';
   const path = url.split('?')[0];
 
-  if (path.endsWith('/pin') && req.method === 'POST') return handlePostPin(req, res);
-  if (path.endsWith('/pins') && req.method === 'GET') return handleGetPins(req, res);
-  if (path.endsWith('/resolve') && req.method === 'POST') return handleResolve(req, res);
-
-  return res.status(404).json({ error: 'Not found' });
+  try {
+    if (path.endsWith('/pin') && req.method === 'POST') return await handlePostPin(req, res);
+    if (path.endsWith('/pins') && req.method === 'GET') return await handleGetPins(req, res);
+    if (path.endsWith('/resolve') && req.method === 'POST') return await handleResolve(req, res);
+    return res.status(404).json({ error: 'Not found' });
+  } catch (e) {
+    console.error('feedback api error:', e);
+    return res.status(500).json({ error: e.message });
+  }
 };
