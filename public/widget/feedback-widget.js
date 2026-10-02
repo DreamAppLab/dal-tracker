@@ -202,6 +202,7 @@
       popupEl = buildPinPopup(pin, pinEl);
     });
 
+    pinEl.setAttribute('data-pin-id', pin.id);
     document.body.appendChild(pinEl);
     pinEls[pin.id] = { pinEl: pinEl, getPopup: function () { return popupEl; } };
   }
@@ -273,26 +274,26 @@
     var pinId = match[1];
 
     function applyPulse() {
-      var entry = pinEls[pinId];
-      if (!entry) return;
-      entry.pinEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      entry.pinEl.classList.remove('pulse'); // reset before re-adding
-      // Force reflow so re-adding the class re-triggers animation
-      void entry.pinEl.offsetWidth;
-      entry.pinEl.classList.add('pulse');
-      setTimeout(function () { entry.pinEl.classList.remove('pulse'); }, 5000);
+      // Find by data attribute — works regardless of closure state
+      var pinEl = document.querySelector('[data-pin-id="' + pinId + '"]');
+      if (!pinEl) return;
+      pinEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      pinEl.classList.remove('pulse');
+      void pinEl.offsetWidth; // force reflow to re-trigger animation
+      pinEl.classList.add('pulse');
+      setTimeout(function () { pinEl.classList.remove('pulse'); }, 5000);
     }
 
-    // Pins may not be rendered yet on fresh load — retry a few times
-    if (pinEls[pinId]) {
-      applyPulse();
-    } else {
-      var retries = 0;
-      var interval = setInterval(function () {
-        if (pinEls[pinId]) { clearInterval(interval); applyPulse(); }
-        else if (++retries >= 20) clearInterval(interval); // give up after 2s
-      }, 100);
-    }
+    // Retry until the pin element appears in the DOM
+    var retries = 0;
+    var interval = setInterval(function () {
+      if (document.querySelector('[data-pin-id="' + pinId + '"]')) {
+        clearInterval(interval);
+        applyPulse();
+      } else if (++retries >= 30) { // give up after 3s
+        clearInterval(interval);
+      }
+    }, 100);
   }
 
   // Also react to hash changes in the same session
