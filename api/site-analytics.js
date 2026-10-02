@@ -31,7 +31,7 @@ function getDb() {
 }
 
 const UPTIMEROBOT_KEY = process.env.UPTIMEROBOT_API_KEY;
-const VERCEL_TOKEN = process.env.VERCEL_TOKEN;
+const VERCEL_TOKEN = process.env.VERCEL_TOKEN || process.env.REACT_APP_VERCEL_TOKEN;
 const VERCEL_TEAM_ID = process.env.VERCEL_TEAM_ID || 'team_DTdKthT6vqeddH5ND7XmMWHO';
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
