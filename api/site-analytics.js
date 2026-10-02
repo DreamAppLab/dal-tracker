@@ -82,6 +82,9 @@ async function fetchUptimeRobot(siteDomain) {
 // GET https://api.vercel.com/v1/query/web-analytics/visits/count
 // Docs: https://vercel.com/docs/rest-api/web-analytics/counts-page-views
 // Response: { version, data: { pageviews: N, visitors: N }, query: { since, until } }
+//
+// NOTE: The analytics endpoint requires the numeric project ID (prj_xxx), not
+// the slug name. We resolve slug → numeric ID via GET /v9/projects/{slug} first.
 async function fetchVercelAnalytics(vercelProject) {
   if (!VERCEL_TOKEN) {
     console.error(`[site-analytics][analytics] VERCEL_TOKEN missing — skipping ${vercelProject}`);
@@ -91,11 +94,27 @@ async function fetchVercelAnalytics(vercelProject) {
     return { last30d: null, pageViews30d: null, analyticsEnabled: false };
   }
   try {
+    // Step 1: resolve slug → numeric project ID
+    const projUrl = `https://api.vercel.com/v9/projects/${vercelProject}?teamId=${VERCEL_TEAM_ID}`;
+    console.log(`[site-analytics][analytics] resolving project ID: GET ${projUrl}`);
+    const projRes = await fetch(projUrl, { headers: { Authorization: `Bearer ${VERCEL_TOKEN}` } });
+    const projText = await projRes.text();
+    console.log(`[site-analytics][analytics] project lookup status=${projRes.status} body=${projText.slice(0, 300)}`);
+    if (!projRes.ok) return { last30d: null, pageViews30d: null, analyticsEnabled: false };
+    const proj = JSON.parse(projText);
+    const numericId = proj.id;
+    if (!numericId) {
+      console.error(`[site-analytics][analytics] no id field in project response for ${vercelProject}`);
+      return { last30d: null, pageViews30d: null, analyticsEnabled: false };
+    }
+    console.log(`[site-analytics][analytics] resolved ${vercelProject} → ${numericId}`);
+
+    // Step 2: fetch analytics using numeric project ID
     const now = new Date();
     const since = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const until = now.toISOString().slice(0, 10);
 
-    const params = new URLSearchParams({ projectId: vercelProject, teamId: VERCEL_TEAM_ID, since, until });
+    const params = new URLSearchParams({ projectId: numericId, teamId: VERCEL_TEAM_ID, since, until });
     const url = `https://api.vercel.com/v1/query/web-analytics/visits/count?${params}`;
     console.log(`[site-analytics][analytics] GET ${url}`);
 
