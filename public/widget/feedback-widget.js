@@ -268,15 +268,35 @@
   // ── Deep-link highlight (#dal-pin-{id}) ─────────────────────────────────────
   function checkHighlight() {
     var hash = window.location.hash;
-    var match = hash.match(/^#dal-pin-([\w-]+)$/);
+    var match = hash.match(/^#dal-pin-([\w]+)$/);
     if (!match) return;
     var pinId = match[1];
-    var entry = pinEls[pinId];
-    if (!entry) return;
-    entry.pinEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    entry.pinEl.classList.add('pulse');
-    setTimeout(function () { entry.pinEl.classList.remove('pulse'); }, 5000);
+
+    function applyPulse() {
+      var entry = pinEls[pinId];
+      if (!entry) return;
+      entry.pinEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      entry.pinEl.classList.remove('pulse'); // reset before re-adding
+      // Force reflow so re-adding the class re-triggers animation
+      void entry.pinEl.offsetWidth;
+      entry.pinEl.classList.add('pulse');
+      setTimeout(function () { entry.pinEl.classList.remove('pulse'); }, 5000);
+    }
+
+    // Pins may not be rendered yet on fresh load — retry a few times
+    if (pinEls[pinId]) {
+      applyPulse();
+    } else {
+      var retries = 0;
+      var interval = setInterval(function () {
+        if (pinEls[pinId]) { clearInterval(interval); applyPulse(); }
+        else if (++retries >= 20) clearInterval(interval); // give up after 2s
+      }, 100);
+    }
   }
+
+  // Also react to hash changes in the same session
+  window.addEventListener('hashchange', function () { checkHighlight(); });
 
   // ── Click handler for dropping a new pin ─────────────────────────────────────
   function handlePageClick(e) {
