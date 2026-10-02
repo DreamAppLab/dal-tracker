@@ -77,46 +77,49 @@ async function fetchUptimeRobot(siteDomain) {
 }
 
 // ── Vercel Analytics ─────────────────────────────────────────────────────────
+// Uses the official v1 Web Analytics count endpoint:
+// GET https://api.vercel.com/v1/query/web-analytics/visits/count
+// Docs: https://vercel.com/docs/rest-api/web-analytics/counts-page-views
 async function fetchVercelAnalytics(vercelProject) {
   if (!VERCEL_TOKEN || !vercelProject) {
     return { last30d: null, pageViews30d: null, analyticsEnabled: false };
   }
   try {
-    // First get the project ID from the project slug
-    const projRes = await fetch(
-      `https://api.vercel.com/v9/projects/${vercelProject}?teamId=${VERCEL_TEAM_ID}`,
-      { headers: { Authorization: `Bearer ${VERCEL_TOKEN}` } }
-    );
-    if (!projRes.ok) return { last30d: null, pageViews30d: null, analyticsEnabled: false };
-    const proj = await projRes.json();
-    const projectId = proj.id;
-    if (!projectId) return { last30d: null, pageViews30d: null, analyticsEnabled: false };
+    const now = new Date();
+    const since = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10); // YYYY-MM-DD
+    const until = now.toISOString().slice(0, 10);
 
-    // Try Web Analytics API
-    const now = Date.now();
-    const from = now - 30 * 24 * 60 * 60 * 1000;
-    const analyticsRes = await fetch(
-      `https://vercel.com/api/web-analytics/timeseries?projectId=${projectId}&teamId=${VERCEL_TEAM_ID}&from=${from}&to=${now}&granularity=day&environment=production`,
-      { headers: { Authorization: `Bearer ${VERCEL_TOKEN}` } }
-    );
+    const params = new URLSearchParams({
+      projectId: vercelProject,
+      teamId: VERCEL_TEAM_ID,
+      since,
+      until,
+    });
+    const url = `https://api.vercel.com/v1/query/web-analytics/visits/count?${params}`;
+    console.log(`[site-analytics] Vercel Analytics URL for ${vercelProject}: ${url}`);
 
-    if (!analyticsRes.ok) return { last30d: null, pageViews30d: null, analyticsEnabled: false };
-    const analyticsData = await analyticsRes.json();
-
-    // Sum up the timeseries
-    const series = analyticsData.data || analyticsData.timeseries || [];
-    if (!series.length) return { last30d: null, pageViews30d: null, analyticsEnabled: false };
-
-    let totalVisitors = 0;
-    let totalPageViews = 0;
-    series.forEach((point) => {
-      totalVisitors += point.visitors || point.uniques || 0;
-      totalPageViews += point.pageviews || point.views || 0;
+    const analyticsRes = await fetch(url, {
+      headers: { Authorization: `Bearer ${VERCEL_TOKEN}` },
     });
 
+    const rawText = await analyticsRes.text();
+    console.log(`[site-analytics] Vercel Analytics response (${analyticsRes.status}) for ${vercelProject}: ${rawText.slice(0, 500)}`);
+
+    if (!analyticsRes.ok) return { last30d: null, pageViews30d: null, analyticsEnabled: false };
+
+    const analyticsData = JSON.parse(rawText);
+    // Response shape: { version: 1, data: { pageviews: N, visitors: N } }
+    const data = analyticsData.data || {};
+    const visitors = data.visitors ?? null;
+    const pageViews = data.pageviews ?? null;
+
+    if (visitors === null && pageViews === null) {
+      return { last30d: null, pageViews30d: null, analyticsEnabled: false };
+    }
+
     return {
-      last30d: totalVisitors || null,
-      pageViews30d: totalPageViews || null,
+      last30d: visitors,
+      pageViews30d: pageViews,
       analyticsEnabled: true,
     };
   } catch (e) {
