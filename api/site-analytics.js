@@ -31,7 +31,9 @@ function getDb() {
 }
 
 const UPTIMEROBOT_KEY = process.env.UPTIMEROBOT_API_KEY;
-const VERCEL_TOKEN = process.env.VERCEL_TOKEN;
+const VERCEL_TOKEN = process.env.VERCEL_TOKEN || process.env.REACT_APP_VERCEL_TOKEN;
+console.log('[site-analytics] VERCEL_TOKEN present:', !!VERCEL_TOKEN);
+console.log('[site-analytics] UPTIMEROBOT_KEY present:', !!UPTIMEROBOT_KEY);
 const VERCEL_TEAM_ID = process.env.VERCEL_TEAM_ID || 'team_DTdKthT6vqeddH5ND7XmMWHO';
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -77,78 +79,89 @@ async function fetchUptimeRobot(siteDomain) {
 }
 
 // ── Vercel Analytics ─────────────────────────────────────────────────────────
-// Uses the official v1 Web Analytics count endpoint:
 // GET https://api.vercel.com/v1/query/web-analytics/visits/count
 // Docs: https://vercel.com/docs/rest-api/web-analytics/counts-page-views
+// Response: { version, data: { pageviews: N, visitors: N }, query: { since, until } }
 async function fetchVercelAnalytics(vercelProject) {
-  if (!VERCEL_TOKEN || !vercelProject) {
+  if (!VERCEL_TOKEN) {
+    console.error(`[site-analytics][analytics] VERCEL_TOKEN missing — skipping ${vercelProject}`);
+    return { last30d: null, pageViews30d: null, analyticsEnabled: false };
+  }
+  if (!vercelProject) {
     return { last30d: null, pageViews30d: null, analyticsEnabled: false };
   }
   try {
     const now = new Date();
-    const since = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10); // YYYY-MM-DD
+    const since = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const until = now.toISOString().slice(0, 10);
 
-    const params = new URLSearchParams({
-      projectId: vercelProject,
-      teamId: VERCEL_TEAM_ID,
-      since,
-      until,
-    });
+    const params = new URLSearchParams({ projectId: vercelProject, teamId: VERCEL_TEAM_ID, since, until });
     const url = `https://api.vercel.com/v1/query/web-analytics/visits/count?${params}`;
-    console.log(`[site-analytics] Vercel Analytics URL for ${vercelProject}: ${url}`);
+    console.log(`[site-analytics][analytics] GET ${url}`);
 
-    const analyticsRes = await fetch(url, {
-      headers: { Authorization: `Bearer ${VERCEL_TOKEN}` },
-    });
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${VERCEL_TOKEN}` } });
+    const rawText = await res.text();
+    console.log(`[site-analytics][analytics] status=${res.status} body=${rawText.slice(0, 800)}`);
 
-    const rawText = await analyticsRes.text();
-    console.log(`[site-analytics] Vercel Analytics response (${analyticsRes.status}) for ${vercelProject}: ${rawText.slice(0, 500)}`);
+    if (!res.ok) return { last30d: null, pageViews30d: null, analyticsEnabled: false };
 
-    if (!analyticsRes.ok) return { last30d: null, pageViews30d: null, analyticsEnabled: false };
-
-    const analyticsData = JSON.parse(rawText);
-    // Response shape: { version: 1, data: { pageviews: N, visitors: N } }
-    const data = analyticsData.data || {};
-    const visitors = data.visitors ?? null;
-    const pageViews = data.pageviews ?? null;
+    const json = JSON.parse(rawText);
+    // Shape: { data: { pageviews: N, visitors: N } }
+    const data = json.data || {};
+    const visitors = typeof data.visitors === 'number' ? data.visitors : null;
+    const pageViews = typeof data.pageviews === 'number' ? data.pageviews : null;
 
     if (visitors === null && pageViews === null) {
+      console.log(`[site-analytics][analytics] data object had no visitors/pageviews: ${JSON.stringify(data)}`);
       return { last30d: null, pageViews30d: null, analyticsEnabled: false };
     }
 
-    return {
-      last30d: visitors,
-      pageViews30d: pageViews,
-      analyticsEnabled: true,
-    };
+    return { last30d: visitors, pageViews30d: pageViews, analyticsEnabled: true };
   } catch (e) {
-    console.error('Vercel Analytics error:', e.message);
+    console.error(`[site-analytics][analytics] exception for ${vercelProject}:`, e.message);
     return { last30d: null, pageViews30d: null, analyticsEnabled: false };
   }
 }
 
 // ── Vercel Deployments ────────────────────────────────────────────────────────
+// GET https://api.vercel.com/v7/deployments
+// Docs: https://vercel.com/docs/rest-api/endpoints/deployments/list-deployments
+// projectId accepts name or ID; target=production; limit=1
 async function fetchVercelDeploy(vercelProject) {
-  if (!VERCEL_TOKEN || !vercelProject) {
+  if (!VERCEL_TOKEN) {
+    console.error(`[site-analytics][deploy] VERCEL_TOKEN missing — skipping ${vercelProject}`);
     return { lastDeployDate: null, state: null, deployedBy: null };
   }
+  if (!vercelProject) return { lastDeployDate: null, state: null, deployedBy: null };
   try {
-    const res = await fetch(
-      `https://api.vercel.com/v6/deployments?projectId=${vercelProject}&teamId=${VERCEL_TEAM_ID}&limit=1&target=production`,
-      { headers: { Authorization: `Bearer ${VERCEL_TOKEN}` } }
-    );
+    const params = new URLSearchParams({
+      projectId: vercelProject,
+      teamId: VERCEL_TEAM_ID,
+      limit: '1',
+      target: 'production',
+      state: 'READY',
+    });
+    const url = `https://api.vercel.com/v7/deployments?${params}`;
+    console.log(`[site-analytics][deploy] GET ${url}`);
+
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${VERCEL_TOKEN}` } });
+    const rawText = await res.text();
+    console.log(`[site-analytics][deploy] status=${res.status} body=${rawText.slice(0, 800)}`);
+
     if (!res.ok) return { lastDeployDate: null, state: null, deployedBy: null };
-    const data = await res.json();
+
+    const data = JSON.parse(rawText);
     const dep = (data.deployments || [])[0];
     if (!dep) return { lastDeployDate: null, state: null, deployedBy: null };
+
+    const ts = dep.ready || dep.createdAt || dep.created;
     return {
-      lastDeployDate: dep.createdAt ? new Date(dep.createdAt).toISOString() : null,
+      lastDeployDate: ts ? new Date(ts).toISOString() : null,
       state: dep.state || dep.readyState || null,
-      deployedBy: dep.creator?.username || dep.createdBy || null,
+      deployedBy: dep.creator?.username || null,
     };
   } catch (e) {
-    console.error('Vercel Deploy error:', e.message);
+    console.error(`[site-analytics][deploy] exception for ${vercelProject}:`, e.message);
     return { lastDeployDate: null, state: null, deployedBy: null };
   }
 }
