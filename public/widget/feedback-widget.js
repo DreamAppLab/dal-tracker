@@ -267,36 +267,33 @@
   }
 
   // ── Deep-link highlight (#dal-pin-{id}) ─────────────────────────────────────
+  function pulsePin(pinId) {
+    var pinEl = document.querySelector('[data-pin-id="' + pinId + '"]');
+    if (!pinEl) return false;
+    pinEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    pinEl.classList.remove('pulse');
+    void pinEl.offsetWidth;
+    pinEl.classList.add('pulse');
+    setTimeout(function () { pinEl.classList.remove('pulse'); }, 5000);
+    return true;
+  }
+
   function checkHighlight() {
-    var hash = window.location.hash;
+    var hash = window.location.hash || '';
     var match = hash.match(/^#dal-pin-([\w]+)$/);
     if (!match) return;
     var pinId = match[1];
-
-    function applyPulse() {
-      // Find by data attribute — works regardless of closure state
-      var pinEl = document.querySelector('[data-pin-id="' + pinId + '"]');
-      if (!pinEl) return;
-      pinEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      pinEl.classList.remove('pulse');
-      void pinEl.offsetWidth; // force reflow to re-trigger animation
-      pinEl.classList.add('pulse');
-      setTimeout(function () { pinEl.classList.remove('pulse'); }, 5000);
+    if (!pulsePin(pinId)) {
+      // Element not yet in DOM — observe until it appears
+      var observer = new MutationObserver(function () {
+        if (pulsePin(pinId)) observer.disconnect();
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      setTimeout(function () { observer.disconnect(); }, 5000); // give up after 5s
     }
-
-    // Retry until the pin element appears in the DOM
-    var retries = 0;
-    var interval = setInterval(function () {
-      if (document.querySelector('[data-pin-id="' + pinId + '"]')) {
-        clearInterval(interval);
-        applyPulse();
-      } else if (++retries >= 30) { // give up after 3s
-        clearInterval(interval);
-      }
-    }, 100);
   }
 
-  // Also react to hash changes in the same session
+  // React to hash changes in the same session
   window.addEventListener('hashchange', function () { checkHighlight(); });
 
   // ── Click handler for dropping a new pin ─────────────────────────────────────
