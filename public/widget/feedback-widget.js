@@ -205,6 +205,16 @@
     pinEl.setAttribute('data-pin-id', pin.id);
     document.body.appendChild(pinEl);
     pinEls[pin.id] = { pinEl: pinEl, getPopup: function () { return popupEl; } };
+
+    // Deep-link: pulse immediately if this pin matches the URL hash
+    var hashMatch = (window.location.hash || '').match(/^#dal-pin-([\w]+)$/);
+    if (hashMatch && hashMatch[1] === pin.id) {
+      setTimeout(function () {
+        pinEl.classList.add('pulse');
+        pinEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(function () { pinEl.classList.remove('pulse'); }, 5000);
+      }, 50);
+    }
   }
 
   function closeAllPopups() {
