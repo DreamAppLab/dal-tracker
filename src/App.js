@@ -20,6 +20,7 @@ import ClientJobsDashboard from './components/ClientJobsDashboard';
 import MaintenanceTab from './components/MaintenanceTab';
 import Contacts from './components/Contacts';
 import WebProjects from './pages/WebProjects';
+import WebsiteAnalytics from './pages/WebsiteAnalytics';
 import Sidebar from './components/Sidebar';
 import { QuotesUnreadListener } from './tabs/QuotesTab';
 import { useOnboardingUploads } from './hooks/useOnboardingUploads';
@@ -438,6 +439,7 @@ function DashboardApp() {
         {activeView === 'blog' && <BlogAdmin />}
         {activeView === 'tools' && <ToolsHub />}
         {activeView === 'web-projects' && <WebProjects />}
+        {activeView === 'website-analytics' && <WebsiteAnalytics />}
         {activeView === 'project' && currentProject && (
           <ProjectDetail
             project={currentProject}
