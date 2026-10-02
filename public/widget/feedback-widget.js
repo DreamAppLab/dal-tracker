@@ -417,13 +417,8 @@
   // ── Init ─────────────────────────────────────────────────────────────────────
   function init() {
     buildFab();
-
-    if (!session) {
-      // Don't block page — just show FAB; modal shows on first FAB click
-    } else {
-      loadPins();
-    }
-
+    // Always load existing pins — session only needed for submitting new ones
+    loadPins();
     document.addEventListener('click', handlePageClick, true);
   }
 
