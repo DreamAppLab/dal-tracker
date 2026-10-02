@@ -44,7 +44,23 @@
     try { localStorage.setItem('dal_feedback_session', JSON.stringify(data)); } catch (e) {}
   }
 
-  // ── Shadow DOM container ─────────────────────────────────────────────────────
+  // ── Inject pin styles into main document (shadow CSS can't reach body children) ──
+  var pinStyle = document.createElement('style');
+  pinStyle.textContent = [
+    '.dal-pin { position: absolute; width: 28px; height: 28px; border-radius: 50%;',
+    '  display: flex; align-items: center; justify-content: center;',
+    '  font-size: 12px; font-weight: 700; cursor: pointer; transform: translate(-50%, -50%);',
+    '  box-shadow: 0 2px 8px rgba(0,0,0,0.3); z-index: 2147483644; border: 2px solid #fff;',
+    '  transition: box-shadow 0.2s; font-family: -apple-system,sans-serif; }',
+    '.dal-pin:hover { box-shadow: 0 0 0 4px rgba(76,193,243,0.3); }',
+    '.dal-pin.open-pin { background: ' + BRAND_COLOR + '; color: #000; }',
+    '.dal-pin.resolved-pin { background: #22c55e; color: #fff; }',
+    '.dal-pin.pulse { animation: dal-pulse 1.5s ease-out 3; }',
+    '@keyframes dal-pulse { 0%,100%{box-shadow:0 2px 8px rgba(0,0,0,0.3)} 50%{box-shadow:0 0 0 18px rgba(253,224,71,0),0 2px 8px rgba(253,224,71,0.8)} }',
+  ].join('\n');
+  (document.head || document.documentElement).appendChild(pinStyle);
+
+  // ── Shadow DOM container (FAB, popups, modals only) ──────────────────────────
   var host = document.createElement('div');
   host.id = 'dal-feedback-host';
   document.body.appendChild(host);
@@ -61,17 +77,6 @@
     '  transition: background 0.2s; display: flex; align-items: center; gap: 6px; }',
     '.dal-fab.active { background: ' + BRAND_COLOR + '; color: #000; }',
     '.dal-fab:hover { opacity: 0.9; }',
-    // Pin circles
-    '.dal-pin { position: absolute; width: 28px; height: 28px; border-radius: 50%;',
-    '  display: flex; align-items: center; justify-content: center;',
-    '  font-size: 12px; font-weight: 700; cursor: pointer; transform: translate(-50%, -50%);',
-    '  box-shadow: 0 2px 8px rgba(0,0,0,0.3); z-index: 2147483644; border: 2px solid #fff;',
-    '  transition: box-shadow 0.2s; }',
-    '.dal-pin:hover { box-shadow: 0 0 0 4px rgba(76,193,243,0.3); }',
-    '.dal-pin.open-pin { background: ' + BRAND_COLOR + '; color: #000; }',
-    '.dal-pin.resolved-pin { background: #22c55e; color: #fff; font-size: 14px; }',
-    '.dal-pin.pulse { animation: dal-pulse 1.5s ease-out 3; }',
-    '@keyframes dal-pulse { 0%,100%{box-shadow:0 0 0 0 rgba(253,224,71,0.8)} 50%{box-shadow:0 0 0 16px rgba(253,224,71,0)} }',
     // Popup
     '.dal-popup { position: absolute; background: #0f172a; border: 1px solid #334155;',
     '  border-radius: 10px; padding: 14px; min-width: 220px; max-width: 280px;',
@@ -377,27 +382,34 @@
         .catch(function () {});
     };
 
-    // Attempt html2canvas screenshot
-    if (typeof html2canvas !== 'undefined') {
+    // Submit immediately — attempt screenshot in background (non-blocking)
+    // If html2canvas is already loaded, capture then submit; otherwise submit first
+    var TIMEOUT = 4000; // max wait for html2canvas
+    var submitted = false;
+    function safeSubmit(dataUrl) {
+      if (submitted) return;
+      submitted = true;
+      doSubmit(dataUrl || null);
+    }
+
+    // Failsafe: always submit within timeout
+    var timer = setTimeout(function () { safeSubmit(null); }, TIMEOUT);
+
+    function tryCapture() {
       try {
-        html2canvas(document.body, { useCORS: true, scale: 0.5 })
-          .then(function (canvas) {
-            doSubmit(canvas.toDataURL('image/png'));
-          })
-          .catch(function () { doSubmit(null); });
-      } catch (e) { doSubmit(null); }
+        html2canvas(document.body, { useCORS: true, scale: 0.4, logging: false })
+          .then(function (canvas) { clearTimeout(timer); safeSubmit(canvas.toDataURL('image/jpeg', 0.7)); })
+          .catch(function () { clearTimeout(timer); safeSubmit(null); });
+      } catch (e) { clearTimeout(timer); safeSubmit(null); }
+    }
+
+    if (typeof html2canvas !== 'undefined') {
+      tryCapture();
     } else {
-      // Load html2canvas from CDN
       var script = document.createElement('script');
       script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-      script.onload = function () {
-        try {
-          html2canvas(document.body, { useCORS: true, scale: 0.5 })
-            .then(function (canvas) { doSubmit(canvas.toDataURL('image/png')); })
-            .catch(function () { doSubmit(null); });
-        } catch (e) { doSubmit(null); }
-      };
-      script.onerror = function () { doSubmit(null); };
+      script.onload = tryCapture;
+      script.onerror = function () { clearTimeout(timer); safeSubmit(null); };
       document.head.appendChild(script);
     }
   }
