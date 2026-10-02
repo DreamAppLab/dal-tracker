@@ -443,8 +443,38 @@ function ProjectDetailView({ project, onBack }) {
 }
 
 function PinCard({ pin, index, previewUrl, onResolve }) {
+  const [replyOpen, setReplyOpen] = useState(false);
+  const [replyText, setReplyText] = useState('');
+  const [replySent, setReplySent] = useState(false);
+  const [replyData, setReplyData] = useState(
+    pin.reply_text ? { text: pin.reply_text, at: pin.reply_at } : null
+  );
+  const [sending, setSending] = useState(false);
+
   const viewLink = previewUrl ? `${previewUrl}#dal-pin-${pin.id}` : null;
   const resolved = pin.resolved;
+
+  async function sendReply() {
+    if (!replyText.trim()) return;
+    setSending(true);
+    try {
+      const r = await fetch('https://dal-tracker.vercel.app/api/feedback/reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin_id: pin.id, reply_text: replyText.trim() }),
+      });
+      const data = await r.json();
+      if (data.ok) {
+        setReplyData({ text: replyText.trim(), at: data.reply_at });
+        setReplySent(true);
+        setReplyOpen(false);
+        setReplyText('');
+      }
+    } catch (e) {
+      console.error('Reply error:', e);
+    }
+    setSending(false);
+  }
 
   return (
     <div style={{ ...card, opacity: resolved ? 0.7 : 1, borderColor: resolved ? '#1e3a2e' : '#1e293b' }}>
@@ -465,6 +495,45 @@ function PinCard({ pin, index, previewUrl, onResolve }) {
           {pin.screenshotDataUrl && (
             <img src={pin.screenshotDataUrl} alt="Screenshot" style={{ maxWidth: 280, borderRadius: 8, marginBottom: 10, display: 'block' }} />
           )}
+
+          {/* Existing reply */}
+          {replyData && (
+            <div style={{ background: 'rgba(76,193,243,0.07)', border: '1px solid rgba(76,193,243,0.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 10 }}>
+              <p style={{ margin: '0 0 4px', fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Your reply{replyData.at ? ` · ${new Date(replyData.at).toLocaleString()}` : ''}
+              </p>
+              <p style={{ margin: 0, fontSize: 13, color: '#e2e8f0', lineHeight: 1.5 }}>{replyData.text}</p>
+            </div>
+          )}
+
+          {/* Reply sent confirmation */}
+          {replySent && !replyOpen && (
+            <p style={{ fontSize: 12, color: '#22c55e', margin: '0 0 8px' }}>✓ Reply sent</p>
+          )}
+
+          {/* Inline reply form */}
+          {replyOpen && (
+            <div style={{ marginBottom: 10 }}>
+              <textarea
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                placeholder="Type your reply…"
+                rows={3}
+                style={{ width: '100%', background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#e2e8f0', padding: '8px 12px', fontSize: 13, fontFamily: 'inherit', resize: 'vertical', outline: 'none', boxSizing: 'border-box', marginBottom: 8 }}
+              />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={sendReply} disabled={sending}
+                  style={{ background: BRAND, color: '#000', border: 'none', padding: '5px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: sending ? 'not-allowed' : 'pointer', opacity: sending ? 0.6 : 1 }}>
+                  {sending ? 'Sending…' : 'Send'}
+                </button>
+                <button onClick={() => { setReplyOpen(false); setReplyText(''); }}
+                  style={{ background: '#1e293b', color: '#94a3b8', border: 'none', padding: '5px 12px', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {viewLink && (
               <a href={viewLink} target="_blank" rel="noreferrer"
@@ -476,6 +545,12 @@ function PinCard({ pin, index, previewUrl, onResolve }) {
               style={{ background: resolved ? '#1e293b' : 'rgba(34,197,94,0.15)', color: resolved ? '#94a3b8' : '#22c55e', border: 'none', padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
               {resolved ? 'Reopen' : 'Resolve ✓'}
             </button>
+            {!replyOpen && (
+              <button onClick={() => { setReplySent(false); setReplyOpen(true); }}
+                style={{ background: '#1e293b', color: '#94a3b8', border: 'none', padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                {replyData ? 'Edit reply' : 'Reply'}
+              </button>
+            )}
           </div>
         </div>
       </div>

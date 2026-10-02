@@ -204,6 +204,69 @@ async function handleResolve(req, res) {
   return res.status(200).json({ ok: true, pin: serializeDoc(snap) });
 }
 
+// ── POST /api/feedback/reply ─────────────────────────────────────────────────
+async function handleReply(req, res) {
+  let body = req.body;
+  if (typeof body === 'string') {
+    try { body = JSON.parse(body); } catch { body = {}; }
+  }
+  const { pin_id, reply_text } = body || {};
+  if (!pin_id || !reply_text) return res.status(400).json({ error: 'Missing pin_id or reply_text' });
+
+  const db = getMcDb();
+  const ref = db.collection('feedbackPins').doc(pin_id);
+  const pinSnap = await ref.get();
+  if (!pinSnap.exists) return res.status(404).json({ error: 'Pin not found' });
+  const pin = pinSnap.data();
+
+  const reply_at = new Date().toISOString();
+  await ref.update({ reply_text, reply_at });
+
+  // Send email to client if they have an email on the pin
+  const client_email = pin.client_email;
+  if (client_email && MAILGUN_API_KEY) {
+    // Fetch project for name + preview_url
+    let project_name = pin.project_id;
+    let preview_url = pin.page_url;
+    try {
+      const projSnap = await db.collection('webProjects').doc(pin.project_id).get();
+      if (projSnap.exists) {
+        project_name = projSnap.data().project_name || project_name;
+        preview_url = projSnap.data().preview_url || preview_url;
+      }
+    } catch (_) {}
+
+    const viewLink = preview_url ? `${preview_url}#dal-pin-${pin_id}` : pin.page_url;
+    const html = `
+      <p>Hi ${pin.client_name || 'there'},</p>
+      <p>Eddie from Dream App Lab replied to your feedback note:</p>
+      <blockquote style="border-left:3px solid #4CC1F3;padding-left:12px;color:#555;">${pin.note}</blockquote>
+      <p><strong>Reply:</strong> ${reply_text}</p>
+      <p>You can view your feedback at <a href="${viewLink}">${viewLink}</a>.</p>
+      <p>— Dream App Lab</p>
+    `;
+    const params = new URLSearchParams();
+    params.append('from', MAILGUN_FROM);
+    params.append('to', client_email);
+    params.append('subject', `Re: Your feedback on ${project_name}`);
+    params.append('html', html);
+    try {
+      await fetch(`https://api.mailgun.net/v3/${MAILGUN_DOMAIN}/messages`, {
+        method: 'POST',
+        headers: {
+          Authorization: 'Basic ' + Buffer.from('api:' + MAILGUN_API_KEY).toString('base64'),
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: params.toString(),
+      });
+    } catch (e) {
+      console.error('Mailgun reply error:', e.message);
+    }
+  }
+
+  return res.status(200).json({ ok: true, reply_at });
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 module.exports = async function handler(req, res) {
   cors(res);
@@ -216,6 +279,7 @@ module.exports = async function handler(req, res) {
     if (path.endsWith('/pin') && req.method === 'POST') return await handlePostPin(req, res);
     if (path.endsWith('/pins') && req.method === 'GET') return await handleGetPins(req, res);
     if (path.endsWith('/resolve') && req.method === 'POST') return await handleResolve(req, res);
+    if (path.endsWith('/reply') && req.method === 'POST') return await handleReply(req, res);
     return res.status(404).json({ error: 'Not found' });
   } catch (e) {
     console.error('feedback api error:', e);
