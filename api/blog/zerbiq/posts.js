@@ -149,3 +149,12 @@ module.exports = async (req, res) => {
     });
   }
 };
+
+// Increase body size limit to handle large blog post HTML bodies
+module.exports.config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '10mb',
+    },
+  },
+};
