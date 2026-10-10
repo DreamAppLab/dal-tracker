@@ -594,6 +594,7 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
   const [mgmtTier, setMgmtTier] = useState(quote.managedTier || quote.plan || '');
   const [mgmtMonthly, setMgmtMonthly] = useState(() => feeInputValue(quote.monthlyFee));
   const [mgmtTransfer, setMgmtTransfer] = useState(() => feeInputValue(quote.transferFee));
+  const [mgmtEditing, setMgmtEditing] = useState(false);
   const [mgmtError, setMgmtError] = useState('');
   const [mgmtNotice, setMgmtNotice] = useState('');
 
@@ -981,6 +982,7 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
           prevMgmtTierRef.current = tier;
           prevMgmtFeeRef.current = monthlyFee;
         }
+        setMgmtEditing(false);
       } catch (err) {
         setMgmtError(err.message || String(err));
         throw err;
