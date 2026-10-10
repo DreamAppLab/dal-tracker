@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import { addDoc, collection, doc, getDocs, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { getDownloadURL, listAll, ref as storageRef } from 'firebase/storage';
@@ -22,7 +22,10 @@ const FORM_TYPE_LABELS = {
 
 const CRM_FORM_TYPES = new Set(['CRM Only', 'Website + CRM']);
 
-const DAL_SITE_QUOTE_REPLY = 'https://www.dreamapplab.com/api/quote-reply';
+const DAL_SITE_ORIGIN = process.env.REACT_APP_DAL_SITE_URL || 'https://www.dreamapplab.com';
+const DAL_SITE_QUOTE_REPLY = DAL_SITE_ORIGIN + '/api/quote-reply';
+const DAL_SITE_CREATE_SUBSCRIPTION = DAL_SITE_ORIGIN + '/api/stripe/create-subscription';
+const DAL_SITE_UPGRADE_SUBSCRIPTION = DAL_SITE_ORIGIN + '/api/stripe/upgrade-subscription';
 
 const STATUS_META = {
   submitted: { label: 'Submitted', color: '#E2E8F0' },
@@ -195,6 +198,48 @@ function designLines(d) {
     if (text) lines.push(label + ': ' + text);
   });
   return lines;
+}
+
+function isDalManagementChoice(value) {
+  const choice = String(value || '').toLowerCase();
+  return choice === 'dal' || choice === 'managed' || choice === 'dal-managed' || choice === 'dal_managed';
+}
+
+function isHandoverManagementChoice(value) {
+  const choice = String(value || '').toLowerCase();
+  return (
+    choice === 'handover' ||
+    choice === 'full-handover' ||
+    choice === 'full_handover' ||
+    choice === 'self' ||
+    choice === 'wix' ||
+    choice === 'self-managed'
+  );
+}
+
+function initialMgmtChoice(q) {
+  if (isDalManagementChoice(q.managementChoice) || q.path === 'dal') return 'dal';
+  if (isHandoverManagementChoice(q.managementChoice) || q.path === 'wix' || q.path === 'self') return 'handover';
+  if (q.plan && !q.managementChoice) return 'dal';
+  return '';
+}
+
+function feeInputValue(value) {
+  if (value == null || value === '') return '';
+  return String(value);
+}
+
+async function postDalSite(url, payload) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || data.detail || 'Stripe subscription request failed');
+  }
+  return data;
 }
 
 function managementInfo(d) {
@@ -540,16 +585,17 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
   const [stripeLinkEditing, setStripeLinkEditing] = useState(false);
   const [stripeLinkWarning, setStripeLinkWarning] = useState('');
   const [paymentPlanConfirmed, setPaymentPlanConfirmed] = useState(() => !!quote.paymentPlanConfirmed);
-  const [mgmtEditing, setMgmtEditing] = useState(false);
-  const [mgmtChoice, setMgmtChoice] = useState(() => {
-    const c = String(quote.managementChoice || '').toLowerCase();
-    if (c === 'managed' || c === 'dal' || c === 'dal-managed' || c === 'dal_managed' || quote.path === 'dal' || (quote.plan && !c)) return 'dal';
-    if (c === 'handover' || c === 'full-handover' || c === 'full_handover' || c === 'self' || c === 'wix' || c === 'self-managed' || quote.path === 'wix' || quote.path === 'self') return 'handover';
-    return '';
-  });
-  const [mgmtTier, setMgmtTier] = useState(() => String(quote.managedTier || quote.plan || ''));
-  const [mgmtMonthly, setMgmtMonthly] = useState(() => quote.monthlyFee != null ? String(quote.monthlyFee) : '');
-  const [mgmtTransfer, setMgmtTransfer] = useState(() => quote.transferFee != null ? String(quote.transferFee) : '');
+  const prevMgmtTierRef = useRef(quote.managedTier || '');
+  const prevMgmtFeeRef = useRef(quote.monthlyFee != null && quote.monthlyFee !== '' ? Number(quote.monthlyFee) : null);
+  const subscribedRef = useRef(Boolean(String(quote.stripeSubscriptionId || '').trim()));
+  const quoteForMgmtRef = useRef(quote);
+  quoteForMgmtRef.current = quote;
+  const [mgmtChoice, setMgmtChoice] = useState(() => initialMgmtChoice(quote));
+  const [mgmtTier, setMgmtTier] = useState(quote.managedTier || quote.plan || '');
+  const [mgmtMonthly, setMgmtMonthly] = useState(() => feeInputValue(quote.monthlyFee));
+  const [mgmtTransfer, setMgmtTransfer] = useState(() => feeInputValue(quote.transferFee));
+  const [mgmtError, setMgmtError] = useState('');
+  const [mgmtNotice, setMgmtNotice] = useState('');
 
   const status = rawStatus(quote);
   const shownStatus = displayStatus(quote);
@@ -562,6 +608,20 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
   const design = designLines(quote);
   const mgmt = managementInfo(quote);
   const biz = businessName(quote) || quote.name || 'Project';
+
+  useEffect(() => {
+    const current = quoteForMgmtRef.current;
+    prevMgmtTierRef.current = current.managedTier || '';
+    prevMgmtFeeRef.current =
+      current.monthlyFee != null && current.monthlyFee !== '' ? Number(current.monthlyFee) : null;
+    subscribedRef.current = Boolean(String(current.stripeSubscriptionId || '').trim());
+    setMgmtChoice(initialMgmtChoice(current));
+    setMgmtTier(current.managedTier || current.plan || '');
+    setMgmtMonthly(feeInputValue(current.monthlyFee));
+    setMgmtTransfer(feeInputValue(current.transferFee));
+    setMgmtError('');
+    setMgmtNotice('');
+  }, [quote.id]);
 
   useEffect(() => {
     if (!isUnread(quote)) return undefined;
@@ -840,6 +900,91 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
       setQuestionsOpen(false);
       setConfirmDeposit(false);
       setActionNotice('Questions sent — waiting for client reply.');
+    });
+
+  const handleSaveMgmt = () =>
+    runAction('mgmt', async () => {
+      setMgmtError('');
+      setMgmtNotice('');
+      try {
+        const tier = String(mgmtTier || '').trim();
+        const monthlyFee = mgmtMonthly === '' ? null : Number(mgmtMonthly);
+        const transferFee = mgmtTransfer === '' ? null : Number(mgmtTransfer);
+
+        if (mgmtChoice !== 'dal' && mgmtChoice !== 'handover') {
+          throw new Error('Choose DAL Managed or Full Handover.');
+        }
+        if (mgmtChoice === 'dal') {
+          if (!tier) throw new Error('Enter a managed tier.');
+          if (!Number.isFinite(monthlyFee) || monthlyFee <= 0) {
+            throw new Error('Enter a monthly fee greater than 0.');
+          }
+          if (!String(quote.email || '').trim()) {
+            throw new Error('This quote has no client email, so Stripe cannot start a subscription.');
+          }
+        }
+        if (mgmtChoice === 'handover' && mgmtTransfer !== '' && !Number.isFinite(transferFee)) {
+          throw new Error('Transfer fee must be a number.');
+        }
+
+        const fields =
+          mgmtChoice === 'dal'
+            ? {
+                managementChoice: 'dal',
+                managedTier: tier,
+                monthlyFee,
+                transferFee: null,
+              }
+            : {
+                managementChoice: 'handover',
+                managedTier: '',
+                monthlyFee: null,
+                transferFee,
+              };
+
+        const previousTier = String(prevMgmtTierRef.current || '').trim();
+        const previousFee = prevMgmtFeeRef.current;
+        const feeChanged =
+          Number.isFinite(Number(previousFee)) && Number(previousFee) !== Number(monthlyFee);
+        const hadSubscription =
+          subscribedRef.current || Boolean(String(quote.stripeSubscriptionId || '').trim());
+        await patchQuote(fields);
+
+        if (mgmtChoice === 'dal' && !hadSubscription) {
+          const created = await postDalSite(DAL_SITE_CREATE_SUBSCRIPTION, {
+            quoteId: quote.id,
+            email: quote.email,
+            tier,
+            monthlyFee,
+          });
+          subscribedRef.current = true;
+          if (created.subscriptionId && onQuotePatched) {
+            onQuotePatched(quote.id, { stripeSubscriptionId: created.subscriptionId });
+          }
+          setMgmtNotice('Plan saved. Stripe subscription created.');
+        } else if (
+          mgmtChoice === 'dal' &&
+          hadSubscription &&
+          (!previousTier || previousTier !== tier || feeChanged)
+        ) {
+          await postDalSite(DAL_SITE_UPGRADE_SUBSCRIPTION, {
+            quoteId: quote.id,
+            newTier: tier,
+            newMonthlyFee: monthlyFee,
+          });
+          setMgmtNotice('Plan saved. Stripe will prorate this upgrade.');
+        } else {
+          setMgmtNotice('Management selection saved.');
+        }
+
+        if (mgmtChoice === 'dal') {
+          prevMgmtTierRef.current = tier;
+          prevMgmtFeeRef.current = monthlyFee;
+        }
+      } catch (err) {
+        setMgmtError(err.message || String(err));
+        throw err;
+      }
     });
 
   const handleSaveStripeLink = () =>
@@ -1622,99 +1767,82 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
             </button>
           )}
         </div>
-        {mgmtEditing ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="form-label">Management type</label>
-              <select
-                className="form-select"
-                value={mgmtChoice}
-                onChange={(e) => {
-                  setMgmtChoice(e.target.value);
-                  setMgmtTier('');
-                  setMgmtMonthly('');
-                  setMgmtTransfer('');
-                }}
-              >
-                <option value="">— Select —</option>
-                <option value="dal">DAL Managed</option>
-                <option value="handover">Full Handover</option>
-              </select>
-            </div>
-            {mgmtChoice === 'dal' && (
-              <>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Plan tier</label>
-                  <select
-                    className="form-select"
-                    value={mgmtTier}
-                    onChange={(e) => setMgmtTier(e.target.value)}
-                  >
-                    <option value="">— Select tier —</option>
-                    <option value="Starter">Starter</option>
-                    <option value="Growth">Growth</option>
-                    <option value="Pro">Pro</option>
-                    <option value="Enterprise">Enterprise</option>
-                  </select>
-                </div>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Monthly fee ($)</label>
-                  <input
-                    className="form-input"
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={mgmtMonthly}
-                    onChange={(e) => setMgmtMonthly(e.target.value)}
-                    placeholder="e.g. 150"
-                  />
-                </div>
-              </>
-            )}
-            {mgmtChoice === 'handover' && (
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Transfer fee ($)</label>
-                <input
-                  className="form-input"
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={mgmtTransfer}
-                  onChange={(e) => setMgmtTransfer(e.target.value)}
-                  placeholder="e.g. 500"
-                />
-              </div>
-            )}
-            <div className="quotes-action-row" style={{ marginTop: 4 }}>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={!!busyAction || !mgmtChoice}
-                onClick={handleSaveMgmt}
-              >
-                {busyAction === 'mgmt_save' ? 'Saving…' : 'Save'}
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                disabled={!!busyAction}
-                onClick={() => setMgmtEditing(false)}
-              >
-                Cancel
-              </button>
-            </div>
+        <div className="form-group" style={{ marginTop: 16 }}>
+          <label className="form-label">Update choice</label>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 6 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <input
+                type="radio"
+                name="mgmtChoice"
+                value="dal"
+                checked={mgmtChoice === 'dal'}
+                onChange={() => setMgmtChoice('dal')}
+              />
+              DAL Managed
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <input
+                type="radio"
+                name="mgmtChoice"
+                value="handover"
+                checked={mgmtChoice === 'handover'}
+                onChange={() => setMgmtChoice('handover')}
+              />
+              Full Handover
+            </label>
           </div>
-        ) : (
+        </div>
+        {mgmtChoice === 'dal' && (
           <div className="quotes-info-grid">
-            <InfoRow label="Choice">{mgmt.label}</InfoRow>
-            <InfoRow label="Transfer fee">
-              {mgmt.transfer != null && mgmt.transfer !== '' ? money(mgmt.transfer) : '—'}
-            </InfoRow>
-            <InfoRow label="Monthly fee">
-              {mgmt.monthly != null && mgmt.monthly !== '' ? money(mgmt.monthly) + '/mo' : '—'}
-            </InfoRow>
+            <div className="form-group">
+              <label className="form-label">Tier</label>
+              <input
+                className="form-input"
+                value={mgmtTier}
+                onChange={(e) => setMgmtTier(e.target.value)}
+                placeholder="starter, growth, pro…"
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Monthly fee</label>
+              <input
+                className="form-input"
+                type="number"
+                min="0"
+                step="0.01"
+                value={mgmtMonthly}
+                onChange={(e) => setMgmtMonthly(e.target.value)}
+                placeholder="75"
+              />
+            </div>
           </div>
         )}
+        {mgmtChoice === 'handover' && (
+          <div className="form-group">
+            <label className="form-label">Transfer fee</label>
+            <input
+              className="form-input"
+              type="number"
+              min="0"
+              step="0.01"
+              value={mgmtTransfer}
+              onChange={(e) => setMgmtTransfer(e.target.value)}
+              placeholder="0"
+            />
+          </div>
+        )}
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={!!busyAction}
+          onClick={handleSaveMgmt}
+        >
+          {busyAction === 'mgmt' ? 'Saving…' : 'Save plan'}
+        </button>
+        {mgmtNotice && (
+          <div className="quotes-success-notice" style={{ marginTop: 12 }}>{mgmtNotice}</div>
+        )}
+        {mgmtError && <div className="quotes-error">{mgmtError}</div>}
       </section>
 
       <section className="quotes-section quotes-actions">

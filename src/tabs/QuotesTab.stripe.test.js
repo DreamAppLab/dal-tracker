@@ -185,6 +185,92 @@ test('monthly send uses the saved Stripe payment link', async () => {
   view.cleanup();
 });
 
+function clickRadio(container, value) {
+  const input = container.querySelector('input[name="mgmtChoice"][value="' + value + '"]');
+  if (!input) throw new Error('Missing management radio: ' + value);
+  act(() => {
+    input.click();
+  });
+}
+
+test('a new DAL managed plan creates a Stripe subscription after save', async () => {
+  const view = renderDetail(quoteFixture());
+  await flush();
+  clickRadio(view.container, 'dal');
+  setInput(view.container.querySelector('input[placeholder="starter, growth, pro…"]'), 'growth');
+  setInput(view.container.querySelector('input[placeholder="75"]'), '75');
+  clickButton(view.container, 'Save plan');
+  await flush();
+  await flush();
+
+  const quoteCall = global.fetch.mock.calls.find(
+    ([url, options]) => String(url).includes('/api/quotes?id=') && options && options.method === 'POST' && options.body && options.body.includes('managementChoice')
+  );
+  expect(JSON.parse(quoteCall[1].body)).toEqual({
+    managementChoice: 'dal',
+    managedTier: 'growth',
+    monthlyFee: 75,
+    transferFee: null,
+  });
+  const stripeCall = global.fetch.mock.calls.find(([url]) => String(url).includes('/api/stripe/create-subscription'));
+  expect(stripeCall).toBeTruthy();
+  expect(JSON.parse(stripeCall[1].body)).toEqual({
+    quoteId: 'q1',
+    email: 'ada@example.com',
+    tier: 'growth',
+    monthlyFee: 75,
+  });
+  expect(global.fetch.mock.calls.some(([url]) => String(url).includes('/api/stripe/upgrade-subscription'))).toBe(false);
+  expect(view.container.textContent).toContain('Stripe subscription created');
+  view.cleanup();
+});
+
+test('changing an existing subscribed tier requests a prorated upgrade', async () => {
+  const view = renderDetail(
+    quoteFixture({
+      managementChoice: 'dal',
+      managedTier: 'starter',
+      monthlyFee: 25,
+      stripeSubscriptionId: 'sub_existing',
+    })
+  );
+  await flush();
+  setInput(view.container.querySelector('input[placeholder="starter, growth, pro…"]'), 'growth');
+  setInput(view.container.querySelector('input[placeholder="75"]'), '75');
+  clickButton(view.container, 'Save plan');
+  await flush();
+  await flush();
+
+  const stripeCall = global.fetch.mock.calls.find(([url]) => String(url).includes('/api/stripe/upgrade-subscription'));
+  expect(stripeCall).toBeTruthy();
+  expect(JSON.parse(stripeCall[1].body)).toEqual({
+    quoteId: 'q1',
+    newTier: 'growth',
+    newMonthlyFee: 75,
+  });
+  expect(global.fetch.mock.calls.some(([url]) => String(url).includes('/api/stripe/create-subscription'))).toBe(false);
+  expect(view.container.textContent).toContain('prorate this upgrade');
+  view.cleanup();
+});
+
+test('saving the same subscribed tier does not call Stripe', async () => {
+  const view = renderDetail(
+    quoteFixture({
+      managementChoice: 'dal',
+      managedTier: 'starter',
+      monthlyFee: 25,
+      stripeSubscriptionId: 'sub_existing',
+    })
+  );
+  await flush();
+  clickButton(view.container, 'Save plan');
+  await flush();
+  await flush();
+  expect(global.fetch.mock.calls.some(([url]) => String(url).includes('/api/stripe/'))).toBe(false);
+  expect(view.container.textContent).toContain('Management selection saved');
+  view.cleanup();
+});
+
 test('standard plans keep Send Deposit Link', async () => {
   const view = renderDetail(quoteFixture({ paymentPlan: 'deposit' }));
   await flush();
