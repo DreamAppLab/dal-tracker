@@ -1019,18 +1019,6 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
       setProjectUrlEditing(false);
     });
 
-  const handleSaveMgmt = () =>
-    runAction('mgmt_save', async () => {
-      const fields = {
-        managementChoice: mgmtChoice === 'dal' ? 'dal' : mgmtChoice === 'handover' ? 'handover' : '',
-        managedTier: mgmtChoice === 'dal' ? mgmtTier : '',
-        monthlyFee: mgmtChoice === 'dal' && mgmtMonthly !== '' ? Number(mgmtMonthly) : null,
-        transferFee: mgmtChoice === 'handover' && mgmtTransfer !== '' ? Number(mgmtTransfer) : null,
-      };
-      await patchQuote(fields);
-      setMgmtEditing(false);
-    });
-
   const handleSendDeposit = () =>
     runAction('deposit', async () => {
       if (isMonthlyPlan && !savedStripeLink) {
