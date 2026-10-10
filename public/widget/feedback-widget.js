@@ -95,6 +95,9 @@
     '.dal-popup .dal-submit { background:' + BRAND_COLOR + '; color:#000; padding:6px 14px; border-radius:6px; font-weight:600; font-size:12px; }',
     '.dal-popup .dal-cancel { background:#1e293b; color:#94a3b8; padding:6px 14px; border-radius:6px; font-size:12px; }',
     '.dal-popup .dal-close { position:absolute; top:8px; right:10px; background:none; color:#94a3b8; font-size:16px; cursor:pointer; border:none; }',
+    '.dal-popup .dal-resolve-btn { margin-top:10px; width:100%; padding:6px 0; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer; border:none; transition:opacity 0.15s; }',
+    '.dal-popup .dal-resolve-btn.resolve { background:rgba(34,197,94,0.15); color:#22c55e; }',
+    '.dal-popup .dal-resolve-btn.reopen { background:rgba(148,163,184,0.1); color:#94a3b8; }',
     // Identity modal
     '.dal-modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:2147483647;',
     '  display:flex; align-items:center; justify-content:center; }',
@@ -109,6 +112,9 @@
     '  border-radius:8px; font-weight:700; font-size:14px; margin-top:4px; }',
   ].join('\n');
   shadow.appendChild(style);
+
+  // ── Admin mode: ?dal_admin=true unlocks resolve button in popups ─────────────
+  var IS_ADMIN = (new URLSearchParams(window.location.search)).get('dal_admin') === 'true';
 
   // ── State ────────────────────────────────────────────────────────────────────
   var session = loadSession();
@@ -239,19 +245,64 @@
     var badge = pin.resolved
       ? '<span class="dal-badge resolved">✓ Resolved</span>'
       : '<span class="dal-badge open">● Open</span>';
+
+    // Show resolve button only in admin mode
+    var resolveHtml = IS_ADMIN
+      ? '<button class="dal-btn dal-resolve-btn ' + (pin.resolved ? 'reopen' : 'resolve') + '" id="dal-resolve-btn">'
+          + (pin.resolved ? 'Reopen' : 'Mark Resolved') + '</button>'
+      : '';
+
     popup.innerHTML = [
       '<button class="dal-btn dal-close" title="Close">×</button>',
       '<h4>' + escHtml(pin.client_name || 'Anonymous') + '</h4>',
       '<p>' + escHtml(pin.note) + '</p>',
       '<p class="dal-meta">' + escHtml(pin.page_url || '') + ' · ' + date + '</p>',
       '<p>' + badge + '</p>',
-      pin.screenshot_url ? '<p><img src="' + escHtml(pin.screenshot_url) + '" style="max-width:100%;border-radius:6px;" /></p>' : '',
+      pin.screenshotDataUrl ? '<p><img src="' + escHtml(pin.screenshotDataUrl) + '" style="max-width:100%;border-radius:6px;" /></p>' : '',
+      resolveHtml,
     ].join('');
 
     popup.querySelector('.dal-close').addEventListener('click', function () {
       popup.remove();
       activePinId = null;
     });
+
+    if (IS_ADMIN) {
+      var resolveBtn = popup.querySelector('#dal-resolve-btn');
+      if (resolveBtn) {
+        resolveBtn.addEventListener('click', function () {
+          var newResolved = !pin.resolved;
+          resolveBtn.disabled = true;
+          resolveBtn.style.opacity = '0.5';
+          fetch(API_BASE + '/resolve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pin_id: pin.id, resolved: newResolved }),
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (!data.ok) return;
+              // Update local pin state
+              pin.resolved = newResolved;
+              // Update pin circle appearance
+              var entry = pinEls[pin.id];
+              if (entry) {
+                entry.pinEl.className = 'dal-pin ' + (newResolved ? 'resolved-pin' : 'open-pin');
+                entry.pinEl.textContent = newResolved ? '✓' : entry.pinEl.textContent;
+              }
+              // Rebuild popup with updated state
+              popup.remove();
+              activePinId = null;
+              var newPopup = buildPinPopup(pin, anchorEl);
+              activePinId = pin.id;
+            })
+            .catch(function () {
+              resolveBtn.disabled = false;
+              resolveBtn.style.opacity = '1';
+            });
+        });
+      }
+    }
 
     shadow.appendChild(popup);
     return popup;
