@@ -165,6 +165,8 @@ const KNOWN_QUOTE_FIELDS = new Set([
   'depositSentAt', 'stripeDepositUrl', 'balanceSentAt', 'stripeBalanceUrl',
   'stripePaymentLink',
   'completedAt', 'movedToBuildAt', 'quoteId',
+  'paymentHistory', 'lastPaymentAt', 'stripeSubscriptionId',
+  'suspended', 'suspendedAt', 'suspendClearedAt', 'suspendReason',
 ]);
 
 function designLines(d) {
@@ -1263,6 +1265,56 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
           )}
         </div>
       </section>
+
+      {(Array.isArray(quote.paymentHistory) && quote.paymentHistory.length > 0 || quote.lastPaymentAt) && (
+        <section className="quotes-section">
+          <h2>Payment History</h2>
+          {quote.lastPaymentAt && (
+            <p style={{ fontSize: 13, color: '#94A3B8', marginBottom: 12 }}>
+              Last payment: <strong style={{ color: '#4ADE80' }}>{formatDateTime(quote.lastPaymentAt)}</strong>
+            </p>
+          )}
+          {Array.isArray(quote.paymentHistory) && quote.paymentHistory.length > 0 ? (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
+                    <th style={{ textAlign: 'left', padding: '6px 10px 6px 0', color: '#94A3B8', fontWeight: 600, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Date</th>
+                    <th style={{ textAlign: 'right', padding: '6px 10px', color: '#94A3B8', fontWeight: 600, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Amount</th>
+                    <th style={{ textAlign: 'left', padding: '6px 0 6px 10px', color: '#94A3B8', fontWeight: 600, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Stripe Invoice</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...quote.paymentHistory]
+                    .sort((a, b) => {
+                      const ta = String(a.paidAt || a.date || '');
+                      const tb = String(b.paidAt || b.date || '');
+                      return tb.localeCompare(ta);
+                    })
+                    .map((entry, i) => {
+                      const paidAt = entry.paidAt || entry.date || '';
+                      const amount = entry.amount != null ? Number(entry.amount) : null;
+                      const invoiceId = entry.stripeInvoiceId || entry.invoiceId || '';
+                      return (
+                        <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                          <td style={{ padding: '8px 10px 8px 0', color: '#E2E8F0', verticalAlign: 'top' }}>
+                            {paidAt ? formatDateTime(paidAt) : '—'}
+                          </td>
+                          <td style={{ padding: '8px 10px', color: '#4ADE80', fontWeight: 700, textAlign: 'right', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                            {amount != null ? money(amount / 100) : '—'}
+                          </td>
+                          <td style={{ padding: '8px 0 8px 10px', color: '#64748B', fontFamily: 'monospace', fontSize: 12, verticalAlign: 'top' }}>
+                            {invoiceId || '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </section>
+      )}
 
       {Array.isArray(quote.monthlyOptions) && quote.monthlyOptions.length > 0 && (
         <section className="quotes-section">
