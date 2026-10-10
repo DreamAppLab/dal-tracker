@@ -170,6 +170,7 @@ const KNOWN_QUOTE_FIELDS = new Set([
   'completedAt', 'movedToBuildAt', 'quoteId',
   'paymentHistory', 'lastPaymentAt', 'stripeSubscriptionId', 'paymentPlanConfirmed',
   'suspended', 'suspendedAt', 'suspendClearedAt', 'suspendReason',
+  'projectUrl',
 ]);
 
 function designLines(d) {
@@ -512,6 +513,9 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
   const [busyAction, setBusyAction] = useState('');
   const [questionsOpen, setQuestionsOpen] = useState(false);
   const [questionsText, setQuestionsText] = useState(quote.questionsText || quote.clientQuestions || '');
+  const [projectUrl, setProjectUrl] = useState(quote.projectUrl || '');
+  const [projectUrlEditing, setProjectUrlEditing] = useState(false);
+  const [projectUrlDraft, setProjectUrlDraft] = useState(quote.projectUrl || '');
   const [startDate, setStartDate] = useState(dateKey(quote.estimatedStart));
   const [completionDate, setCompletionDate] = useState(dateKey(quote.estimatedCompletion));
   const [confirmDeposit, setConfirmDeposit] = useState(false);
@@ -862,6 +866,14 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
       }
     });
 
+  const handleSaveProjectUrl = () =>
+    runAction('project_url_save', async () => {
+      const url = String(projectUrlDraft || '').trim();
+      await patchQuote({ projectUrl: url });
+      setProjectUrl(url);
+      setProjectUrlEditing(false);
+    });
+
   const handleSaveMgmt = () =>
     runAction('mgmt_save', async () => {
       const fields = {
@@ -1050,6 +1062,40 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
           )}
           <InfoRow label="Status (raw)">{quote.status || 'submitted'}</InfoRow>
           <InfoRow label="Submitted">{formatDateTime(quote.submittedAt || quote.createdAt)}</InfoRow>
+          <InfoRow label="Project URL">
+            {projectUrlEditing ? (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input
+                  className="form-input"
+                  style={{ flex: 1, minWidth: 200, padding: '4px 8px', fontSize: 13 }}
+                  value={projectUrlDraft}
+                  onChange={(e) => setProjectUrlDraft(e.target.value)}
+                  placeholder="https://your-project.vercel.app"
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSaveProjectUrl(); if (e.key === 'Escape') setProjectUrlEditing(false); }}
+                  autoFocus
+                />
+                <button type="button" className="btn btn-primary btn-sm" disabled={!!busyAction} onClick={handleSaveProjectUrl}>
+                  {busyAction === 'project_url_save' ? 'Saving…' : 'Save'}
+                </button>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setProjectUrlEditing(false); setProjectUrlDraft(projectUrl); }}>
+                  Cancel
+                </button>
+              </div>
+            ) : projectUrl ? (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <a href={projectUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#4cc1f3', wordBreak: 'break-all' }}>
+                  {projectUrl}
+                </a>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setProjectUrlDraft(projectUrl); setProjectUrlEditing(true); }} style={{ flexShrink: 0 }}>
+                  Edit
+                </button>
+              </div>
+            ) : (
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setProjectUrlEditing(true)}>
+                + Add URL
+              </button>
+            )}
+          </InfoRow>
           {isCrmQuote(quote.formType) && quote.zerbiqClientId && (
             <InfoRow label="Zerbiq Portal">
               <a
@@ -1711,6 +1757,28 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
 
         {showQuestions && questionsOpen && (
           <div className="quotes-questions-form">
+            {projectUrl && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.25)', borderRadius: 8, marginBottom: 14 }}>
+                <span style={{ fontSize: 12, color: '#94A3B8', whiteSpace: 'nowrap' }}>Current project</span>
+                <a
+                  href={projectUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: '#4cc1f3', fontSize: 13, wordBreak: 'break-all', flex: 1 }}
+                >
+                  {projectUrl}
+                </a>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ flexShrink: 0, fontSize: 12 }}
+                  onClick={() => navigator.clipboard.writeText(projectUrl)}
+                  title="Copy link"
+                >
+                  Copy
+                </button>
+              </div>
+            )}
             <div className="form-group">
               <label className="form-label">Questions for the client</label>
               <textarea
