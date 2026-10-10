@@ -21,6 +21,7 @@ import MaintenanceTab from './components/MaintenanceTab';
 import Contacts from './components/Contacts';
 import WebProjects from './pages/WebProjects';
 import WebsiteAnalytics from './pages/WebsiteAnalytics';
+import ManualQuotes, { ManualQuotesDraftListener } from './pages/ManualQuotes';
 import Sidebar from './components/Sidebar';
 import { QuotesUnreadListener } from './tabs/QuotesTab';
 import { useOnboardingUploads } from './hooks/useOnboardingUploads';
@@ -63,6 +64,8 @@ function DashboardApp() {
   const [projectsUnread, setProjectsUnread] = useState({}); // { projectId: count }
   const [maintenanceOverdue, setMaintenanceOverdue] = useState(0);
   const [quotesUnread, setQuotesUnread] = useState(0);
+  const [manualQuotesDrafts, setManualQuotesDrafts] = useState(false);
+  const [manualQuoteId, setManualQuoteId] = useState(null);
   const [inboundUnread, setInboundUnread] = useState(0);
   const { uploadsByClientId: onboardingUploadsByClientId } = useOnboardingUploads();
   // Tracks which zerbiqClientId values currently have an active quote. Used to
@@ -322,6 +325,32 @@ function DashboardApp() {
     document.title = count > 0 ? `(${count}) DAL Mission Control` : 'DAL Mission Control';
   }, [inboundUnread, contactsUnread, clientJobsUnread]);
 
+  useEffect(() => {
+    const applyHash = () => {
+      const hash = window.location.hash || '';
+      const match = hash.match(/^#\/quotes(?:\/([^/]+))?$/);
+      if (!match) return;
+      setActiveView('quotes');
+      setManualQuoteId(match[1] || null);
+    };
+    applyHash();
+    window.addEventListener('hashchange', applyHash);
+    return () => window.removeEventListener('hashchange', applyHash);
+  }, []);
+
+  const handleNavigate = (view) => {
+    setActiveView(view);
+    if (view === 'quotes') {
+      setManualQuoteId(null);
+      window.location.hash = '#/quotes';
+    }
+  };
+
+  const handleSelectManualQuote = (id) => {
+    setManualQuoteId(id);
+    window.location.hash = id ? `#/quotes/${id}` : '#/quotes';
+  };
+
   const handleSelectProject = (project) => {
     setSelectedProject(project);
     setActiveView('project');
@@ -374,7 +403,7 @@ function DashboardApp() {
         revenueLogos={revenueLogos}
         activeView={activeView}
         selectedProjectId={currentProject?.id}
-        onNavigate={setActiveView}
+        onNavigate={handleNavigate}
         onSelectProject={handleSelectProject}
         onAddProject={() => openAddModal('')}
         onLogout={logout}
@@ -387,6 +416,7 @@ function DashboardApp() {
         quotesUnread={quotesUnread}
         inboundUnread={inboundUnread}
         onboardingUploads={filteredOnboardingUploadsCount}
+        manualQuotesDrafts={manualQuotesDrafts}
       />
       <main className={`main-content ${sidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}>
         {activeView === 'dashboard' && (
@@ -404,6 +434,12 @@ function DashboardApp() {
             projects={projects}
             onSelectProject={handleSelectProject}
             onNewClientJob={() => openAddModal('Client Job')}
+          />
+        )}
+        {activeView === 'quotes' && (
+          <ManualQuotes
+            selectedId={manualQuoteId}
+            onSelectId={handleSelectManualQuote}
           />
         )}
         <div style={{ display: activeView === 'contacts' ? undefined : 'none' }}>
@@ -456,6 +492,7 @@ function DashboardApp() {
         )}
       </main>
       <QuotesUnreadListener onUnreadCount={setQuotesUnread} />
+      <ManualQuotesDraftListener onHasDrafts={setManualQuotesDrafts} />
       {showAddModal && (
         <AddProjectModal
           onAdd={handleAddProject}
