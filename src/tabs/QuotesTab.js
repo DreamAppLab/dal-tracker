@@ -161,6 +161,9 @@ const KNOWN_QUOTE_FIELDS = new Set([
   'discountCode', 'discountPercent', 'discountAmount', 'originalTotal', 'total',
   'dalDiscount', 'dalDiscountNote', 'dalDiscountAppliedAt',
   'monthlyOptions', 'recommendedPlan',
+  'paymentPlan', 'payment_plan', 'monthlyAmount', 'monthly_amount',
+  'monthlyPayments', 'monthly_payments', 'installmentAmount',
+  'adjusted_price', 'deposit', 'balance', 'source', 'manualQuoteId', 'legacyPostcard',
   'estimatedStart', 'estimatedCompletion',
   'depositSentAt', 'stripeDepositUrl', 'balanceSentAt', 'stripeBalanceUrl',
   'stripePaymentLink',
@@ -242,15 +245,19 @@ function monthlyPlanFigures(q) {
   const monthlyAmount = Number(q.monthlyAmount != null ? q.monthlyAmount : q.monthly_amount);
   const monthlyPayments = Number(q.monthlyPayments != null ? q.monthlyPayments : q.monthly_payments);
   if (!Number.isFinite(monthlyAmount) || !Number.isFinite(monthlyPayments)) return null;
-  const remainingCount = Math.max(0, monthlyPayments - 1);
+  // Count payments actually received so far
+  const paidCount = Array.isArray(q.paymentHistory) ? q.paymentHistory.length : 0;
+  const remainingCount = Math.max(0, monthlyPayments - paidCount);
   const adjusted =
     q.adjusted_price != null ? Number(q.adjusted_price) : monthlyAmount * monthlyPayments;
   return {
     monthlyAmount,
     monthlyPayments,
+    paidCount,
     remainingCount,
     adjusted,
     deposit: monthlyAmount,
+    // Balance = full contract value minus payments actually received
     balance: monthlyAmount * remainingCount,
   };
 }
@@ -1231,22 +1238,28 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
           {pricing.monthly ? (
             <>
               <div className="quotes-price-row">
-                <span>First payment</span>
-                <span>{money(pricing.monthly.monthlyAmount)}</span>
+                <span>Monthly payment</span>
+                <span>{money(pricing.monthly.monthlyAmount)}/mo</span>
+              </div>
+              <div className="quotes-price-row">
+                <span>Payments received</span>
+                <span>
+                  {pricing.monthly.paidCount} of {pricing.monthly.monthlyPayments}
+                </span>
               </div>
               <div className="quotes-price-row">
                 <span>Remaining</span>
                 <span>
                   {pricing.monthly.remainingCount}{' '}
-                  {pricing.monthly.remainingCount === 1 ? 'payment' : 'payments'} of{' '}
-                  {money(pricing.monthly.monthlyAmount)}
+                  {pricing.monthly.remainingCount === 1 ? 'payment' : 'payments'} × {money(pricing.monthly.monthlyAmount)}
+                  {' '}= {money(pricing.monthly.balance)}
                 </span>
               </div>
-              <div className="quotes-price-row">
-                <span>Total</span>
+              <div className="quotes-price-row quotes-price-final">
+                <span>Contract total</span>
                 <span>
                   {money(
-                    quote.adjusted_price != null ? Number(quote.adjusted_price) : pricing.finalTotal
+                    quote.adjusted_price != null ? Number(quote.adjusted_price) : pricing.monthly.adjusted
                   )}
                 </span>
               </div>
