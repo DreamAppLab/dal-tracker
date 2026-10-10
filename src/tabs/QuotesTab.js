@@ -536,6 +536,16 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
   const [stripeLinkEditing, setStripeLinkEditing] = useState(false);
   const [stripeLinkWarning, setStripeLinkWarning] = useState('');
   const [paymentPlanConfirmed, setPaymentPlanConfirmed] = useState(() => !!quote.paymentPlanConfirmed);
+  const [mgmtEditing, setMgmtEditing] = useState(false);
+  const [mgmtChoice, setMgmtChoice] = useState(() => {
+    const c = String(quote.managementChoice || '').toLowerCase();
+    if (c === 'managed' || c === 'dal' || c === 'dal-managed' || c === 'dal_managed' || quote.path === 'dal' || (quote.plan && !c)) return 'dal';
+    if (c === 'handover' || c === 'full-handover' || c === 'full_handover' || c === 'self' || c === 'wix' || c === 'self-managed' || quote.path === 'wix' || quote.path === 'self') return 'handover';
+    return '';
+  });
+  const [mgmtTier, setMgmtTier] = useState(() => String(quote.managedTier || quote.plan || ''));
+  const [mgmtMonthly, setMgmtMonthly] = useState(() => quote.monthlyFee != null ? String(quote.monthlyFee) : '');
+  const [mgmtTransfer, setMgmtTransfer] = useState(() => quote.transferFee != null ? String(quote.transferFee) : '');
 
   const status = rawStatus(quote);
   const shownStatus = displayStatus(quote);
@@ -850,6 +860,18 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
         setStripeLinkEditing(false);
         setStripeLinkWarning('');
       }
+    });
+
+  const handleSaveMgmt = () =>
+    runAction('mgmt_save', async () => {
+      const fields = {
+        managementChoice: mgmtChoice === 'dal' ? 'dal' : mgmtChoice === 'handover' ? 'handover' : '',
+        managedTier: mgmtChoice === 'dal' ? mgmtTier : '',
+        monthlyFee: mgmtChoice === 'dal' && mgmtMonthly !== '' ? Number(mgmtMonthly) : null,
+        transferFee: mgmtChoice === 'handover' && mgmtTransfer !== '' ? Number(mgmtTransfer) : null,
+      };
+      await patchQuote(fields);
+      setMgmtEditing(false);
     });
 
   const handleSendDeposit = () =>
@@ -1541,16 +1563,112 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
       })()}
 
       <section className="quotes-section">
-        <h2>Management Selection</h2>
-        <div className="quotes-info-grid">
-          <InfoRow label="Choice">{mgmt.label}</InfoRow>
-          <InfoRow label="Transfer fee">
-            {mgmt.transfer != null && mgmt.transfer !== '' ? money(mgmt.transfer) : '—'}
-          </InfoRow>
-          <InfoRow label="Monthly fee">
-            {mgmt.monthly != null && mgmt.monthly !== '' ? money(mgmt.monthly) + '/mo' : '—'}
-          </InfoRow>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <h2 style={{ margin: 0 }}>Management Selection</h2>
+          {!mgmtEditing && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              style={{ fontSize: 12 }}
+              onClick={() => setMgmtEditing(true)}
+            >
+              {mgmt.label === '—' ? '+ Set Management' : 'Edit'}
+            </button>
+          )}
         </div>
+        {mgmtEditing ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">Management type</label>
+              <select
+                className="form-select"
+                value={mgmtChoice}
+                onChange={(e) => {
+                  setMgmtChoice(e.target.value);
+                  setMgmtTier('');
+                  setMgmtMonthly('');
+                  setMgmtTransfer('');
+                }}
+              >
+                <option value="">— Select —</option>
+                <option value="dal">DAL Managed</option>
+                <option value="handover">Full Handover</option>
+              </select>
+            </div>
+            {mgmtChoice === 'dal' && (
+              <>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Plan tier</label>
+                  <select
+                    className="form-select"
+                    value={mgmtTier}
+                    onChange={(e) => setMgmtTier(e.target.value)}
+                  >
+                    <option value="">— Select tier —</option>
+                    <option value="Starter">Starter</option>
+                    <option value="Growth">Growth</option>
+                    <option value="Pro">Pro</option>
+                    <option value="Enterprise">Enterprise</option>
+                  </select>
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Monthly fee ($)</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={mgmtMonthly}
+                    onChange={(e) => setMgmtMonthly(e.target.value)}
+                    placeholder="e.g. 150"
+                  />
+                </div>
+              </>
+            )}
+            {mgmtChoice === 'handover' && (
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Transfer fee ($)</label>
+                <input
+                  className="form-input"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={mgmtTransfer}
+                  onChange={(e) => setMgmtTransfer(e.target.value)}
+                  placeholder="e.g. 500"
+                />
+              </div>
+            )}
+            <div className="quotes-action-row" style={{ marginTop: 4 }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!!busyAction || !mgmtChoice}
+                onClick={handleSaveMgmt}
+              >
+                {busyAction === 'mgmt_save' ? 'Saving…' : 'Save'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={!!busyAction}
+                onClick={() => setMgmtEditing(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="quotes-info-grid">
+            <InfoRow label="Choice">{mgmt.label}</InfoRow>
+            <InfoRow label="Transfer fee">
+              {mgmt.transfer != null && mgmt.transfer !== '' ? money(mgmt.transfer) : '—'}
+            </InfoRow>
+            <InfoRow label="Monthly fee">
+              {mgmt.monthly != null && mgmt.monthly !== '' ? money(mgmt.monthly) + '/mo' : '—'}
+            </InfoRow>
+          </div>
+        )}
       </section>
 
       <section className="quotes-section quotes-actions">
