@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { db } from '../firebase';
 import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc,
@@ -83,52 +83,136 @@ async function fetchPins(projectId) {
     .sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
 }
 
-// ── New Project Modal ────────────────────────────────────────────────────────
-function NewProjectModal({ onClose, onCreated }) {
-  const [name, setName] = useState('');
-  const [previewUrl, setPreviewUrl] = useState('');
-  const [contactQuery, setContactQuery] = useState('');
+// ── Contact picker (Firestore `clients` — same as Contacts page) ─────────────
+function ContactPicker({ value, onChange }) {
   const [contacts, setContacts] = useState([]);
-  const [filteredContacts, setFilteredContacts] = useState([]);
-  const [selectedContact, setSelectedContact] = useState(null);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [queryText, setQueryText] = useState('');
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
 
   useEffect(() => {
-    getDocs(collection(db, 'contacts')).then((snap) => {
-      setContacts(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    }).catch(() => {});
+    getDocs(collection(db, 'clients'))
+      .then((snap) => {
+        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        rows.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
+        setContacts(rows);
+      })
+      .catch((err) => console.error('Failed to load contacts', err));
   }, []);
 
   useEffect(() => {
-    if (!contactQuery.trim()) { setFilteredContacts([]); return; }
-    const q = contactQuery.toLowerCase();
-    setFilteredContacts(
-      contacts.filter((c) =>
-        (c.name || '').toLowerCase().includes(q) ||
-        (c.company || '').toLowerCase().includes(q)
-      ).slice(0, 8)
-    );
-  }, [contactQuery, contacts]);
+    const onDocClick = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  const filtered = useMemo(() => {
+    const q = queryText.trim().toLowerCase();
+    const list = !q
+      ? contacts
+      : contacts.filter((c) =>
+          [c.name, c.company, c.email].some((v) => String(v || '').toLowerCase().includes(q))
+        );
+    return list.slice(0, 12);
+  }, [contacts, queryText]);
+
+  const display = value
+    ? `${value.name || ''}${value.company ? ` — ${value.company}` : ''}`
+    : queryText;
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative' }}>
+      <input
+        value={display}
+        onChange={(e) => { onChange(null); setQueryText(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        placeholder="Search contacts..."
+        style={inputStyle}
+        autoComplete="off"
+      />
+      {value && (
+        <button
+          type="button"
+          onClick={() => { onChange(null); setQueryText(''); setOpen(true); }}
+          style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 16 }}
+        >
+          ×
+        </button>
+      )}
+      {open && !value && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#1e293b', border: '1px solid #334155', borderRadius: 8, zIndex: 10, maxHeight: 220, overflowY: 'auto' }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding: '9px 12px', fontSize: 13, color: '#94a3b8' }}>
+              {contacts.length === 0 ? 'Loading contacts…' : 'No matching contacts'}
+            </div>
+          ) : filtered.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => { onChange(c); setQueryText(''); setOpen(false); }}
+              style={{ display: 'block', width: '100%', background: 'none', border: 'none', color: '#e2e8f0', padding: '9px 12px', textAlign: 'left', cursor: 'pointer', fontSize: 13 }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#334155'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}
+            >
+              {c.name}
+              {c.company ? <span style={{ color: '#94a3b8', marginLeft: 6 }}>— {c.company}</span> : null}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── New / Edit Project Modal ─────────────────────────────────────────────────
+function ProjectModal({ project, onClose, onSaved }) {
+  const isEdit = Boolean(project);
+  const [name, setName] = useState(project?.project_name || '');
+  const [previewUrl, setPreviewUrl] = useState(project?.preview_url || '');
+  const [selectedContact, setSelectedContact] = useState(
+    project?.contact_id
+      ? { id: project.contact_id, name: project.contact_name || '', company: project.contact_company || '' }
+      : null
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSave = async () => {
     if (!name.trim()) { setError('Project name is required'); return; }
     setSaving(true);
     setError('');
+    const contactFields = {
+      contact_id: selectedContact?.id || null,
+      contact_name: selectedContact?.name || null,
+    };
     try {
-      const project_id = generateProjectId(name.trim());
-      const payload = {
-        project_id,
-        project_name: name.trim(),
-        contact_id: selectedContact?.id || null,
-        contact_name: selectedContact?.name || null,
-        preview_url: previewUrl.trim() || null,
-        status: 'active',
-        created_at: serverTimestamp(),
-      };
-      await setDoc(doc(db, 'webProjects', project_id), payload);
-      onCreated({ ...payload, id: project_id });
+      if (isEdit) {
+        await updateDoc(doc(db, 'webProjects', project.project_id), {
+          project_name: name.trim(),
+          preview_url: previewUrl.trim() || null,
+          ...contactFields,
+        });
+        onSaved({
+          ...project,
+          project_name: name.trim(),
+          preview_url: previewUrl.trim() || null,
+          ...contactFields,
+        });
+      } else {
+        const project_id = generateProjectId(name.trim());
+        const payload = {
+          project_id,
+          project_name: name.trim(),
+          preview_url: previewUrl.trim() || null,
+          status: 'active',
+          created_at: serverTimestamp(),
+          ...contactFields,
+        };
+        await setDoc(doc(db, 'webProjects', project_id), payload);
+        onSaved({ ...payload, id: project_id });
+      }
     } catch (e) {
       setError(e.message);
       setSaving(false);
@@ -141,47 +225,22 @@ function NewProjectModal({ onClose, onCreated }) {
       zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center',
     }}>
       <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 14, padding: 28, width: 440, color: '#e2e8f0' }}>
-        <h3 style={{ margin: '0 0 20px', fontSize: 17 }}>New Web Project</h3>
+        <h3 style={{ margin: '0 0 20px', fontSize: 17 }}>{isEdit ? 'Edit Web Project' : 'New Web Project'}</h3>
         {error && <p style={{ color: '#f87171', fontSize: 13, marginBottom: 12 }}>{error}</p>}
 
         <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Project Name *</label>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Coastal Brew Demo" style={inputStyle} />
 
-        <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4, marginTop: 12 }}>Assign to Contact</label>
-        <div style={{ position: 'relative' }}>
-          <input
-            value={selectedContact ? `${selectedContact.name}${selectedContact.company ? ` — ${selectedContact.company}` : ''}` : contactQuery}
-            onChange={(e) => { setContactQuery(e.target.value); setSelectedContact(null); setShowDropdown(true); }}
-            onFocus={() => setShowDropdown(true)}
-            placeholder="Search contacts..."
-            style={inputStyle}
-          />
-          {selectedContact && (
-            <button onClick={() => { setSelectedContact(null); setContactQuery(''); }} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 16 }}>×</button>
-          )}
-          {showDropdown && filteredContacts.length > 0 && !selectedContact && (
-            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#1e293b', border: '1px solid #334155', borderRadius: 8, zIndex: 10, maxHeight: 200, overflowY: 'auto' }}>
-              {filteredContacts.map((c) => (
-                <button key={c.id}
-                  onClick={() => { setSelectedContact(c); setContactQuery(''); setShowDropdown(false); }}
-                  style={{ display: 'block', width: '100%', background: 'none', border: 'none', color: '#e2e8f0', padding: '9px 12px', textAlign: 'left', cursor: 'pointer', fontSize: 13 }}
-                  onMouseEnter={(e) => e.target.style.background = '#334155'}
-                  onMouseLeave={(e) => e.target.style.background = 'none'}
-                >
-                  {c.name}{c.company ? <span style={{ color: '#94a3b8', marginLeft: 6 }}>— {c.company}</span> : null}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4, marginTop: 12 }}>Contact</label>
+        <ContactPicker value={selectedContact} onChange={setSelectedContact} />
 
         <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4, marginTop: 12 }}>Preview URL</label>
         <input value={previewUrl} onChange={(e) => setPreviewUrl(e.target.value)} placeholder="https://preview.example.com" style={inputStyle} />
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
-          <button onClick={onClose} style={{ background: '#1e293b', border: 'none', color: '#94a3b8', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>Cancel</button>
-          <button onClick={handleSave} disabled={saving} style={{ background: BRAND, border: 'none', color: '#000', padding: '8px 18px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>
-            {saving ? 'Creating...' : 'Create Project'}
+          <button type="button" onClick={onClose} style={{ background: '#1e293b', border: 'none', color: '#94a3b8', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>Cancel</button>
+          <button type="button" onClick={handleSave} disabled={saving} style={{ background: BRAND, border: 'none', color: '#000', padding: '8px 18px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>
+            {saving ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Project'}
           </button>
         </div>
       </div>
@@ -195,6 +254,7 @@ function AllProjectsView({ onSelectProject }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const [editingProject, setEditingProject] = useState(null);
   const [filter, setFilter] = useState('all');
   const [pinCounts, setPinCounts] = useState({});
 
@@ -259,8 +319,8 @@ function AllProjectsView({ onSelectProject }) {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid #1e293b' }}>
-              {['Project', 'Contact', 'Preview URL', 'Open Feedback', 'Status', 'Created'].map((h) => (
-                <th key={h} style={{ textAlign: 'left', padding: '8px 12px', fontSize: 11, color: '#64748b', letterSpacing: '0.05em', textTransform: 'uppercase' }}>{h}</th>
+              {['Project', 'Contact', 'Preview URL', 'Open Feedback', 'Status', 'Created', ''].map((h) => (
+                <th key={h || 'actions'} style={{ textAlign: 'left', padding: '8px 12px', fontSize: 11, color: '#64748b', letterSpacing: '0.05em', textTransform: 'uppercase' }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -292,6 +352,16 @@ function AllProjectsView({ onSelectProject }) {
                 <td style={{ padding: '12px 12px', fontSize: 12, color: '#64748b' }}>
                   {p.created_at ? new Date(p.created_at).toLocaleDateString() : '—'}
                 </td>
+                <td style={{ padding: '12px 12px' }}>
+                  <button
+                    type="button"
+                    title="Edit"
+                    onClick={(e) => { e.stopPropagation(); setEditingProject(p); }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, padding: '2px 4px', color: '#94a3b8' }}
+                  >
+                    ✏️
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -299,9 +369,16 @@ function AllProjectsView({ onSelectProject }) {
       )}
 
       {showModal && (
-        <NewProjectModal
+        <ProjectModal
           onClose={() => setShowModal(false)}
-          onCreated={(p) => { setShowModal(false); load(); onSelectProject(p); }}
+          onSaved={(p) => { setShowModal(false); load(); onSelectProject(p); }}
+        />
+      )}
+      {editingProject && (
+        <ProjectModal
+          project={editingProject}
+          onClose={() => setEditingProject(null)}
+          onSaved={() => { setEditingProject(null); load(); }}
         />
       )}
     </div>
