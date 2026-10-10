@@ -947,6 +947,9 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
             <InfoRow label="Biz name">{quote.biz_name}</InfoRow>
           )}
           <InfoRow label="Form type">{formTypeLabel(quote.formType)}</InfoRow>
+          {String(quote.source || '') === 'postcard' && (
+            <InfoRow label="Source">{quote.legacyPostcard ? 'Legacy postcard' : 'Postcard'}</InfoRow>
+          )}
           <InfoRow label="Status (raw)">{quote.status || 'submitted'}</InfoRow>
           <InfoRow label="Submitted">{formatDateTime(quote.submittedAt || quote.createdAt)}</InfoRow>
           {isCrmQuote(quote.formType) && quote.zerbiqClientId && (
@@ -1962,7 +1965,29 @@ export default function QuotesTab({ onOpenProject, onToast, onUnreadCount, onboa
                         )}
                       </td>
                       <td>{businessName(quote) || '—'}</td>
-                      <td>{formTypeLabel(quote.formType)}</td>
+                      <td>
+                        <div>{formTypeLabel(quote.formType)}</div>
+                        {String(quote.source || '') === 'postcard' && (
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              marginTop: 4,
+                              fontSize: 10,
+                              fontWeight: 700,
+                              letterSpacing: '0.04em',
+                              textTransform: 'uppercase',
+                              color: '#0a3a4a',
+                              background: 'rgba(74,184,232,0.18)',
+                              border: '1px solid rgba(74,184,232,0.45)',
+                              borderRadius: 4,
+                              padding: '1px 6px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {quote.legacyPostcard ? 'Legacy postcard' : 'Postcard'}
+                          </span>
+                        )}
+                      </td>
                       <td>{money(pricing.finalTotal)}</td>
                       <td>
                         <QuoteStatusBadge status={displayStatus(quote)} />

@@ -1,7 +1,13 @@
 // src/tabs/PostcardsTab.js
 import React, { useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
 import { dalSiteDb } from '../firebaseDalSite';
+import {
+  batchScanLabel,
+  buildScansByDay,
+  computeScanTotals,
+  isLegacyQrBatch,
+} from '../lib/postcardStats';
 
 const COST_PER_CARD = 0.905;
 
@@ -75,7 +81,7 @@ function DrawerOverlay({ card, onClose }) {
     { label: 'Industry Keyword', value: card.industryKeyword },
     { label: 'Batch ID', value: card.batchId },
     { label: 'Mailed At', value: formatDateTime(card.mailedAt) },
-    { label: 'Scanned', value: card.firstScanAt ? 'Yes — ' + formatDateTime(card.firstScanAt) : 'No' },
+    { label: 'Scanned', value: isLegacyQrBatch(card.batchId) ? 'Legacy QR' : (card.firstScanAt ? 'Yes — ' + formatDateTime(card.firstScanAt) : 'No') },
     { label: 'Quotes', value: (card.quoteIds && card.quoteIds.length > 0) ? 'Yes (' + card.quoteIds.length + ')' : 'No' },
     { label: 'Quote IDs', value: (card.quoteIds && card.quoteIds.length > 0) ? card.quoteIds.join(', ') : '—' },
     { label: 'LOB Postcard ID', value: card.lobPostcardId || '—' },
@@ -151,6 +157,8 @@ export default function PostcardsTab() {
   const [error, setError] = useState('');
   const [selectedBatch, setSelectedBatch] = useState(null); // batchId string or null
   const [drawerCard, setDrawerCard] = useState(null);
+  const [legacyUniqueScans, setLegacyUniqueScans] = useState(0);
+  const [dailyDocs, setDailyDocs] = useState([]);
 
   // Real-time listener — production cards only
   useEffect(() => {
@@ -175,13 +183,41 @@ export default function PostcardsTab() {
     return () => unsub();
   }, []);
 
+  useEffect(() => {
+    const unsub = onSnapshot(
+      doc(dalSiteDb, 'postcard_stats', 'legacy'),
+      (snap) => {
+        const data = snap.exists() ? snap.data() : {};
+        setLegacyUniqueScans(Number(data.uniqueScans || 0));
+      },
+      () => setLegacyUniqueScans(0)
+    );
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(dalSiteDb, 'postcard_stats_daily'),
+      (snap) => {
+        setDailyDocs(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      },
+      () => setDailyDocs([])
+    );
+    return () => unsub();
+  }, []);
+
   // ── computed summary stats ───────────────────────────────────────────────
   const totalMailed = cards.length;
   const totalSpend = totalMailed * COST_PER_CARD;
-  const scannedCount = cards.filter((c) => c.firstScanAt != null).length;
+  const scanTotals = computeScanTotals(cards, legacyUniqueScans);
+  const scannedCount = scanTotals.scanned;
   const quoteCount = cards.filter((c) => Array.isArray(c.quoteIds) && c.quoteIds.length > 0).length;
-  const scanRate = totalMailed > 0 ? scannedCount / totalMailed : 0;
+  const scanRate = scanTotals.scanRate;
   const quoteRate = totalMailed > 0 ? quoteCount / totalMailed : 0;
+  const scansByDay = useMemo(
+    () => buildScansByDay({ dailyDocs, cards, now: new Date(), days: 14 }),
+    [dailyDocs, cards]
+  );
 
   // ── batch history ────────────────────────────────────────────────────────
   const batches = useMemo(() => {
@@ -260,6 +296,12 @@ export default function PostcardsTab() {
             sub={`@ $${COST_PER_CARD}/card`}
           />
           <StatCard
+            label="Scanned"
+            value={scannedCount.toLocaleString()}
+            accent="var(--indigo)"
+            sub={`${scanTotals.tracked} tracked · ${scanTotals.legacy} legacy`}
+          />
+          <StatCard
             label="Scan Rate"
             value={formatPct(scanRate)}
             accent="var(--indigo)"
@@ -272,6 +314,39 @@ export default function PostcardsTab() {
             sub={`${quoteCount} of ${totalMailed} quoted`}
           />
         </div>
+      </div>
+
+      {/* SECTION 1a — Scans by day */}
+      <div style={{ marginBottom: 28 }}>
+        <div className="data-section-header">
+          <h3 className="data-section-title">Scans by day</h3>
+        </div>
+        {scansByDay.every((row) => row.total === 0) ? (
+          <div className="empty-state"><div className="empty-state-text">No scans in the last 14 days.</div></div>
+        ) : (
+          <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-card)' }}>
+            <table className="stack-table" style={{ minWidth: 420 }}>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Tracked</th>
+                  <th>Legacy</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {scansByDay.map((row) => (
+                  <tr key={row.date}>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{row.date}</td>
+                    <td style={{ color: row.tracked > 0 ? 'var(--indigo)' : 'var(--text-muted)' }}>{row.tracked}</td>
+                    <td style={{ color: row.legacy > 0 ? 'var(--indigo)' : 'var(--text-muted)' }}>{row.legacy}</td>
+                    <td style={{ fontWeight: 600, color: row.total > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>{row.total}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* SECTION 1b — County Breakdown */}
@@ -343,6 +418,7 @@ export default function PostcardsTab() {
                   const bCards = batch.cards;
                   const counties = [...new Set(bCards.map((c) => c.county).filter(Boolean))].sort().join(', ');
                   const bScans = bCards.filter((c) => c.firstScanAt != null).length;
+                  const scanLabel = batchScanLabel({ batchId: batch.batchId, scanCount: bScans });
                   const bQuotes = bCards.filter((c) => Array.isArray(c.quoteIds) && c.quoteIds.length > 0).length;
                   const bCost = bCards.length * COST_PER_CARD;
                   const isSelected = selectedBatch === batch.batchId;
@@ -362,7 +438,7 @@ export default function PostcardsTab() {
                       <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{bCards.length.toLocaleString()}</td>
                       <td style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 280, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{counties || '—'}</td>
                       <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--coral)' }}>{formatMoney(bCost)}</td>
-                      <td style={{ color: bScans > 0 ? 'var(--indigo)' : 'var(--text-muted)' }}>{bScans}</td>
+                      <td style={{ color: scanLabel === 'Legacy QR' ? '#4AB8E8' : (bScans > 0 ? 'var(--indigo)' : 'var(--text-muted)'), fontWeight: scanLabel === 'Legacy QR' ? 600 : 400, whiteSpace: 'nowrap' }}>{scanLabel}</td>
                       <td style={{ color: bQuotes > 0 ? 'var(--green)' : 'var(--text-muted)' }}>{bQuotes}</td>
                     </tr>
                   );
@@ -426,7 +502,9 @@ export default function PostcardsTab() {
                         {formatDate(card.mailedAt)}
                       </td>
                       <td>
-                        {scanned ? (
+                        {isLegacyQrBatch(card.batchId) ? (
+                          <span style={{ color: '#4AB8E8', fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap' }}>Legacy QR</span>
+                        ) : scanned ? (
                           <span style={{ color: 'var(--indigo)', fontWeight: 600, fontSize: 12 }}>
                             Yes<span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 }}>{formatDate(card.firstScanAt)}</span>
                           </span>
