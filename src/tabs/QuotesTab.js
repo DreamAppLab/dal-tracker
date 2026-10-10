@@ -233,6 +233,25 @@ function managementInfo(d) {
   return { label: '—', monthly, transfer };
 }
 
+function monthlyPlanFigures(q) {
+  const plan = String((q && (q.paymentPlan || q.payment_plan)) || '').toLowerCase();
+  if (plan !== 'monthly') return null;
+  const monthlyAmount = Number(q.monthlyAmount != null ? q.monthlyAmount : q.monthly_amount);
+  const monthlyPayments = Number(q.monthlyPayments != null ? q.monthlyPayments : q.monthly_payments);
+  if (!Number.isFinite(monthlyAmount) || !Number.isFinite(monthlyPayments)) return null;
+  const remainingCount = Math.max(0, monthlyPayments - 1);
+  const adjusted =
+    q.adjusted_price != null ? Number(q.adjusted_price) : monthlyAmount * monthlyPayments;
+  return {
+    monthlyAmount,
+    monthlyPayments,
+    remainingCount,
+    adjusted,
+    deposit: monthlyAmount,
+    balance: monthlyAmount * remainingCount,
+  };
+}
+
 function quotePricing(q) {
   const clientDiscount = Number(q.discountAmount || 0);
   const original =
@@ -243,9 +262,10 @@ function quotePricing(q) {
     q.originalTotal != null ? Number(q.total || 0) : Math.max(0, original - clientDiscount);
   const dalDiscount = Number(q.dalDiscount || 0);
   const finalTotal = Math.max(0, afterClient - dalDiscount);
-  const deposit = Math.round(finalTotal * 0.2);
-  const balance = finalTotal - deposit;
-  return { original, clientDiscount, afterClient, dalDiscount, finalTotal, deposit, balance };
+  const monthly = monthlyPlanFigures(q);
+  const deposit = monthly ? monthly.deposit : Math.round(finalTotal * 0.2);
+  const balance = monthly ? monthly.balance : finalTotal - deposit;
+  return { original, clientDiscount, afterClient, dalDiscount, finalTotal, deposit, balance, monthly };
 }
 
 function omitUndefined(obj) {
@@ -1174,14 +1194,41 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
             <span>Final total</span>
             <span>{money(pricing.finalTotal)}</span>
           </div>
-          <div className="quotes-price-row">
-            <span>20% deposit</span>
-            <span>{money(pricing.deposit)}</span>
-          </div>
-          <div className="quotes-price-row">
-            <span>80% balance</span>
-            <span>{money(pricing.balance)}</span>
-          </div>
+          {pricing.monthly ? (
+            <>
+              <div className="quotes-price-row">
+                <span>First payment</span>
+                <span>{money(pricing.monthly.monthlyAmount)}</span>
+              </div>
+              <div className="quotes-price-row">
+                <span>Remaining</span>
+                <span>
+                  {pricing.monthly.remainingCount}{' '}
+                  {pricing.monthly.remainingCount === 1 ? 'payment' : 'payments'} of{' '}
+                  {money(pricing.monthly.monthlyAmount)}
+                </span>
+              </div>
+              <div className="quotes-price-row">
+                <span>Total</span>
+                <span>
+                  {money(
+                    quote.adjusted_price != null ? Number(quote.adjusted_price) : pricing.finalTotal
+                  )}
+                </span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="quotes-price-row">
+                <span>20% deposit</span>
+                <span>{money(pricing.deposit)}</span>
+              </div>
+              <div className="quotes-price-row">
+                <span>80% balance</span>
+                <span>{money(pricing.balance)}</span>
+              </div>
+            </>
+          )}
         </div>
       </section>
 

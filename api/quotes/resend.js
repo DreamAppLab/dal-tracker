@@ -68,6 +68,21 @@ function normalizeItems(d) {
   return [];
 }
 
+function monthlyPlanFigures(d) {
+  const plan = String((d && (d.paymentPlan || d.payment_plan)) || '').toLowerCase();
+  if (plan !== 'monthly') return null;
+  const monthlyAmount = Number(d.monthlyAmount != null ? d.monthlyAmount : d.monthly_amount);
+  const monthlyPayments = Number(d.monthlyPayments != null ? d.monthlyPayments : d.monthly_payments);
+  if (!Number.isFinite(monthlyAmount) || !Number.isFinite(monthlyPayments)) return null;
+  const remainingCount = Math.max(0, monthlyPayments - 1);
+  return {
+    monthlyAmount,
+    remainingCount,
+    deposit: monthlyAmount,
+    balance: monthlyAmount * remainingCount,
+  };
+}
+
 function finalPricing(d) {
   const clientDiscount = Number(d.discountAmount || 0);
   const original =
@@ -76,9 +91,10 @@ function finalPricing(d) {
     d.originalTotal != null ? Number(d.total || 0) : Math.max(0, original - clientDiscount);
   const dalDiscount = Number(d.dalDiscount || 0);
   const finalTotal = Math.max(0, afterClient - dalDiscount);
-  const deposit = Math.round(finalTotal * 0.2);
-  const balance = finalTotal - deposit;
-  return { original, clientDiscount, afterClient, dalDiscount, finalTotal, deposit, balance };
+  const monthly = monthlyPlanFigures(d);
+  const deposit = monthly ? monthly.deposit : Math.round(finalTotal * 0.2);
+  const balance = monthly ? monthly.balance : finalTotal - deposit;
+  return { original, clientDiscount, afterClient, dalDiscount, finalTotal, deposit, balance, monthly };
 }
 
 function totalsBlock(d, pricing) {
@@ -149,7 +165,13 @@ function clientEstimateEmail(d, items, quoteId, pricing) {
     <p style="color:#5a6474;">Thanks for using our instant quote. Here's a summary of what's included. Your pre-signed NDA is attached.</p>
     <div style="margin:16px 0;">${rows || '<p style="color:#5a6474;">No line items selected.</p>'}</div>
     ${totalsBlock(d, pricing)}
-    <table style="width:100%;margin-top:14px;font-size:14px;"><tr>
+    ${pricing.monthly
+      ? `<div style="margin:14px 0;padding:14px 16px;background:#f3f6fb;border-left:4px solid #4cc1f3;border-radius:6px;font-size:14px;color:#1a2130;">
+          <div><strong>First payment:</strong> ${money(pricing.monthly.monthlyAmount)}</div>
+          <div style="margin-top:6px;"><strong>Remaining:</strong> ${pricing.monthly.remainingCount} ${pricing.monthly.remainingCount === 1 ? 'payment' : 'payments'} of ${money(pricing.monthly.monthlyAmount)}</div>
+          <div style="margin-top:6px;"><strong>Total:</strong> ${money(d.adjusted_price != null ? Number(d.adjusted_price) : pricing.finalTotal)}</div>
+        </div>`
+      : `<table style="width:100%;margin-top:14px;font-size:14px;"><tr>
       <td style="background:#f3f6fb;padding:12px;border-radius:8px;">20% deposit on acceptance<br><b style="font-size:16px;">${money(
         pricing.deposit
       )}</b></td>
@@ -157,7 +179,7 @@ function clientEstimateEmail(d, items, quoteId, pricing) {
       <td style="background:#f3f6fb;padding:12px;border-radius:8px;">80% on delivery<br><b style="font-size:16px;">${money(
         pricing.balance
       )}</b></td>
-    </tr></table>
+    </tr></table>`}
     <p style="text-align:center;margin:22px 0 10px;color:#5a6474;font-size:14px;">When you're ready, let us know how you'd like to proceed:</p>
     <p style="text-align:center;margin:0 0 10px;">
       <a href="${esc(acceptUrl)}" style="display:inline-block;background:#4cc1f3;color:#0a0d1a;padding:14px 28px;border-radius:8px;font-weight:bold;text-decoration:none;">Start My Project →</a>
