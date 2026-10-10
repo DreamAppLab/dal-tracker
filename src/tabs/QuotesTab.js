@@ -168,7 +168,7 @@ const KNOWN_QUOTE_FIELDS = new Set([
   'depositSentAt', 'stripeDepositUrl', 'balanceSentAt', 'stripeBalanceUrl',
   'stripePaymentLink',
   'completedAt', 'movedToBuildAt', 'quoteId',
-  'paymentHistory', 'lastPaymentAt', 'stripeSubscriptionId',
+  'paymentHistory', 'lastPaymentAt', 'stripeSubscriptionId', 'paymentPlanConfirmed',
   'suspended', 'suspendedAt', 'suspendClearedAt', 'suspendReason',
 ]);
 
@@ -535,13 +535,15 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
   const [stripeLinkDraft, setStripeLinkDraft] = useState(() => String(quote.stripePaymentLink || '').trim());
   const [stripeLinkEditing, setStripeLinkEditing] = useState(false);
   const [stripeLinkWarning, setStripeLinkWarning] = useState('');
+  const [paymentPlanConfirmed, setPaymentPlanConfirmed] = useState(() => !!quote.paymentPlanConfirmed);
 
   const status = rawStatus(quote);
   const shownStatus = displayStatus(quote);
   const pricing = quotePricing(quote);
   const savedStripeLink = String(quote.stripePaymentLink || '').trim();
   const isMonthlyPlan = String(quote.paymentPlan || quote.payment_plan || '').toLowerCase() === 'monthly';
-  const showStripeEditor = !savedStripeLink || stripeLinkEditing;
+  // Stripe link editor is hidden when payment plan is confirmed (locked) or already saved and not editing
+  const showStripeEditor = !paymentPlanConfirmed && (!savedStripeLink || stripeLinkEditing);
   const items = normalizeItems(quote);
   const design = designLines(quote);
   const mgmt = managementInfo(quote);
@@ -835,6 +837,19 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
       await patchQuote({ stripePaymentLink: value });
       setStripeLinkEditing(false);
       setStripeLinkWarning('');
+    });
+
+  const handleTogglePaymentPlan = () =>
+    runAction('payment_plan_confirm', async () => {
+      const next = !paymentPlanConfirmed;
+      await patchQuote({ paymentPlanConfirmed: next });
+      setPaymentPlanConfirmed(next);
+      if (next) {
+        // Lock everything deposit-related
+        setConfirmDeposit(false);
+        setStripeLinkEditing(false);
+        setStripeLinkWarning('');
+      }
     });
 
   const handleSendDeposit = () =>
@@ -1694,7 +1709,31 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
 
         <div className="quotes-stripe-link">
           <label className="form-label">Stripe Payment Link</label>
-          {showStripeEditor ? (
+          {paymentPlanConfirmed ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: 6,
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.10)',
+                  color: '#475569',
+                  fontSize: 13,
+                  fontStyle: 'italic',
+                }}
+              >
+                🔒 Locked — Stripe manages monthly billing
+              </div>
+              <button
+                type="button"
+                className="quotes-text-link"
+                disabled={!!busyAction}
+                onClick={handleTogglePaymentPlan}
+              >
+                Unlock
+              </button>
+            </div>
+          ) : showStripeEditor ? (
             <div className="quotes-stripe-link-edit">
               <input
                 className="form-input"
@@ -1765,13 +1804,31 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
               {questionsOpen ? 'Cancel questions' : questionsLabel}
             </button>
           )}
+          {isMonthlyPlan && (
+            <button
+              type="button"
+              className={`btn ${paymentPlanConfirmed ? 'btn-primary' : 'btn-secondary'}`}
+              disabled={!!busyAction}
+              onClick={handleTogglePaymentPlan}
+              title={paymentPlanConfirmed ? 'Click to unlock manual payment sending' : 'Mark as Stripe-managed subscription — disables manual payment link sending'}
+              style={paymentPlanConfirmed ? { background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.5)', color: '#4ADE80' } : {}}
+            >
+              {busyAction === 'payment_plan_confirm'
+                ? 'Saving…'
+                : paymentPlanConfirmed
+                  ? '✓ Payment Plan Active'
+                  : 'Payment Plan'}
+            </button>
+          )}
           {showDeposit && (
             <button
               type="button"
               className="btn btn-primary"
-              disabled={!!busyAction || depositDone}
+              disabled={!!busyAction || depositDone || (isMonthlyPlan && paymentPlanConfirmed)}
+              title={isMonthlyPlan && paymentPlanConfirmed ? 'Disabled — Stripe manages monthly billing automatically' : undefined}
+              style={isMonthlyPlan && paymentPlanConfirmed ? { opacity: 0.35, cursor: 'not-allowed' } : {}}
               onClick={() => {
-                if (depositDone) return;
+                if (depositDone || (isMonthlyPlan && paymentPlanConfirmed)) return;
                 if (isMonthlyPlan && !savedStripeLink) {
                   setStripeLinkWarning('Please add a Stripe payment link before sending');
                   setConfirmDeposit(false);
