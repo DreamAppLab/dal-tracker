@@ -163,6 +163,7 @@ const KNOWN_QUOTE_FIELDS = new Set([
   'monthlyOptions', 'recommendedPlan',
   'estimatedStart', 'estimatedCompletion',
   'depositSentAt', 'stripeDepositUrl', 'balanceSentAt', 'stripeBalanceUrl',
+  'stripePaymentLink',
   'completedAt', 'movedToBuildAt', 'quoteId',
 ]);
 
@@ -492,7 +493,7 @@ function OnboardingFileRow({ item, onReviewed }) {
   );
 }
 
-function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProject, onToast }) {
+export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProject, onToast }) {
   const [discountOpen, setDiscountOpen] = useState(false);
   const [discountMode, setDiscountMode] = useState('dollar');
   const [discountValue, setDiscountValue] = useState('');
@@ -522,10 +523,16 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
   const [storageFiles, setStorageFiles] = useState([]);
   const [storageFilesLoading, setStorageFilesLoading] = useState(false);
   const [storageFilesError, setStorageFilesError] = useState('');
+  const [stripeLinkDraft, setStripeLinkDraft] = useState(() => String(quote.stripePaymentLink || '').trim());
+  const [stripeLinkEditing, setStripeLinkEditing] = useState(false);
+  const [stripeLinkWarning, setStripeLinkWarning] = useState('');
 
   const status = rawStatus(quote);
   const shownStatus = displayStatus(quote);
   const pricing = quotePricing(quote);
+  const savedStripeLink = String(quote.stripePaymentLink || '').trim();
+  const isMonthlyPlan = String(quote.paymentPlan || quote.payment_plan || '').toLowerCase() === 'monthly';
+  const showStripeEditor = !savedStripeLink || stripeLinkEditing;
   const items = normalizeItems(quote);
   const design = designLines(quote);
   const mgmt = managementInfo(quote);
@@ -640,6 +647,12 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
     };
   }, [quote.id, quote.zerbiqClientId, quote.formType]);
 
+  useEffect(() => {
+    setStripeLinkDraft(String(quote.stripePaymentLink || '').trim());
+    setStripeLinkEditing(false);
+    setStripeLinkWarning('');
+  }, [quote.id, quote.stripePaymentLink]);
+
   const timeline = [
     { label: 'Submitted', at: quote.createdAt || quote.submittedAt },
     { label: 'Ready to Review', at: quote.acceptedAt },
@@ -678,19 +691,21 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
     });
   }
 
-  async function sendPaymentLink(kind) {
+  async function sendPaymentLink(kind, paymentUrl) {
     const amount = kind === 'deposit' ? pricing.deposit : pricing.balance;
+    const payload = {
+      kind,
+      email: quote.email,
+      firstName: firstName(quote.name),
+      amount,
+      businessName: biz,
+      quoteId: quote.id,
+    };
+    if (paymentUrl) payload.paymentUrl = paymentUrl;
     const res = await fetch('/api/quote-payment-link', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        kind,
-        email: quote.email,
-        firstName: firstName(quote.name),
-        amount,
-        businessName: biz,
-        quoteId: quote.id,
-      }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) {
@@ -802,15 +817,32 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
       setActionNotice('Questions sent — waiting for client reply.');
     });
 
+  const handleSaveStripeLink = () =>
+    runAction('stripe_link', async () => {
+      const value = String(stripeLinkDraft || '').trim();
+      if (!value) {
+        throw new Error('Paste a Stripe payment link before saving.');
+      }
+      await patchQuote({ stripePaymentLink: value });
+      setStripeLinkEditing(false);
+      setStripeLinkWarning('');
+    });
+
   const handleSendDeposit = () =>
     runAction('deposit', async () => {
-      const url = await sendPaymentLink('deposit');
+      if (isMonthlyPlan && !savedStripeLink) {
+        setStripeLinkWarning('Please add a Stripe payment link before sending');
+        setConfirmDeposit(false);
+        return;
+      }
+      const url = await sendPaymentLink('deposit', isMonthlyPlan ? savedStripeLink : '');
       await patchQuote({
         status: 'deposit_sent',
         depositSentAt: new Date().toISOString(),
         stripeDepositUrl: url,
       });
       setConfirmDeposit(false);
+      setStripeLinkWarning('');
       setLocalDone((s) => ({ ...s, deposit: true }));
     });
 
@@ -1525,7 +1557,7 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
         {showDeposit && confirmDeposit && !depositDone && (
           <div className="quotes-confirm-box">
             <p>
-              Send deposit link of <strong>{money(pricing.deposit)}</strong> to <strong>{quote.email}</strong>?
+              Send {isMonthlyPlan ? 'payment' : 'deposit'} link of <strong>{money(pricing.deposit)}</strong> to <strong>{quote.email}</strong>?
             </p>
             <div className="quotes-action-row" style={{ marginTop: 12 }}>
               <button
@@ -1595,6 +1627,65 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
           </div>
         )}
 
+        <div className="quotes-stripe-link">
+          <label className="form-label">Stripe Payment Link</label>
+          {showStripeEditor ? (
+            <div className="quotes-stripe-link-edit">
+              <input
+                className="form-input"
+                type="url"
+                value={stripeLinkDraft}
+                onChange={(e) => setStripeLinkDraft(e.target.value)}
+                placeholder="Paste Stripe payment link..."
+              />
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!!busyAction}
+                onClick={handleSaveStripeLink}
+              >
+                {busyAction === 'stripe_link' ? 'Saving…' : 'Save'}
+              </button>
+              {savedStripeLink && (
+                <button
+                  type="button"
+                  className="quotes-text-link"
+                  disabled={!!busyAction}
+                  onClick={() => {
+                    setStripeLinkDraft(savedStripeLink);
+                    setStripeLinkEditing(false);
+                  }}
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="quotes-stripe-link-saved">
+              <a
+                href={savedStripeLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn-secondary"
+              >
+                Open Payment Link →
+              </a>
+              <button
+                type="button"
+                className="quotes-text-link"
+                onClick={() => {
+                  setStripeLinkDraft(savedStripeLink);
+                  setStripeLinkEditing(true);
+                  setStripeLinkWarning('');
+                }}
+              >
+                Change
+              </button>
+            </div>
+          )}
+          {stripeLinkWarning && <div className="quotes-inline-warning">{stripeLinkWarning}</div>}
+        </div>
+
         <div className="quotes-action-row">
           {showQuestions && (
             <button
@@ -1616,15 +1707,24 @@ function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpenProjec
               disabled={!!busyAction || depositDone}
               onClick={() => {
                 if (depositDone) return;
+                if (isMonthlyPlan && !savedStripeLink) {
+                  setStripeLinkWarning('Please add a Stripe payment link before sending');
+                  setConfirmDeposit(false);
+                  setQuestionsOpen(false);
+                  return;
+                }
+                setStripeLinkWarning('');
                 setQuestionsOpen(false);
                 setConfirmDeposit(true);
               }}
             >
               {depositDone
-                ? 'Deposit Link Sent ✓'
+                ? (isMonthlyPlan ? 'Payment Link Sent ✓' : 'Deposit Link Sent ✓')
                 : busyAction === 'deposit'
                   ? 'Sending…'
-                  : 'Send Deposit Link'}
+                  : isMonthlyPlan
+                    ? 'Send Payment Link'
+                    : 'Send Deposit Link'}
             </button>
           )}
           {showBalance && (

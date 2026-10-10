@@ -2282,6 +2282,38 @@ option { background: var(--bg-card); }
 .quotes-mode-toggle { display: flex; gap: 8px; margin-bottom: 14px; }
 .quotes-actions { border-color: rgba(76, 193, 243, 0.28); }
 .quotes-action-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.quotes-stripe-link { margin-bottom: 16px; }
+.quotes-stripe-link-edit,
+.quotes-stripe-link-saved {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.quotes-stripe-link-edit .form-input {
+  flex: 1;
+  min-width: 180px;
+  width: auto;
+}
+.quotes-text-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--teal);
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.quotes-text-link:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.quotes-inline-warning {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #FCD34D;
+}
 .quotes-reply-notice {
   background: rgba(168, 85, 247, 0.16);
   border: 1px solid rgba(168, 85, 247, 0.4);

@@ -46,6 +46,26 @@ function balanceEmail(firstName, amount, url) {
   `);
 }
 
+function paymentLinkEmail(firstName, amount, url) {
+  return shell(`
+    <p style="font-size:16px;line-height:1.6;margin:0 0 8px;">Hi ${esc(firstName)}, your payment link is ready. Click below to pay ${money(amount)} and we will get started right away.</p>
+    ${payButton(url, `Pay Now — ${money(amount)} →`)}
+  `);
+}
+
+function parsePaymentUrl(raw) {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch (_) {
+    return null;
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null;
+  return parsed.toString();
+}
+
 async function createStripeLink(productName, amountDollars, meta = {}) {
   const secret = process.env.STRIPE_SECRET_KEY;
   const cents = Math.round(Number(amountDollars || 0) * 100);
@@ -140,6 +160,7 @@ module.exports = async (req, res) => {
     const businessName = String(body.businessName || 'Dream App Lab Project').trim();
     const quoteId = String(body.quoteId || '').trim();
     const buildId = String(body.buildId || '').trim();
+    const paymentUrl = parsePaymentUrl(body.paymentUrl);
 
     if (kind !== 'deposit' && kind !== 'balance') {
       return res.status(400).json({ error: 'kind must be deposit or balance' });
@@ -148,21 +169,28 @@ module.exports = async (req, res) => {
     if (!Number.isFinite(amount) || amount <= 0) {
       return res.status(400).json({ error: 'A valid amount is required' });
     }
+    if (body.paymentUrl != null && String(body.paymentUrl).trim() && !paymentUrl) {
+      return res.status(400).json({ error: 'paymentUrl must be an http(s) URL' });
+    }
 
     const productName =
       kind === 'deposit'
         ? 'Project Deposit — ' + businessName
         : 'Project Balance — ' + businessName;
 
-    const url = await createStripeLink(productName, amount, { quoteId, kind, buildId });
+    const url = paymentUrl || (await createStripeLink(productName, amount, { quoteId, kind, buildId }));
     if (!url) {
       return res.status(500).json({ error: 'Stripe is not configured or amount is invalid' });
     }
 
-    const html =
-      kind === 'deposit' ? depositEmail(firstName, amount, url) : balanceEmail(firstName, amount, url);
-    const subject =
-      kind === 'deposit'
+    const html = paymentUrl
+      ? paymentLinkEmail(firstName, amount, url)
+      : kind === 'deposit'
+        ? depositEmail(firstName, amount, url)
+        : balanceEmail(firstName, amount, url);
+    const subject = paymentUrl
+      ? 'Your Dream App Lab payment link is ready'
+      : kind === 'deposit'
         ? 'Your Dream App Lab deposit link is ready'
         : 'Your Dream App Lab project is ready — final balance';
 
