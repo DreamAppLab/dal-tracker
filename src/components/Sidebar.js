@@ -96,6 +96,7 @@ export default function Sidebar({
   quotesUnread = 0,
   inboundUnread = 0,
   onboardingUploads = 0,
+  manualQuotesDrafts = false,
 }) {
   const [sections, setSections] = useState(DEFAULT_SECTIONS);
 
@@ -255,6 +256,20 @@ export default function Sidebar({
               <span className="sidebar-item-icon">💼</span>
               {sidebarOpen && <span className="sidebar-item-text">Client Jobs</span>}
               <UnreadBadge count={clientJobsUnread} />
+            </button>
+            <button
+              className={`sidebar-item ${activeView === 'quotes' ? 'active' : ''}`}
+              onClick={() => onNavigate('quotes')}
+            >
+              <span className="sidebar-item-icon">📋</span>
+              {sidebarOpen && <span className="sidebar-item-text">Quotes</span>}
+              {manualQuotesDrafts && (
+                <span
+                  className="quotes-unread-dot"
+                  style={{ marginLeft: 'auto' }}
+                  aria-label="Draft quotes"
+                />
+              )}
             </button>
             <button
               className={`sidebar-item ${activeView === 'contacts' ? 'active' : ''}`}
