@@ -1,5 +1,5 @@
 // src/components/Dashboard.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { db } from '../firebase';
 import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
 import { STATUS_CONFIG } from '../data/initialData';
@@ -137,13 +137,29 @@ const Dashboard = React.memo(function Dashboard({ projects, pipelineItems, onSel
   const [movingPipelineId, setMovingPipelineId] = useState(null);
   const [monthlyExpensesTotal, setMonthlyExpensesTotal] = useState(0);
   const [clientMonthNet, setClientMonthNet] = useState(0);
+  // Sources that failed to load. Figures that depend on them render as "—"
+  // instead of a misleading $0, and a banner says what failed.
+  const [loadErrors, setLoadErrors] = useState({});
+  const reportLoadError = useCallback((source, err) => {
+    console.error(`[Dashboard] ${source} failed to load:`, err);
+    setLoadErrors((prev) => ({ ...prev, [source]: err?.message || String(err) }));
+  }, []);
+  const clearLoadError = useCallback((source) => {
+    setLoadErrors((prev) => {
+      if (!(source in prev)) return prev;
+      const next = { ...prev };
+      delete next[source];
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'dashboard', 'summary'), (snapshot) => {
       setDashboardSummary(snapshot.exists() ? snapshot.data() : null);
-    });
+      clearLoadError('App revenue summary');
+    }, (err) => reportLoadError('App revenue summary', err));
     return () => unsub();
-  }, []);
+  }, [reportLoadError, clearLoadError]);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'expenses'), (snapshot) => {
@@ -157,9 +173,10 @@ const Dashboard = React.memo(function Dashboard({ projects, pipelineItems, onSel
         return sum;
       }, 0);
       setMonthlyExpensesTotal(total);
-    });
+      clearLoadError('Expenses');
+    }, (err) => reportLoadError('Expenses', err));
     return () => unsub();
-  }, []);
+  }, [reportLoadError, clearLoadError]);
 
   useEffect(() => {
     const { from, to } = currentMonthRange();
@@ -172,13 +189,19 @@ const Dashboard = React.memo(function Dashboard({ projects, pipelineItems, onSel
         return data;
       })
       .then((data) => {
-        if (!cancelled) setClientMonthNet(sumClientProjectRevenue(data.entries || []).net);
+        if (!cancelled) {
+          setClientMonthNet(sumClientProjectRevenue(data.entries || []).net);
+          clearLoadError('Client revenue');
+        }
       })
-      .catch(() => {
-        if (!cancelled) setClientMonthNet(0);
+      .catch((err) => {
+        if (!cancelled) {
+          setClientMonthNet(0);
+          reportLoadError('Client revenue', err);
+        }
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [reportLoadError, clearLoadError]);
 
   const projectsMRR = projects.reduce((s, p) => s + (p.revenue?.monthly || 0), 0);
   const projectsRevenue = projects.reduce((s, p) => s + (p.revenue?.total || 0), 0);
@@ -186,6 +209,8 @@ const Dashboard = React.memo(function Dashboard({ projects, pipelineItems, onSel
   const totalMRR = (Number(appMonthlyRevenue) || 0) + (Number(clientMonthNet) || 0);
   const totalRevenue = dashboardSummary?.totalRevenue ?? projectsRevenue;
   const totalMonthlyExp = monthlyExpensesTotal;
+  const revenueFailed = Boolean(loadErrors['App revenue summary'] || loadErrors['Client revenue']);
+  const expensesFailed = Boolean(loadErrors['Expenses']);
   const liveCount = projects.filter(p => p.status === 'live').length;
   const inDevCount = projects.filter(p => p.status === 'in-development').length;
   const openEdits = projects.reduce((s, p) => s + (p.edits || []).filter(e => !e.completed).length, 0);
@@ -251,22 +276,33 @@ const Dashboard = React.memo(function Dashboard({ projects, pipelineItems, onSel
         </div>
       </div>
 
+      {Object.keys(loadErrors).length > 0 && (
+        <div className="dashboard-load-error" role="alert">
+          <strong>Some figures couldn’t load, so they show “—” instead of a number.</strong>
+          <ul>
+            {Object.entries(loadErrors).map(([source, message]) => (
+              <li key={source}>{source}: {message}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Stats Row */}
       <div className="stats-grid">
         <div className="stat-card teal">
           <div className="stat-label">Monthly Revenue</div>
-          <div className="stat-value" style={{ color: 'var(--teal)' }}>${formatDashboardMoney(totalMRR)}</div>
+          <div className="stat-value" style={{ color: 'var(--teal)' }}>{revenueFailed ? '—' : `$${formatDashboardMoney(totalMRR)}`}</div>
           <div className="stat-sub">Across all live apps</div>
         </div>
         <div className="stat-card coral">
           <div className="stat-label">Monthly Expenses</div>
-          <div className="stat-value" style={{ color: 'var(--coral)' }}>${totalMonthlyExp.toFixed(0)}</div>
+          <div className="stat-value" style={{ color: 'var(--coral)' }}>{expensesFailed ? '—' : `$${totalMonthlyExp.toFixed(0)}`}</div>
           <div className="stat-sub">This calendar month</div>
         </div>
         <div className="stat-card green">
           <div className="stat-label">Net Monthly</div>
           <div className="stat-value" style={{ color: (totalMRR - totalMonthlyExp) >= 0 ? 'var(--green)' : 'var(--coral)' }}>
-            ${(totalMRR - totalMonthlyExp).toFixed(0)}
+            {revenueFailed || expensesFailed ? '—' : `$${(totalMRR - totalMonthlyExp).toFixed(0)}`}
           </div>
           <div className="stat-sub">Revenue minus costs</div>
         </div>
@@ -279,7 +315,7 @@ const Dashboard = React.memo(function Dashboard({ projects, pipelineItems, onSel
           style={{ cursor: onShowRevenue ? 'pointer' : undefined }}
         >
           <div className="stat-label">Total Revenue</div>
-          <div className="stat-value" style={{ color: 'var(--amber)' }}>${totalRevenue.toLocaleString()}</div>
+          <div className="stat-value" style={{ color: 'var(--amber)' }}>{loadErrors['App revenue summary'] ? '—' : `$${Number(totalRevenue || 0).toLocaleString()}`}</div>
           <div className="stat-sub">All time</div>
         </div>
         <div className="stat-card indigo">

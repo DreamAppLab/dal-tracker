@@ -1,8 +1,20 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Mission Control is a single-owner app. Access is granted to Eddie's
+    // original Firebase account, or to any sign-in (email/password or Google)
+    // whose VERIFIED email is one of his. Matching on verified email means a
+    // second sign-in method that creates a new Firebase user ID still works,
+    // while nobody else can get in by typing his address into a sign-up form.
+    // Keep this list identical in firestore.rules and storage.rules.
     function isAuthorizedUser() {
-      return request.auth != null && request.auth.uid == 'aEbUJSYaP7aXnYtnSk3A5I4iLp72';
+      return request.auth != null && (
+        request.auth.uid == 'aEbUJSYaP7aXnYtnSk3A5I4iLp72' ||
+        (
+          request.auth.token.email_verified == true &&
+          request.auth.token.email.lower() in ['eddieskehan@gmail.com', 'lab@dreamapplab.com']
+        )
+      );
     }
 
     match /maintenanceSchedules/{appId} {
