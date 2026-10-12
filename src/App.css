@@ -203,6 +203,55 @@ body.login-page-active {
   opacity: 0.6;
   cursor: not-allowed;
 }
+.auth-status-screen .login-btn.login-btn-secondary {
+  background-color: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-primary, #E8EDF5);
+}
+.auth-status-screen .login-btn.login-btn-secondary:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Access check (shown when Firestore rules reject the signed-in account) */
+.access-check-card {
+  width: 100%;
+  max-width: 460px;
+  padding: 28px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.access-check-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 20px;
+}
+.access-check-details {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 16px;
+  margin: 0;
+  font-size: 13px;
+}
+.access-check-details dt {
+  color: var(--text-muted, #8A94A6);
+}
+.access-check-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.access-check-uid {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.access-check-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 
 /* ── SIDEBAR ── */
 .sidebar {
@@ -2934,3 +2983,20 @@ option { background: var(--bg-card); }
 .tools-card-actions a { text-decoration: none; }
 
 
+
+/* Dashboard: shown when a data source fails, instead of silent $0 figures */
+.dashboard-load-error {
+  margin-bottom: 20px;
+  padding: 14px 18px;
+  border: 1px solid var(--coral);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 107, 107, 0.08);
+  color: var(--coral);
+  font-size: 14px;
+}
+.dashboard-load-error ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}

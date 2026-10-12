@@ -27,6 +27,7 @@ import { useOnboardingUploads } from './hooks/useOnboardingUploads';
 import AddProjectModal from './components/AddProjectModal';
 import LoginScreen from './components/LoginScreen';
 import AuthLoadingScreen from './components/AuthLoadingScreen';
+import AccessCheckGate from './components/AccessCheckGate';
 import { useAuth } from './contexts/AuthContext';
 import { GoogleCalendarProvider } from './contexts/GoogleCalendarContext';
 import './App.css';
@@ -42,7 +43,11 @@ function App() {
     return <LoginScreen />;
   }
 
-  return <DashboardApp />;
+  return (
+    <AccessCheckGate>
+      <DashboardApp />
+    </AccessCheckGate>
+  );
 }
 
 function DashboardApp() {
