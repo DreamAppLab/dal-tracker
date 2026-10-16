@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { db } from '../firebase';
 import EmailBodyEditor from './EmailBodyEditor';
 import { DAL_SIGNATURE } from '../utils/dalEmailSignature';
+import { emailDisplayHtml } from '../lib/emailReply';
 import {
   addDoc,
   collection,
@@ -90,7 +91,7 @@ const ThreadMessage = React.memo(function ThreadMessage({ email, onRequestDelete
         {outbound ? 'Sent' : 'Reply'} · {formatSentAt(email.sentAt)}
       </div>
       <div style={{ fontWeight: 700, marginBottom: 6 }}>{email.subject}</div>
-      <div style={{ fontSize: 13, lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: email.body }} />
+      <div style={{ fontSize: 13, lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: emailDisplayHtml(email) }} />
     </div>
   );
 }, (prev, next) => (

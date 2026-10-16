@@ -8,6 +8,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '../firebase';
 import EmailBodyEditor from './EmailBodyEditor';
 import { DAL_SIGNATURE } from '../utils/dalEmailSignature';
+import { emailDisplayHtml } from '../lib/emailReply';
 import {
   addDoc,
   arrayRemove,
@@ -352,7 +353,7 @@ export default function ClientTab({ project }) {
                   {outbound ? 'Sent' : 'Reply'} · {outbound ? `To ${email.to}` : `From ${email.to}`} · {formatSentAt(email.sentAt)}
                 </div>
                 <div style={{ fontWeight: 700, marginBottom: 6 }}>{email.subject}</div>
-                <div style={{ fontSize: 13, lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: email.body }} />
+                <div style={{ fontSize: 13, lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: emailDisplayHtml(email) }} />
                 {email.hasAttachment === true && email.attachmentUrl ? (
                   <a
                     href={email.attachmentUrl}
