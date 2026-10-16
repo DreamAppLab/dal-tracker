@@ -1,4 +1,4 @@
-import { emailDisplayHtml, plainTextToHtml, stripQuotedReply } from './emailReply';
+import { emailDisplayHtml, emailFullHtml, plainTextToHtml, stripQuotedReply } from './emailReply';
 
 describe('stripQuotedReply', () => {
   test('removes a Gmail thread, including nested earlier replies', () => {
@@ -22,7 +22,7 @@ describe('stripQuotedReply', () => {
   });
 
   test('handles a "wrote:" header wrapped onto two lines', () => {
-    const text = 'Sounds good.\n\nOn Tue, Oct 13, 2026 at 10:29 AM Dream App Lab <\nlab@inbound.dreamapplab.com> wrote:\n\nHi Aaron';
+    const text = 'Sounds good.\n\nOn Tue, Oct 13, 2026 at 10:29 AM Dream App Lab <\nlab@inbound.dreamapplab.com> wrote:\n\n> Hi Aaron';
     expect(stripQuotedReply(text)).toBe('Sounds good.');
   });
 
@@ -32,8 +32,28 @@ describe('stripQuotedReply', () => {
   });
 
   test('removes an Outlook From/Sent/To header block', () => {
-    const text = 'Approved.\n\nFrom: Dream App Lab <lab@inbound.dreamapplab.com>\nSent: Monday, October 12, 2026 3:00 PM\nTo: Bob\nSubject: Quote';
+    const text = 'Approved.\n\nFrom: Dream App Lab <lab@inbound.dreamapplab.com>\nSent: Monday, October 12, 2026 3:00 PM\nTo: Bob\nCc: Ann\nSubject: Quote\n\nHello';
     expect(stripQuotedReply(text)).toBe('Approved.');
+  });
+
+  test('keeps a sentence starting "On" that ends in "wrote:" when real text follows', () => {
+    const text = 'Hi Eddie,\nOn the quote, my accountant wrote:\nplease add our tax ID.';
+    expect(stripQuotedReply(text)).toBe(text);
+  });
+
+  test('keeps a pasted From/Date/To block with no Subject line', () => {
+    const text = 'Forwarding the contact:\nFrom: Jane\nDate: 10/1\nTo: me\nPlease call her.';
+    expect(stripQuotedReply(text)).toBe(text);
+  });
+
+  test('keeps inline answers written between quoted questions', () => {
+    const text = 'Answers below:\n> Q1?\nTuesday\n> Q2?\n5k';
+    expect(stripQuotedReply(text)).toBe(text);
+  });
+
+  test('removes an Apple Mail header and a mobile signature', () => {
+    const text = 'Works for me.\n\nSent from my iPhone\n\nOn Oct 13, 2026, at 9:30 PM, Dream App Lab <lab@inbound.dreamapplab.com> wrote:\n\n> Hi Aaron';
+    expect(stripQuotedReply(text)).toBe('Works for me.');
   });
 
   test('removes trailing ">" quoted lines with no header', () => {
@@ -81,5 +101,27 @@ describe('emailDisplayHtml', () => {
     expect(emailDisplayHtml({ direction: 'outbound', body: '<p>Hi <b>Aaron</b></p>' })).toBe(
       '<p>Hi <b>Aaron</b></p>'
     );
+  });
+
+  test('messages without a direction are treated as client text and escaped', () => {
+    expect(emailDisplayHtml({ body: '<script>x</script>' })).toBe('&lt;script&gt;x&lt;/script&gt;');
+  });
+});
+
+describe('emailFullHtml', () => {
+  test('returns the full escaped email when quoted history was hidden', () => {
+    const email = {
+      direction: 'inbound',
+      body: 'Yes.',
+      bodyFull: 'Yes.\n\nOn Tue, Oct 13, 2026 at 10:29 AM Eddie wrote:\n> <b>Hi</b>',
+    };
+    expect(emailFullHtml(email)).toBe(
+      'Yes.<br><br>On Tue, Oct 13, 2026 at 10:29 AM Eddie wrote:<br>&gt; &lt;b&gt;Hi&lt;/b&gt;'
+    );
+  });
+
+  test('returns nothing when nothing was hidden or for outbound emails', () => {
+    expect(emailFullHtml({ direction: 'inbound', body: 'Yes.', bodyFull: 'Yes.' })).toBe('');
+    expect(emailFullHtml({ direction: 'outbound', body: '<p>Hi</p>' })).toBe('');
   });
 });

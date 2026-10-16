@@ -1,10 +1,10 @@
 // clientEmails collection schema:
-// { clientId, projectId, source, threadId, subject, body, to, sentAt, sentBy, direction, read, parentId }
+// { clientId, projectId, source, threadId, subject, body, bodyFull, to, sentAt, sentBy, direction, read, parentId }
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { db } from '../firebase';
 import EmailBodyEditor from './EmailBodyEditor';
 import { DAL_SIGNATURE } from '../utils/dalEmailSignature';
-import { emailDisplayHtml } from '../lib/emailReply';
+import EmailMessageBody from './EmailMessageBody';
 import {
   addDoc,
   collection,
@@ -91,12 +91,13 @@ const ThreadMessage = React.memo(function ThreadMessage({ email, onRequestDelete
         {outbound ? 'Sent' : 'Reply'} · {formatSentAt(email.sentAt)}
       </div>
       <div style={{ fontWeight: 700, marginBottom: 6 }}>{email.subject}</div>
-      <div style={{ fontSize: 13, lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: emailDisplayHtml(email) }} />
+      <EmailMessageBody email={email} />
     </div>
   );
 }, (prev, next) => (
   prev.email.id === next.email.id
   && prev.email.body === next.email.body
+  && prev.email.bodyFull === next.email.bodyFull
   && prev.email.subject === next.email.subject
   && prev.email.direction === next.email.direction
   && sentAtMillis(prev.email.sentAt) === sentAtMillis(next.email.sentAt)
