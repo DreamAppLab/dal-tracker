@@ -429,74 +429,39 @@
     shadow.getElementById('dal-submit-pin').addEventListener('click', function () {
       var note = shadow.getElementById('dal-note-input').value.trim();
       if (!note) { shadow.getElementById('dal-note-input').focus(); return; }
-      submitPin(xPct, yPct, selector, note, cleanup, tempPin);
+      submitPin(xPct, yPct, selector, note, cleanup);
     });
   }
 
-  function submitPin(xPct, yPct, selector, note, cleanup, tempPin) {
-    // Try to capture screenshot via html2canvas
-    var doSubmit = function (screenshotBase64) {
-      var payload = {
-        project_id: PROJECT_ID,
-        session_id: session.session_id,
-        client_name: session.client_name,
-        client_email: session.client_email,
-        page_url: window.location.href,
-        page_title: document.title,
-        x_percent: xPct,
-        y_percent: yPct,
-        selector: selector,
-        note: note,
-      };
-      if (screenshotBase64) payload.screenshot_base64 = screenshotBase64;
-
-      cleanup();
-
-      fetch(API_BASE + '/pin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          if (data.ok && data.pin) {
-            pins.push(data.pin);
-            renderPin(data.pin, pins.length - 1);
-          }
-        })
-        .catch(function () {});
+  function submitPin(xPct, yPct, selector, note, cleanup) {
+    var payload = {
+      project_id: PROJECT_ID,
+      session_id: session.session_id,
+      client_name: session.client_name,
+      client_email: session.client_email,
+      page_url: window.location.href,
+      page_title: document.title,
+      x_percent: xPct,
+      y_percent: yPct,
+      selector: selector,
+      note: note,
     };
 
-    // Submit immediately — attempt screenshot in background (non-blocking)
-    // If html2canvas is already loaded, capture then submit; otherwise submit first
-    var TIMEOUT = 4000; // max wait for html2canvas
-    var submitted = false;
-    function safeSubmit(dataUrl) {
-      if (submitted) return;
-      submitted = true;
-      doSubmit(dataUrl || null);
-    }
+    cleanup();
 
-    // Failsafe: always submit within timeout
-    var timer = setTimeout(function () { safeSubmit(null); }, TIMEOUT);
-
-    function tryCapture() {
-      try {
-        html2canvas(document.body, { useCORS: true, scale: 0.4, logging: false })
-          .then(function (canvas) { clearTimeout(timer); safeSubmit(canvas.toDataURL('image/jpeg', 0.7)); })
-          .catch(function () { clearTimeout(timer); safeSubmit(null); });
-      } catch (e) { clearTimeout(timer); safeSubmit(null); }
-    }
-
-    if (typeof html2canvas !== 'undefined') {
-      tryCapture();
-    } else {
-      var script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-      script.onload = tryCapture;
-      script.onerror = function () { clearTimeout(timer); safeSubmit(null); };
-      document.head.appendChild(script);
-    }
+    fetch(API_BASE + '/pin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.ok && data.pin) {
+          pins.push(data.pin);
+          renderPin(data.pin, pins.length - 1);
+        }
+      })
+      .catch(function () {});
   }
 
   // ── Init ─────────────────────────────────────────────────────────────────────
