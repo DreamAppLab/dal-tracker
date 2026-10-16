@@ -18,7 +18,9 @@
 */
 
 // clientEmails collection schema:
-// { clientId, projectId, source, threadId, subject, body, to, sentAt, direction, read, parentId }
+// { clientId, projectId, source, threadId, subject, body, bodyFull, to, sentAt, direction, read, parentId }
+// For inbound replies, `body` is the reply only (Mailgun stripped-text when available)
+// and `bodyFull` keeps the complete raw email text for reference.
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
@@ -28,7 +30,12 @@ export default async function handler(req, res) {
     // Key fields: sender, recipient, subject, body-plain, In-Reply-To, Message-Id
     const sender = req.body['sender'] || req.body['from'] || '';
     const subject = req.body['subject'] || '';
-    const bodyText = req.body['body-plain'] || req.body['stripped-text'] || '';
+    // Prefer Mailgun's stripped-text (the reply only, without the quoted thread or
+    // signature). Mission Control also strips quoted history when displaying, so
+    // older messages and replies without stripped-text read cleanly too
+    // (see src/lib/emailReply.js).
+    const fullText = req.body['body-plain'] || req.body['stripped-text'] || '';
+    const bodyText = req.body['stripped-text'] || fullText;
     const inReplyTo = req.body['In-Reply-To'] || req.body['in-reply-to'] || '';
     const messageId = req.body['Message-Id'] || req.body['message-id'] || '';
 
@@ -74,12 +81,12 @@ export default async function handler(req, res) {
       }
 
       const original = retryQuery.docs[0].data();
-      await saveReply(adminDb, FieldValue, original, retryQuery.docs[0].id, sender, subject, bodyText, messageId);
+      await saveReply(adminDb, FieldValue, original, retryQuery.docs[0].id, sender, subject, bodyText, fullText, messageId);
       return res.status(200).json({ ok: true });
     }
 
     const original = originalQuery.docs[0].data();
-    await saveReply(adminDb, FieldValue, original, originalQuery.docs[0].id, sender, subject, bodyText, messageId);
+    await saveReply(adminDb, FieldValue, original, originalQuery.docs[0].id, sender, subject, bodyText, fullText, messageId);
 
     return res.status(200).json({ ok: true });
   } catch (err) {
@@ -88,7 +95,7 @@ export default async function handler(req, res) {
   }
 }
 
-async function saveReply(adminDb, FieldValue, original, parentId, sender, subject, bodyText, messageId) {
+async function saveReply(adminDb, FieldValue, original, parentId, sender, subject, bodyText, fullText, messageId) {
   await adminDb.collection('clientEmails').add({
     clientId: original.clientId,
     projectId: original.projectId || null,
@@ -96,6 +103,7 @@ async function saveReply(adminDb, FieldValue, original, parentId, sender, subjec
     threadId: messageId,
     subject: subject,
     body: bodyText,
+    bodyFull: fullText,
     to: sender,
     sentAt: FieldValue.serverTimestamp(),
     direction: 'inbound',

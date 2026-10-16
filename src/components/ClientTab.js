@@ -1,5 +1,5 @@
 // clientEmails collection schema:
-// { clientId, projectId, source, threadId, subject, body, to, sentAt, direction, read, parentId }
+// { clientId, projectId, source, threadId, subject, body, bodyFull, to, sentAt, direction, read, parentId }
 // clients collection schema:
 // { name, company, email, phone, notes, createdAt, updatedAt }
 // projects.clientIds: string[] — array of client doc IDs assigned to this project
@@ -8,6 +8,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { db } from '../firebase';
 import EmailBodyEditor from './EmailBodyEditor';
 import { DAL_SIGNATURE } from '../utils/dalEmailSignature';
+import EmailMessageBody from './EmailMessageBody';
 import {
   addDoc,
   arrayRemove,
@@ -352,7 +353,7 @@ export default function ClientTab({ project }) {
                   {outbound ? 'Sent' : 'Reply'} · {outbound ? `To ${email.to}` : `From ${email.to}`} · {formatSentAt(email.sentAt)}
                 </div>
                 <div style={{ fontWeight: 700, marginBottom: 6 }}>{email.subject}</div>
-                <div style={{ fontSize: 13, lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: email.body }} />
+                <EmailMessageBody email={email} />
                 {email.hasAttachment === true && email.attachmentUrl ? (
                   <a
                     href={email.attachmentUrl}
