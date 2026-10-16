@@ -447,21 +447,63 @@
       note: note,
     };
 
-    cleanup();
+    // Hide widget UI before capturing so it doesn't appear in the screenshot
+    var hostEl = document.getElementById('dal-feedback-host');
+    var allPinEls = document.querySelectorAll('.dal-pin');
 
-    fetch(API_BASE + '/pin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (data.ok && data.pin) {
-          pins.push(data.pin);
-          renderPin(data.pin, pins.length - 1);
-        }
+    function doSubmit(screenshotBase64) {
+      // Restore widget visibility
+      if (hostEl) hostEl.style.visibility = '';
+      allPinEls.forEach(function (el) { el.style.visibility = ''; });
+
+      if (screenshotBase64) payload.screenshot_base64 = screenshotBase64;
+      cleanup();
+
+      fetch(API_BASE + '/pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       })
-      .catch(function () {});
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.ok && data.pin) {
+            pins.push(data.pin);
+            renderPin(data.pin, pins.length - 1);
+          }
+        })
+        .catch(function () {});
+    }
+
+    function tryCapture() {
+      // Hide widget elements so they don't appear in screenshot
+      if (hostEl) hostEl.style.visibility = 'hidden';
+      allPinEls.forEach(function (el) { el.style.visibility = 'hidden'; });
+
+      try {
+        html2canvas(document.body, {
+          useCORS: true,
+          allowTaint: true,
+          scale: 0.35,
+          logging: false,
+          backgroundColor: null,
+          ignoreElements: function (el) {
+            return el.id === 'dal-feedback-host' || (el.classList && el.classList.contains('dal-pin'));
+          },
+        })
+          .then(function (canvas) { doSubmit(canvas.toDataURL('image/jpeg', 0.65)); })
+          .catch(function () { doSubmit(null); });
+      } catch (e) { doSubmit(null); }
+    }
+
+    if (typeof html2canvas !== 'undefined') {
+      tryCapture();
+    } else {
+      var script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+      script.onload = tryCapture;
+      script.onerror = function () { doSubmit(null); };
+      document.head.appendChild(script);
+    }
   }
 
   // ── Init ─────────────────────────────────────────────────────────────────────

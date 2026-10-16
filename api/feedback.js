@@ -44,14 +44,18 @@ function cors(res) {
 }
 
 // ── Mailgun ───────────────────────────────────────────────────────────────────
-async function sendFeedbackEmail({ project_name, preview_url, client_name, note, page_url, pin_id }) {
+async function sendFeedbackEmail({ project_name, preview_url, client_name, note, page_url, pin_id, screenshot_data_url }) {
   if (!MAILGUN_API_KEY) return;
   const viewLink = preview_url ? `${preview_url}#dal-pin-${pin_id}` : page_url;
+  const screenshotHtml = screenshot_data_url
+    ? `<p><img src="${screenshot_data_url}" alt="Screenshot" style="max-width:480px;border-radius:8px;border:1px solid #e2e8f0;" /></p>`
+    : '';
   const html = `
     <p><strong>Client:</strong> ${client_name || 'Anonymous'}</p>
     <p><strong>Note:</strong> ${note}</p>
     <p><strong>Page:</strong> <a href="${page_url}">${page_url}</a></p>
     <p><a href="${viewLink}" style="background:#4CC1F3;color:#000;padding:8px 16px;border-radius:6px;text-decoration:none;font-weight:bold;">View on page →</a></p>
+    ${screenshotHtml}
   `;
   const params = new URLSearchParams();
   params.append('from', MAILGUN_FROM);
@@ -139,6 +143,7 @@ async function handlePostPin(req, res) {
     note,
     page_url,
     pin_id: pinRef.id,
+    screenshot_data_url: screenshot_base64 || null,
   });
 
   const pinSnap = await pinRef.get();

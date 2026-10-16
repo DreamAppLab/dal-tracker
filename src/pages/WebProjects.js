@@ -571,6 +571,10 @@ function PinCard({ pin, index, previewUrl, onResolve }) {
           </div>
           <p style={{ margin: '0 0 8px', fontSize: 14, color: '#e2e8f0', lineHeight: 1.6 }}>{pin.note}</p>
           <p style={{ margin: '0 0 10px', fontSize: 12, color: '#64748b' }}>{pin.page_url}</p>
+          {pin.screenshotDataUrl && (
+            <img src={pin.screenshotDataUrl} alt="Screenshot" style={{ maxWidth: '100%', borderRadius: 8, marginBottom: 10, display: 'block', border: '1px solid #1e293b' }} />
+          )}
+
           {/* Existing reply */}
           {replyData && (
             <div style={{ background: 'rgba(76,193,243,0.07)', border: '1px solid rgba(76,193,243,0.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 10 }}>
