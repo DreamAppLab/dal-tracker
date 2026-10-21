@@ -47,17 +47,29 @@ module.exports = async function handler(req, res) {
     const subs = await stripe.subscriptions.list({ customer: customer.id, status: 'all', limit: 20 });
     const schedules = await stripe.subscriptionSchedules.list({ customer: customer.id, limit: 20 });
 
+    // For schedules, item prices may be just IDs — expand them to check nickname
+    const schedulePriceIds = [];
+    schedules.data.filter(s => s.status !== 'canceled').forEach(sch => {
+      sch.phases?.forEach(ph => ph.items?.forEach(i => {
+        if (i.price && typeof i.price === 'string') schedulePriceIds.push(i.price);
+        if (i.price && typeof i.price === 'object' && i.price.id) schedulePriceIds.push(i.price.id);
+      }));
+    });
+    // Fetch price details for schedule prices
+    const schedulePriceNicknames = new Set();
+    for (const pid of schedulePriceIds) {
+      try {
+        const p = await stripe.prices.retrieve(pid);
+        if (p.nickname) schedulePriceNicknames.add(p.nickname);
+      } catch (_) {}
+    }
+
     const subExists = (nickname) =>
       subs.data.some(s =>
         s.status !== 'canceled' &&
         s.items.data.some(i => i.price.nickname === nickname)
       ) ||
-      schedules.data.some(sch =>
-        sch.status !== 'canceled' &&
-        sch.phases?.some(ph =>
-          ph.items?.some(i => i.price && typeof i.price === 'object' && i.price.nickname === nickname)
-        )
-      );
+      schedulePriceNicknames.has(nickname);
 
     log.push(`existing_subs: ${subs.data.map(s => s.id + '[' + s.status + ']').join(', ') || 'none'}`);
     log.push(`existing_schedules: ${schedules.data.map(s => s.id + '[' + s.status + ']').join(', ') || 'none'}`);
@@ -73,11 +85,13 @@ module.exports = async function handler(req, res) {
         product_data: { name: 'Burning Bush Candle Co. — Build Fee' },
         nickname: BUILD_NICKNAME,
       });
+      // 12 months = Nov 1 2026 → Nov 1 2027
+      const NOV_1_2027_END = Math.floor(new Date('2027-11-01T00:00:00Z').getTime() / 1000);
       const buildSchedule = await stripe.subscriptionSchedules.create({
         customer: customer.id,
         start_date: NOV_1_2026,
         end_behavior: 'cancel',
-        phases: [{ items: [{ price: buildPrice.id, quantity: 1 }], iterations: 12 }],
+        phases: [{ items: [{ price: buildPrice.id, quantity: 1 }], end_date: NOV_1_2027_END }],
       });
       log.push(`build_fee: created_schedule ${buildSchedule.id} — $100/mo x12 starting Nov 1 2026`);
     }
