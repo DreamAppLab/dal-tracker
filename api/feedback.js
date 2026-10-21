@@ -129,6 +129,8 @@ async function handlePostPin(req, res) {
     note,
     resolved: false,
     resolved_at: null,
+    hidden: false,
+    hidden_at: null,
     created_at: FieldValue.serverTimestamp(),
     screenshotDataUrl: screenshot_base64 || null,
   };
@@ -167,20 +169,22 @@ async function handleGetPins(req, res) {
     const getMs = (t) => t && typeof t.toDate === 'function' ? t.toDate().getTime() : new Date(t || 0).getTime();
     return getMs(ta) - getMs(tb);
   });
-  const pins = sorted.map((doc) => {
-    const p = serializeDoc(doc);
-    // Strip session_id from response unless it matches the requester
-    const isOwn = session_id && p.session_id === session_id;
-    if (!isOwn) delete p.session_id;
-    // Never expose full screenshotDataUrl in list (can be large); just flag presence
-    const hasScreenshot = !!p.screenshotDataUrl;
-    // Keep screenshotDataUrl for own pins or if it's small enough (< 50kb)
-    if (p.screenshotDataUrl && p.screenshotDataUrl.length > 100000) {
-      p.screenshotDataUrl = null;
-    }
-    p.hasScreenshot = hasScreenshot;
-    return p;
-  });
+  const pins = sorted
+    .filter((doc) => !doc.data().hidden) // never send hidden pins to the widget
+    .map((doc) => {
+      const p = serializeDoc(doc);
+      // Strip session_id from response unless it matches the requester
+      const isOwn = session_id && p.session_id === session_id;
+      if (!isOwn) delete p.session_id;
+      // Never expose full screenshotDataUrl in list (can be large); just flag presence
+      const hasScreenshot = !!p.screenshotDataUrl;
+      // Keep screenshotDataUrl for own pins or if it's small enough (< 50kb)
+      if (p.screenshotDataUrl && p.screenshotDataUrl.length > 100000) {
+        p.screenshotDataUrl = null;
+      }
+      p.hasScreenshot = hasScreenshot;
+      return p;
+    });
 
   return res.status(200).json({ ok: true, pins });
 }
@@ -267,6 +271,45 @@ async function handleReply(req, res) {
   return res.status(200).json({ ok: true, reply_at });
 }
 
+// ── POST /api/feedback/hide ──────────────────────────────────────────────────
+async function handleHide(req, res) {
+  let body = req.body;
+  if (typeof body === 'string') {
+    try { body = JSON.parse(body); } catch { body = {}; }
+  }
+  const { pin_id, hidden } = body || {};
+  if (!pin_id || hidden === undefined) return res.status(400).json({ error: 'Missing pin_id or hidden' });
+
+  const db = getMcDb();
+  const ref = db.collection('feedbackPins').doc(pin_id);
+  await ref.update({
+    hidden: !!hidden,
+    hidden_at: hidden ? new Date().toISOString() : null,
+  });
+  const snap = await ref.get();
+  return res.status(200).json({ ok: true, pin: serializeDoc(snap) });
+}
+
+// ── POST /api/feedback/hide-all ──────────────────────────────────────────────
+async function handleHideAll(req, res) {
+  let body = req.body;
+  if (typeof body === 'string') {
+    try { body = JSON.parse(body); } catch { body = {}; }
+  }
+  const { project_id } = body || {};
+  if (!project_id) return res.status(400).json({ error: 'Missing project_id' });
+
+  const db = getMcDb();
+  const snap = await db.collection('feedbackPins').where('project_id', '==', project_id).get();
+  const batch = db.batch();
+  const now = new Date().toISOString();
+  snap.docs.forEach((doc) => {
+    batch.update(doc.ref, { hidden: true, hidden_at: now });
+  });
+  await batch.commit();
+  return res.status(200).json({ ok: true, count: snap.size });
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 module.exports = async function handler(req, res) {
   cors(res);
@@ -280,6 +323,8 @@ module.exports = async function handler(req, res) {
     if (path.endsWith('/pins') && req.method === 'GET') return await handleGetPins(req, res);
     if (path.endsWith('/resolve') && req.method === 'POST') return await handleResolve(req, res);
     if (path.endsWith('/reply') && req.method === 'POST') return await handleReply(req, res);
+    if (path.endsWith('/hide') && req.method === 'POST') return await handleHide(req, res);
+    if (path.endsWith('/hide-all') && req.method === 'POST') return await handleHideAll(req, res);
     return res.status(404).json({ error: 'Not found' });
   } catch (e) {
     console.error('feedback api error:', e);

@@ -246,10 +246,11 @@
       ? '<span class="dal-badge resolved">✓ Resolved</span>'
       : '<span class="dal-badge open">● Open</span>';
 
-    // Show resolve button only in admin mode
+    // Show resolve + hide buttons only in admin mode
     var resolveHtml = IS_ADMIN
       ? '<button class="dal-btn dal-resolve-btn ' + (pin.resolved ? 'reopen' : 'resolve') + '" id="dal-resolve-btn">'
           + (pin.resolved ? 'Reopen' : 'Mark Resolved') + '</button>'
+        + '<button class="dal-btn dal-resolve-btn" id="dal-hide-btn" style="margin-top:6px;background:rgba(148,163,184,0.1);color:#94a3b8;">🙈 Hide Pin</button>'
       : '';
 
     popup.innerHTML = [
@@ -282,15 +283,12 @@
             .then(function (r) { return r.json(); })
             .then(function (data) {
               if (!data.ok) return;
-              // Update local pin state
               pin.resolved = newResolved;
-              // Update pin circle appearance
               var entry = pinEls[pin.id];
               if (entry) {
                 entry.pinEl.className = 'dal-pin ' + (newResolved ? 'resolved-pin' : 'open-pin');
                 entry.pinEl.textContent = newResolved ? '✓' : entry.pinEl.textContent;
               }
-              // Rebuild popup with updated state
               popup.remove();
               activePinId = null;
               var newPopup = buildPinPopup(pin, anchorEl);
@@ -299,6 +297,34 @@
             .catch(function () {
               resolveBtn.disabled = false;
               resolveBtn.style.opacity = '1';
+            });
+        });
+      }
+
+      var hideBtn = popup.querySelector('#dal-hide-btn');
+      if (hideBtn) {
+        hideBtn.addEventListener('click', function () {
+          hideBtn.disabled = true;
+          hideBtn.style.opacity = '0.5';
+          fetch(API_BASE + '/hide', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pin_id: pin.id, hidden: true }),
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (!data.ok) return;
+              // Remove pin from DOM immediately
+              var entry = pinEls[pin.id];
+              if (entry) { entry.pinEl.remove(); }
+              delete pinEls[pin.id];
+              pins = pins.filter(function (p) { return p.id !== pin.id; });
+              popup.remove();
+              activePinId = null;
+            })
+            .catch(function () {
+              hideBtn.disabled = false;
+              hideBtn.style.opacity = '1';
             });
         });
       }
