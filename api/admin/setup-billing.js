@@ -7,7 +7,7 @@ const Stripe = require('stripe');
 const NOV_1_2026 = Math.floor(new Date('2026-11-01T00:00:00Z').getTime() / 1000);
 const NOV_1_2027 = Math.floor(new Date('2027-11-01T00:00:00Z').getTime() / 1000);
 
-const CUSTOMER_EMAIL = 'kaseyburningbush@gmail.com';
+const CUSTOMER_EMAIL = 'burningbushcandleco08@gmail.com';
 const CUSTOMER_NAME  = 'Kasey – Burning Bush Candle Co.';
 
 const BUILD_NICKNAME    = 'BB Build Fee $100/mo';
