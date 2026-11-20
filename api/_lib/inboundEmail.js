@@ -39,19 +39,30 @@ function emailAddress(raw) {
 }
 
 // Mailgun's message-headers: JSON list of [name, value]. Map lower-case name → all values.
-function headerMap(body) {
-  const out = {};
+// Ordered [lower-case name, value] pairs, top of the message first.
+function headerList(body) {
   let list = body['message-headers'];
   if (typeof list === 'string') {
     try { list = JSON.parse(list); } catch { list = null; }
   }
-  if (Array.isArray(list)) {
-    for (const pair of list) {
-      if (Array.isArray(pair) && pair.length >= 2) {
-        const k = String(pair[0]).toLowerCase();
-        (out[k] = out[k] || []).push(String(pair[1]));
-      }
-    }
+  if (!Array.isArray(list)) return [];
+  return list.filter((p) => Array.isArray(p) && p.length >= 2).map((p) => [String(p[0]).toLowerCase(), String(p[1])]);
+}
+
+function headerMap(body) {
+  const out = {};
+  for (const [k, v] of headerList(body)) (out[k] = out[k] || []).push(v);
+  return out;
+}
+
+// Authentication-Results headers Mailgun itself added: those above the first
+// Received line (the receiving server's own trace header is always topmost;
+// anything below it arrived with the message and may be forged).
+function topAuthResults(list) {
+  const out = [];
+  for (const [k, v] of list) {
+    if (k === 'received') break;
+    if (k === 'authentication-results') out.push(v);
   }
   return out;
 }
@@ -99,7 +110,7 @@ function mailgunAuthResultsVerified(arHeaders, fromDomain) {
   let text = String(arHeaders[0]).trim().replace(/^[^;]*;/, '');
   for (let i = 0; i < 5; i += 1) text = text.replace(/\([^()]*\)/g, ' ');
   for (const seg of text.split(';')) {
-    const m = seg.trim().match(/^([a-z-]+)\s*=\s*([a-z]+)\b(.*)$/i);
+    const m = seg.replace(/\s+/g, ' ').trim().match(/^([a-z-]+)\s*=\s*([a-z]+)\b(.*)$/i);
     if (!m) continue;
     const method = m[1].toLowerCase();
     const result = m[2].toLowerCase();
@@ -117,8 +128,8 @@ function mailgunAuthResultsVerified(arHeaders, fromDomain) {
   return false;
 }
 
-function senderVerified(h, fromAddr, envelopeAddr) {
-  if (mailgunAuthResultsVerified(h['authentication-results'] || [], domainOf(fromAddr))) return true;
+function senderVerified(h, fromAddr, envelopeAddr, list = []) {
+  if (mailgunAuthResultsVerified(topAuthResults(list), domainOf(fromAddr))) return true;
   const spf = h['x-mailgun-spf'] || [];
   const dkim = h['x-mailgun-dkim-check-result'] || [];
   // Mailgun can repeat a header (different case); only conflicting values count.
@@ -155,7 +166,7 @@ function parseInbound(body) {
     inReplyTo: hdr('in-reply-to', 'In-Reply-To', 'in-reply-to').trim(),
     references: hdr('references', 'References', 'references'),
     messageId: hdr('message-id', 'Message-Id', 'message-id', 'Message-ID').trim(),
-    verified: senderVerified(hm, emailAddress(hdr('from', 'from', 'From')) || emailAddress(field(body, 'sender')), emailAddress(field(body, 'sender'))),
+    verified: senderVerified(hm, emailAddress(hdr('from', 'from', 'From')) || emailAddress(field(body, 'sender')), emailAddress(field(body, 'sender')), headerList(body)),
     spam: /^yes/i.test(h['x-mailgun-sflag'] || ''),
     autoReply:
       (!!h['auto-submitted'] && !/^no\b/i.test(h['auto-submitted'])) ||
@@ -377,6 +388,8 @@ function authSummary(body) {
     envelopeDomain: domainOf(emailAddress(field(body, 'sender'))),
     fromDomain: domainOf(emailAddress(field(body, 'from', 'From'))),
     hasMessageHeaders: !!body['message-headers'],
+    // Header names in order (top of message first), to confirm where Mailgun puts its A-R.
+    headerOrder: headerList(body).slice(0, 12).map(([k]) => k.slice(0, 40)),
     fields: Object.keys(body).filter((k) => !['body-plain', 'stripped-text', 'body-html', 'stripped-html', 'stripped-signature', 'message-headers', 'token', 'signature'].includes(k)).slice(0, 40),
   };
 }

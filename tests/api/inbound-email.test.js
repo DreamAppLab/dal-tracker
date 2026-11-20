@@ -343,3 +343,16 @@ test('Authentication-Results: planted, foreign, misaligned or missing results st
   // Nothing at all.
   assert.equal(v([]), false);
 });
+
+test("only an Authentication-Results above the first Received line (Mailgun's own) is trusted", () => {
+  const v = (pairs, from = 'jaclyn@client.com') => parseInbound({ from, sender: from, 'message-headers': headers(pairs) }).verified;
+  const planted = 'mxa.mailgun.org; dmarc=pass header.from=client.com';
+  // Mailgun added no A-R; a sender planted one below the trace headers.
+  assert.equal(v([['Received', 'by mx.mailgun (hash)'], ['Received', 'by mail.evil.test'], ['Authentication-Results', planted]]), false);
+  // A planted A-R above a forged Received further down is still below Mailgun's Received.
+  assert.equal(v([['Received', 'by mx.mailgun (hash)'], ['Authentication-Results', planted], ['Received', 'by forged']]), false);
+  // Mailgun's own, above its Received: trusted.
+  assert.equal(v([['Authentication-Results', planted], ['Received', 'by mx.mailgun (hash)']]), true);
+  // header.i-only DKIM pass, EU id, folded header.
+  assert.equal(v([['Authentication-Results', 'mxa.eu.mailgun.org;' + String.fromCharCode(13,10) + '  dkim=pass' + String.fromCharCode(13,10) + '  header.i=@client.com header.s=s1'], ['Received', 'by x']]), true);
+});
