@@ -77,3 +77,18 @@ scan on every pull request.
 | `STRIPE_SECRET_KEY` | payment links |
 | `VAULT_ENCRYPTION_KEY` (Sensitive, production only) | Companies vault encryption — base64 of 32 random bytes |
 | `REACT_APP_FT_*`, `REACT_APP_ZERBIQ_FIREBASE_*` (public) | Firebase **web** config only — never secrets |
+
+### Provider keys (rotated Nov 20 2026)
+Each key is dedicated to Mission Control and named after it at the provider, so
+it can be revoked without touching anything else. Use the least access listed.
+
+| Vercel variable | Provider key | Access |
+| --- | --- | --- |
+| `GITHUB_TOKEN` | GitHub fine-grained token "Mission Control Tools page (read-only)" | DreamAppLab repos: Metadata + Pull requests, read-only |
+| `VERCEL_TOKEN` | Vercel token "Mission Control server (Nov 2026)" | Dream App Lab team, expires Nov 2027 |
+| `MAILGUN_API_KEY` | Mailgun key "DAL Shared (Nov 2026)" | Admin (sending, stats, webhook signing key); also used by wright-way-vacations |
+| `REVENUECAT_SECRET_KEY` and `REVENUECAT_SECRET_<APP>` | RevenueCat v2 secret key "Mission Control (Nov 2026, read-only)" in each project | Charts metrics + project configuration, read-only |
+| `FT_ADMIN_SECRET` | FamilyThread Runtime Config `admin/secret` (`getAdminData`) | Shared secret header |
+
+To rotate one: create the new key at the provider, update the Vercel variable
+(Sensitive), redeploy, check the Tools page, then revoke the old key.
