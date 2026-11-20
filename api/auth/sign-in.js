@@ -6,7 +6,7 @@
 // than the one you sign in with. Falls back to the business mailbox.
 
 const { withSecurity } = require('../_lib/security');
-const { writeAudit } = require('../_lib/audit');
+const { writeAuditSafe: writeAudit } = require('../_lib/audit');
 const { ADMIN_EMAILS } = require('../_lib/allowlist');
 
 const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN || 'inbound.dreamapplab.com';
@@ -46,10 +46,11 @@ module.exports = withSecurity(
   { name: 'auth-sign-in', methods: ['POST'], auth: 'admin', rateLimit: { limit: 10, windowMs: 60_000 } },
   async (req, res) => {
     const provider = (req.auth.firebase && req.auth.firebase.sign_in_provider) || 'unknown';
-    const entry = await writeAudit(
-      { type: 'sign_in', actor: req.auth, target: null, meta: { provider, authTime: Number(req.auth.auth_time) || null } },
-      req
-    );
+    const entry =
+      (await writeAudit(
+        { type: 'sign_in', actor: req.auth, target: null, meta: { provider, authTime: Number(req.auth.auth_time) || null } },
+        req
+      )) || { actorEmail: req.auth.email, meta: { provider }, ip: null, userAgent: null };
     let emailed = false;
     try {
       emailed = await sendAlert(entry);

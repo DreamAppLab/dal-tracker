@@ -6,7 +6,7 @@
 //   2. that email (lower-cased) in ADMIN_EMAILS, or the token's uid in ADMIN_UIDS.
 //
 // KEEP IN SYNC with firestore.rules and storage.rules (isAdmin()).
-// tests/security/allowlist-sync.test.js fails the build if they drift.
+// tests/api/misc.test.js fails the build if they drift.
 
 const ADMIN_EMAILS = Object.freeze(['lab@dreamapplab.com']);
 

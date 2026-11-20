@@ -57,6 +57,7 @@
   },
   "overrides": {
     "@grpc/grpc-js": "^1.14.3",
-    "underscore": "^1.13.8"
+    "underscore": "^1.13.8",
+    "jwks-rsa": "3.2.2"
   }
 }

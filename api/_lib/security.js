@@ -155,6 +155,7 @@ function withSecurity(options, handler) {
     cors: 'app',
     rateLimit: undefined,
     recentAuthSeconds: 0,
+    durableRateLimit: false, // true = count in Firestore across instances (costs a write per request)
     ...options,
   };
   if (!['admin', 'admin-or-internal', 'public'].includes(opts.auth)) {
@@ -181,7 +182,7 @@ function withSecurity(options, handler) {
           key: `${routeKey}:${clientIp(req) || 'unknown'}`,
           limit: limits.limit,
           windowMs: limits.windowMs,
-          durable: opts.auth === 'public',
+          durable: opts.durableRateLimit === true,
         });
         if (!rl.allowed) {
           res.setHeader('Retry-After', String(Math.ceil(rl.retryAfterMs / 1000)));

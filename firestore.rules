@@ -3,8 +3,8 @@ rules_version = '2';
 // DAL Mission Control — Firestore security rules.
 //
 // Deny by default. Only Eddie's allowlisted account, with a VERIFIED email,
-// can read or write anything. Server-only collections (auditLog, rateLimits,
-// vault ciphertext) are never writable from a browser — the Vercel API
+// can read or write anything. Server-only collections (auditLog, rateLimits)
+// are never writable from a browser — the Vercel API
 // functions write them with the Admin SDK, which bypasses these rules.
 //
 // The public feedback widget never talks to Firestore directly: it calls
@@ -12,7 +12,7 @@ rules_version = '2';
 // So anonymous clients get no Firestore access at all.
 //
 // KEEP THE ALLOWLIST IN SYNC with api/_lib/allowlist.js and storage.rules
-// (tests/security/allowlist-sync.test.js enforces this).
+// (tests/api/misc.test.js enforces this).
 
 service cloud.firestore {
   match /databases/{database}/documents {

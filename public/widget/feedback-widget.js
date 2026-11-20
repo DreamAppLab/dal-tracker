@@ -472,6 +472,7 @@
         '<button class="dal-btn dal-cancel" id="dal-cancel-pin">Cancel</button>',
         '<button class="dal-btn dal-submit" id="dal-submit-pin">Submit</button>',
       '</div>',
+      '<p id="dal-submit-error" role="alert" style="margin:8px 0 0;color:#f87171;font-size:12px;"></p>',
     ].join('');
 
     shadow.appendChild(popup);
@@ -490,6 +491,8 @@
     shadow.getElementById('dal-submit-pin').addEventListener('click', function () {
       var note = shadow.getElementById('dal-note-input').value.trim();
       if (!note) { shadow.getElementById('dal-note-input').focus(); return; }
+      this.disabled = true;
+      this.textContent = 'Sending…';
       submitPin(xPct, yPct, selector, note, cleanup);
     });
   }
@@ -518,21 +521,39 @@
       allPinEls.forEach(function (el) { el.style.visibility = ''; });
 
       if (screenshotBase64) payload.screenshot_base64 = screenshotBase64;
-      cleanup();
+
+      // Keep the note open until the server confirms it was saved, so a
+      // network error or rate limit never silently loses the client's note.
+      var submitBtn = shadow.getElementById('dal-submit-pin');
+      var errEl = shadow.getElementById('dal-submit-error');
+      if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Sending…'; }
+      if (errEl) errEl.textContent = '';
+
+      function fail(message) {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit'; }
+        if (errEl) errEl.textContent = message || 'Could not send your note. Please try again.';
+      }
 
       fetch(API_BASE + '/pin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          if (data.ok && data.pin) {
-            pins.push(data.pin);
-            renderPin(data.pin, pins.length - 1);
+        .then(function (r) {
+          return r.json().catch(function () { return {}; }).then(function (data) { return { status: r.status, data: data }; });
+        })
+        .then(function (res) {
+          if (res.data && res.data.ok && res.data.pin) {
+            cleanup();
+            pins.push(res.data.pin);
+            renderPin(res.data.pin, pins.length - 1);
+          } else if (res.status === 429) {
+            fail('Too many notes in a short time — please wait a few minutes and try again.');
+          } else {
+            fail(res.data && res.data.error ? 'Could not send: ' + res.data.error : null);
           }
         })
-        .catch(function () {});
+        .catch(function () { fail(null); });
     }
 
     function tryCapture() {

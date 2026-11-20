@@ -21,7 +21,7 @@ const { z } = require('zod');
 const { getMcDb } = require('./_lib/firebaseAdmin');
 const { withSecurity, HttpError, parseJsonBody, validate, isAppOrigin, bearerToken, verifyAdmin } = require('./_lib/security');
 const { checkRateLimit } = require('./_lib/rateLimit');
-const { clientIp, writeAudit } = require('./_lib/audit');
+const { clientIp, writeAuditSafe: writeAudit } = require('./_lib/audit');
 
 const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN || 'inbound.dreamapplab.com';
 const MAILGUN_FROM = process.env.MAILGUN_FROM || 'Dream App Lab <lab@inbound.dreamapplab.com>';
@@ -61,16 +61,33 @@ function originOf(raw) {
   }
 }
 
+// www.example.com and example.com are treated as the same site.
+function originVariants(origin) {
+  try {
+    const u = new URL(origin);
+    const host = u.hostname.startsWith('www.') ? u.hostname.slice(4) : u.hostname;
+    const port = u.port ? `:${u.port}` : '';
+    return [`${u.protocol}//${host}${port}`, `${u.protocol}//www.${host}${port}`];
+  } catch {
+    return [];
+  }
+}
+
 let originCache = { at: 0, origins: new Set() };
-async function widgetOrigins() {
-  if (Date.now() - originCache.at < 5 * 60 * 1000) return originCache.origins;
+const ORIGIN_CACHE_MS = 5 * 60 * 1000;
+const ORIGIN_MISS_REFRESH_MS = 30 * 1000;
+
+async function loadWidgetOrigins() {
   const snap = await getMcDb().collection('webProjects').get();
   const set = new Set();
+  const add = (raw) => {
+    const o = originOf(raw);
+    if (o) originVariants(o).forEach((v) => set.add(v));
+  };
   snap.docs.forEach((d) => {
     const p = d.data() || {};
-    const o = originOf(p.preview_url);
-    if (o) set.add(o);
-    if (Array.isArray(p.allowed_origins)) p.allowed_origins.forEach((x) => { const oo = originOf(x); if (oo) set.add(oo); });
+    add(p.preview_url);
+    if (Array.isArray(p.allowed_origins)) p.allowed_origins.forEach(add);
   });
   originCache = { at: Date.now(), origins: set };
   return set;
@@ -78,8 +95,11 @@ async function widgetOrigins() {
 
 async function corsForFeedback(origin) {
   if (isAppOrigin(origin)) return true;
-  const set = await widgetOrigins();
-  return set.has(origin);
+  const age = Date.now() - originCache.at;
+  if (age < ORIGIN_CACHE_MS && originCache.origins.has(origin)) return true;
+  // Miss (or stale): refresh at most every 30 s so a newly added project works right away.
+  if (age >= ORIGIN_MISS_REFRESH_MS) await loadWidgetOrigins();
+  return originCache.origins.has(origin);
 }
 
 function serializeDoc(doc) {
@@ -213,12 +233,16 @@ const PinSchema = z
     y_percent: z.coerce.number().finite().min(0).max(100),
     selector: clipStr(1000).optional(),
     note: z.string().trim().min(1).max(5000),
+    // An oversized or malformed screenshot is dropped, never a reason to lose the note.
     screenshot_base64: z
-      .string()
-      .max(MAX_SCREENSHOT_CHARS)
-      .regex(/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/)
-      .optional()
-      .nullable(),
+      .preprocess(
+        (v) =>
+          typeof v === 'string' && v.length <= MAX_SCREENSHOT_CHARS && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(v)
+            ? v
+            : null,
+        z.string().nullable()
+      )
+      .optional(),
   })
   .strict(); // rejects client-set resolved/hidden/reply/admin fields
 
@@ -230,10 +254,12 @@ const AdminLinkSchema = z.object({ project_id: DocId });
 
 // ── handlers ───────────────────────────────────────────────────────────────
 async function handlePostPin(req, res) {
-  const rl = await checkRateLimit({ key: `feedback-pin:${clientIp(req) || 'unknown'}`, limit: 10, windowMs: 10 * 60 * 1000, durable: true });
+  const rl = await checkRateLimit({ key: `feedback-pin:${clientIp(req) || 'unknown'}`, limit: 60, windowMs: 10 * 60 * 1000, durable: true });
   if (!rl.allowed) throw new HttpError(429, 'Too many notes — please wait a few minutes');
 
-  const body = validate(PinSchema, parseJsonBody(req, { maxBytes: MAX_SCREENSHOT_CHARS + 64 * 1024 }));
+  const body = validate(PinSchema, parseJsonBody(req, { maxBytes: 4 * 1024 * 1024 }));
+  const daily = await checkRateLimit({ key: `feedback-pin-project:${body.project_id}`, limit: 500, windowMs: 24 * 60 * 60 * 1000, durable: true });
+  if (!daily.allowed) throw new HttpError(429, 'This project has reached today’s feedback limit');
   const db = getMcDb();
   const projectDoc = await db.collection('webProjects').doc(body.project_id).get();
   if (!projectDoc.exists) throw new HttpError(404, 'Project not found');
@@ -393,4 +419,4 @@ module.exports = withSecurity(
   { name: 'feedback', methods: ['GET', 'POST'], auth: 'public', cors: corsForFeedback, rateLimit: { limit: 120, windowMs: 60_000 } },
   router
 );
-module.exports.__test = { signWidgetToken, verifyWidgetToken, publicPin, PinSchema, escHtml };
+module.exports.__test = { signWidgetToken, verifyWidgetToken, publicPin, PinSchema, escHtml, resetOriginCache: () => { originCache = { at: 0, origins: new Set() }; } };

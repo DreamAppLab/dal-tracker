@@ -187,12 +187,6 @@ export async function openProjectHandoffPrint(project) {
   <div class="notes">${notes ? escapeHtml(notes) : '—'}</div>
 
   <footer class="print-footer">Confidential — Dream App Lab LLC</footer>
-  <script>
-    window.addEventListener('load', function () {
-      window.focus();
-      window.print();
-    });
-  </script>
 </body>
 </html>`;
 
@@ -200,4 +194,8 @@ export async function openProjectHandoffPrint(project) {
   if (!printWindow) return;
   printWindow.document.write(html);
   printWindow.document.close();
+  // Print from the opener: inline scripts in the popup are blocked by the CSP.
+  const doPrint = () => { printWindow.focus(); printWindow.print(); };
+  if (printWindow.document.readyState === 'complete') setTimeout(doPrint, 300);
+  else printWindow.onload = doPrint;
 }

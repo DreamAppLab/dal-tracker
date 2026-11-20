@@ -9,25 +9,14 @@
 //   • Vercel runtime errors (7d)
 // Caches combined result in Firestore siteAnalyticsCache/{siteId} for 5 min.
 
+const shared = require('./_lib/firebaseAdmin');
 const { initializeApp, getApp } = require('firebase-admin/app');
 const { cert } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 
 // ── Firebase Admin (dal-mission-control) ────────────────────────────────────
-let _db = null;
 function getDb() {
-  if (_db) return _db;
-  const projectId = process.env.DAL_MC_FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.DAL_MC_FIREBASE_CLIENT_EMAIL;
-  const privateKey = (process.env.DAL_MC_FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
-  if (!projectId || !clientEmail || !privateKey) throw new Error('Missing DAL_MC_FIREBASE env vars');
-  const name = 'dalMcAnalytics';
-  let app;
-  try { app = getApp(name); } catch (_) {
-    app = initializeApp({ credential: cert({ projectId, clientEmail, privateKey }) }, name);
-  }
-  _db = getFirestore(app);
-  return _db;
+  return shared.getMcDb();
 }
 
 const UPTIMEROBOT_KEY = process.env.UPTIMEROBOT_API_KEY;

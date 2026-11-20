@@ -15,20 +15,36 @@ const ACTIVITY_EVENTS = ['mousedown', 'keydown', 'touchstart', 'scroll', 'wheel'
 const ACTIVITY_WRITE_THROTTLE_MS = 15 * 1000;
 const IDLE_CHECK_INTERVAL_MS = 30 * 1000;
 
+// In-memory copy so the idle timer still works when localStorage is
+// unavailable (e.g. some private-browsing modes) — this tab only.
+let memLastActivity = null;
+
 function readLastActivity() {
   try {
-    const v = Number(window.localStorage.getItem(ACTIVITY_KEY));
-    return Number.isFinite(v) && v > 0 ? v : null;
+    const raw = window.localStorage.getItem(ACTIVITY_KEY);
+    if (raw == null) return memLastActivity;
+    const v = Number(raw);
+    return Number.isFinite(v) && v > 0 ? Math.max(v, memLastActivity || 0) : memLastActivity;
   } catch {
-    return null;
+    return memLastActivity;
   }
 }
 
 export function markActivity(now = Date.now()) {
+  memLastActivity = now;
   try {
     window.localStorage.setItem(ACTIVITY_KEY, String(now));
   } catch {
-    /* storage unavailable — idle timer falls back to this tab only */
+    /* storage unavailable — memLastActivity keeps this tab's timer working */
+  }
+}
+
+function clearActivity() {
+  memLastActivity = null;
+  try {
+    window.localStorage.removeItem(ACTIVITY_KEY);
+  } catch {
+    /* ignore */
   }
 }
 
@@ -56,11 +72,7 @@ export function AuthProvider({ children }) {
 
   const signOutForIdle = useCallback(async () => {
     setSignOutReason('idle');
-    try {
-      window.localStorage.removeItem(ACTIVITY_KEY);
-    } catch {
-      /* ignore */
-    }
+    clearActivity();
     await signOut(auth).catch(() => {});
   }, []);
 
@@ -176,11 +188,7 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(async () => {
     setSignOutReason(null);
-    try {
-      window.localStorage.removeItem(ACTIVITY_KEY);
-    } catch {
-      /* ignore */
-    }
+    clearActivity();
     await signOut(auth);
   }, []);
 

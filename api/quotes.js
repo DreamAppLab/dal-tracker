@@ -90,7 +90,23 @@ function createdAtMs(quote) {
   return Number.isNaN(d.getTime()) ? 0 : d.getTime();
 }
 
+// Quotes carry many UI-managed fields, so validation is structural: plain
+// top-level field names only (no dotted paths / sentinels), bounded size.
+function assertSafePatch(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw Object.assign(new Error('JSON object body required'), { status: 400, expose: true });
+  }
+  const keys = Object.keys(body);
+  if (keys.length > 120) throw Object.assign(new Error('Too many fields'), { status: 400, expose: true });
+  const bad = keys.filter((k) => !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(k));
+  if (bad.length) throw Object.assign(new Error(`Invalid field name: ${bad[0].slice(0, 40)}`), { status: 400, expose: true });
+  if (Buffer.byteLength(JSON.stringify(body)) > 300 * 1024) {
+    throw Object.assign(new Error('Update too large'), { status: 413, expose: true });
+  }
+}
+
 function prepareUpdate(body) {
+  assertSafePatch(body);
   const update = { ...(body || {}) };
   delete update.id;
   Object.keys(update).forEach((key) => {
@@ -191,13 +207,13 @@ async function handleMessages(req, res, db) {
 }
 
 const { withSecurity } = require('./_lib/security');
-const { writeAudit } = require('./_lib/audit');
+const { writeAuditSafe: writeAudit } = require('./_lib/audit');
 
 module.exports = withSecurity({ name: 'quotes', methods: ['GET',  'POST',  'DELETE'], auth: 'admin' }, async (req, res) => {
   try {
     const db = getSiteDb();
     if (isMessagesRoute(req)) {
-      return handleMessages(req, res, db);
+      return await handleMessages(req, res, db);
     }
 
     const id = String((req.query && req.query.id) || '').trim();
@@ -244,7 +260,8 @@ module.exports = withSecurity({ name: 'quotes', methods: ['GET',  'POST',  'DELE
 
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (e) {
-    console.error('quotes api error', e);
+    if (e && e.expose && e.status) return res.status(e.status).json({ error: e.message });
+    console.error('quotes api error', e && e.message);
     return res.status(500).json({
       error: 'Quotes request failed',
     });

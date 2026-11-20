@@ -48,7 +48,7 @@ scan on every pull request.
 | `DAL_MC_INTERNAL_SECRET` | dal-site → `/api/record-quote-payment` |
 | `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`, `MAILGUN_FROM`, `SIGNIN_ALERT_EMAIL` (optional) | email, sign-in alerts, inbound signature check |
 | `FEEDBACK_ADMIN_TOKEN_SECRET` | widget "Open as admin" links |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_SERVICE_ACCOUNT_JSON`, `FIREBASE_SERVICE_ACCOUNT_JSON` | Google Calendar |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_SERVICE_ACCOUNT_JSON` | Google Calendar |
 | `REVENUECAT_SECRET_<APP>`, `REVENUECAT_SECRET_KEY` | revenue sync, Tools Hub |
 | `GITHUB_TOKEN`, `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `SENTRY_AUTH_TOKEN`, `POSTHOG_PERSONAL_API_KEY`, `EXPO_TOKEN`, `CRISP_API_IDENTIFIER`, `CRISP_API_KEY`, `CRISP_WEBSITE_IDS`, `UPTIMEROBOT_API_KEY` | Tools Hub / Website Analytics |
 | `FT_ADMIN_SECRET` | FamilyThread admin proxy |

@@ -133,7 +133,7 @@ function prepareUpdate(body) {
 }
 
 const { withSecurity } = require('../../../_lib/security');
-const { writeAudit } = require('../../../_lib/audit');
+const { writeAuditSafe: writeAudit } = require('../../../_lib/audit');
 
 module.exports = withSecurity({ name: 'zerbiq-blog-post', methods: ['PATCH',  'DELETE'], auth: 'admin' }, async (req, res) => {
   try {

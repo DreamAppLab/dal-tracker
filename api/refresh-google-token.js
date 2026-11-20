@@ -15,30 +15,15 @@
  * Required environment variables (Vercel):
  *   GOOGLE_CLIENT_ID              – OAuth 2.0 client ID (from Google Cloud Console)
  *   GOOGLE_CLIENT_SECRET          – OAuth 2.0 client secret
- *   FIREBASE_SERVICE_ACCOUNT_JSON – Full service-account JSON as a single string
+ *   DAL_MC_FIREBASE_* – shared Admin SDK credentials (api/_lib/firebaseAdmin.js)
  */
 
-const admin = require('firebase-admin');
+const shared = require('./_lib/firebaseAdmin');
 
 // ── Firebase Admin singleton ──────────────────────────────────────────────────
 
-let adminApp = null;
-
 function getDb() {
-  if (!adminApp) {
-    if (admin.apps.length > 0) {
-      adminApp = admin.apps[0];
-    } else {
-      if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-        throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON environment variable is not set.');
-      }
-      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-      adminApp = admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-      });
-    }
-  }
-  return admin.firestore(adminApp);
+  return shared.getMcDb();
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────

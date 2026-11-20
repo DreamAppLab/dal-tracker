@@ -8,6 +8,22 @@ import { apiFetch } from '../lib/apiClient';
 
 const BRAND = '#4CC1F3';
 
+// Full https URL (keeps path) for the preview link; null if invalid.
+function normalizeSiteUrl(raw) {
+  try {
+    const u = new URL(String(raw).trim());
+    return u.protocol === 'https:' ? u.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+// Origin only (scheme + host) for the widget allowlist; null if invalid.
+function normalizeSiteOrigin(raw) {
+  const url = normalizeSiteUrl(raw);
+  return url ? new URL(url).origin : null;
+}
+
 // ── Slug generator ───────────────────────────────────────────────────────────
 function generateProjectId(name) {
   const slug = name
@@ -172,6 +188,7 @@ function ProjectModal({ project, onClose, onSaved }) {
   const isEdit = Boolean(project);
   const [name, setName] = useState(project?.project_name || '');
   const [previewUrl, setPreviewUrl] = useState(project?.preview_url || '');
+  const [extraOrigins, setExtraOrigins] = useState((project?.allowed_origins || []).join('\n'));
   const [selectedContact, setSelectedContact] = useState(
     project?.contact_id
       ? { id: project.contact_id, name: project.contact_name || '', company: project.contact_company || '' }
@@ -182,23 +199,31 @@ function ProjectModal({ project, onClose, onSaved }) {
 
   const handleSave = async () => {
     if (!name.trim()) { setError('Project name is required'); return; }
+    // The feedback widget only works on sites registered here (no wildcard CORS),
+    // so addresses must be full https:// URLs.
+    const cleanPreview = previewUrl.trim() ? normalizeSiteUrl(previewUrl) : null;
+    if (previewUrl.trim() && !cleanPreview) { setError('Preview URL must be a full https:// address'); return; }
+    const originLines = extraOrigins.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
+    const cleanOrigins = originLines.map(normalizeSiteOrigin);
+    if (cleanOrigins.some((o) => !o)) { setError('Each extra site address must be a full https:// address'); return; }
     setSaving(true);
     setError('');
     const contactFields = {
       contact_id: selectedContact?.id || null,
       contact_name: selectedContact?.name || null,
+      allowed_origins: [...new Set(cleanOrigins)],
     };
     try {
       if (isEdit) {
         await updateDoc(doc(db, 'webProjects', project.project_id), {
           project_name: name.trim(),
-          preview_url: previewUrl.trim() || null,
+          preview_url: cleanPreview,
           ...contactFields,
         });
         onSaved({
           ...project,
           project_name: name.trim(),
-          preview_url: previewUrl.trim() || null,
+          preview_url: cleanPreview,
           ...contactFields,
         });
       } else {
@@ -206,7 +231,7 @@ function ProjectModal({ project, onClose, onSaved }) {
         const payload = {
           project_id,
           project_name: name.trim(),
-          preview_url: previewUrl.trim() || null,
+          preview_url: cleanPreview,
           status: 'active',
           created_at: serverTimestamp(),
           ...contactFields,
@@ -237,6 +262,11 @@ function ProjectModal({ project, onClose, onSaved }) {
 
         <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4, marginTop: 12 }}>Preview URL</label>
         <input value={previewUrl} onChange={(e) => setPreviewUrl(e.target.value)} placeholder="https://preview.example.com" style={inputStyle} />
+
+        <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4, marginTop: 12 }}>Other sites where the widget is embedded (optional)</label>
+        <textarea value={extraOrigins} onChange={(e) => setExtraOrigins(e.target.value)} rows={2}
+          placeholder="https://www.clientsite.com (one per line)" style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }} />
+        <p style={{ fontSize: 11, color: '#64748b', margin: '4px 0 0' }}>The widget only accepts notes from the preview URL and these addresses.</p>
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
           <button type="button" onClick={onClose} style={{ background: '#1e293b', border: 'none', color: '#94a3b8', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>Cancel</button>
@@ -338,7 +368,9 @@ function AllProjectsView({ onSelectProject }) {
                 </td>
                 <td style={{ padding: '12px 12px', fontSize: 13, color: '#cbd5e1' }}>{p.contact_name || '—'}</td>
                 <td style={{ padding: '12px 12px', fontSize: 13 }}>
-                  {p.preview_url ? <a href={p.preview_url} target="_blank" rel="noreferrer" style={{ color: '#94a3b8' }}>{p.preview_url}</a> : '—'}
+                  {p.preview_url && normalizeSiteUrl(p.preview_url)
+                    ? <a href={p.preview_url} target="_blank" rel="noreferrer" style={{ color: '#94a3b8' }}>{p.preview_url}</a>
+                    : <span title="The feedback widget is blocked until a full https:// preview URL is set" style={{ color: '#f59e0b' }}>⚠ {p.preview_url ? 'Fix preview URL' : 'Add preview URL'}</span>}
                 </td>
                 <td style={{ padding: '12px 12px' }}>
                   {pinCounts[p.project_id] > 0

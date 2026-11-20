@@ -312,7 +312,6 @@ function buildPrintHtml(type, rows, report, generated) {
       <div class="meta">Generated ${escapeHtml(generated)}</div>
     </div>
     ${body}
-    <script>window.onload=function(){window.focus();window.print();};</script>
     </body></html>`;
 }
 
@@ -324,6 +323,10 @@ function openPrintReport(type, rows, report) {
   tab.document.open();
   tab.document.write(html);
   tab.document.close();
+  // Print from the opener: inline scripts in the popup are blocked by the CSP.
+  const doPrint = () => { tab.focus(); tab.print(); };
+  if (tab.document.readyState === 'complete') setTimeout(doPrint, 300);
+  else tab.onload = doPrint;
 }
 
 function buildReportCsv(type, rows, report) {

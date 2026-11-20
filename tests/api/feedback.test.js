@@ -6,7 +6,7 @@ process.env.FEEDBACK_ADMIN_TOKEN_SECRET = 'test-feedback-secret-0123456789abcdef
 delete process.env.MAILGUN_API_KEY;
 
 const feedback = require('../../api/feedback');
-const { signWidgetToken, verifyWidgetToken, publicPin, PinSchema, escHtml } = feedback.__test;
+const { signWidgetToken, verifyWidgetToken, publicPin, PinSchema, escHtml, resetOriginCache } = feedback.__test;
 
 const PREVIEW = 'https://coastal-brew-demo.vercel.app';
 const seed = () => ({
@@ -34,9 +34,11 @@ test('pin schema: valid pin accepted, admin fields rejected, size enforced', () 
   for (const field of ['resolved', 'hidden', 'reply_text', 'resolved_at', 'admin']) {
     assert.equal(PinSchema.safeParse(validPin({ [field]: true })).success, false, field);
   }
+  // Oversized / malformed screenshots are dropped — the note itself is kept.
   const huge = 'data:image/jpeg;base64,' + 'A'.repeat(800 * 1024);
-  assert.equal(PinSchema.safeParse(validPin({ screenshot_base64: huge })).success, false);
-  assert.equal(PinSchema.safeParse(validPin({ screenshot_base64: 'javascript:alert(1)' })).success, false);
+  assert.equal(PinSchema.parse(validPin({ screenshot_base64: huge })).screenshot_base64, null);
+  assert.equal(PinSchema.parse(validPin({ screenshot_base64: 'javascript:alert(1)' })).screenshot_base64, null);
+  assert.equal(PinSchema.parse(validPin({ screenshot_base64: 'data:image/jpeg;base64,AAAA' })).screenshot_base64, 'data:image/jpeg;base64,AAAA');
   assert.equal(PinSchema.safeParse(validPin({ page_url: 'javascript:alert(1)' })).success, false);
   assert.equal(PinSchema.safeParse(validPin({ note: '' })).success, false);
   assert.equal(PinSchema.safeParse(validPin({ client_email: 'not-an-email' })).data.client_email, null);
@@ -53,6 +55,15 @@ test('anonymous widget can create a pin from a registered preview origin', async
   assert.equal(created[1].resolved, false);
   assert.equal(created[1].hidden, false);
   assert.equal(res.body.pin.client_email, undefined);
+});
+
+test('www/apex variants of a registered preview origin are accepted', async () => {
+  resetOriginCache();
+  setup({ ...seed(), 'webProjects/ww': { project_name: 'WW', preview_url: 'https://www.clientsite.com/demo', status: 'active' } });
+  const res = mockRes();
+  await feedback(mockReq({ method: 'OPTIONS', url: '/api/feedback/pin', headers: { origin: 'https://clientsite.com' } }), res);
+  assert.equal(res.statusCode, 204);
+  assert.equal(res.headers['access-control-allow-origin'], 'https://clientsite.com');
 });
 
 test('pin creation from an unknown origin is refused (no wildcard CORS)', async () => {

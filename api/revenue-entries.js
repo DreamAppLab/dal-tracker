@@ -13,39 +13,10 @@ const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const ENTRY_TYPES = ['deposit', 'balance', 'reversal'];
 const DEFAULT_APP_ID = 'dal-website';
 
-let _mcApp = null;
+const shared = require('./_lib/firebaseAdmin');
 
 function getMcApp() {
-  if (_mcApp) return _mcApp;
-
-  const projectId = process.env.DAL_MC_FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.DAL_MC_FIREBASE_CLIENT_EMAIL;
-  const privateKey = (process.env.DAL_MC_FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
-  const storageBucket =
-    process.env.DAL_MC_FIREBASE_STORAGE_BUCKET ||
-    (projectId ? projectId + '.firebasestorage.app' : '');
-
-  if (!projectId || !clientEmail || !privateKey) {
-    throw new Error('Missing DAL_MC Firebase env vars');
-  }
-
-  const appName = 'dalMcAdmin';
-  let app;
-  try {
-    app = getApp(appName);
-  } catch (_) {
-    app = initializeApp(
-      {
-        credential: cert({ projectId, clientEmail, privateKey }),
-        projectId,
-        storageBucket,
-      },
-      appName
-    );
-  }
-
-  _mcApp = app;
-  return _mcApp;
+  return shared.getMcApp();
 }
 
 function getDb() {

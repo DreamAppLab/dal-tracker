@@ -149,10 +149,9 @@ function generateEditsPDF(project, filter) {
   if (!printWindow) return;
   printWindow.document.write(html);
   printWindow.document.close();
-  printWindow.onload = () => {
-    printWindow.focus();
-    printWindow.print();
-  };
+  const doPrint = () => { printWindow.focus(); printWindow.print(); };
+  if (printWindow.document.readyState === 'complete') setTimeout(doPrint, 300);
+  else printWindow.onload = doPrint;
 }
 
 function getFilteredEdits(edits, filter) {

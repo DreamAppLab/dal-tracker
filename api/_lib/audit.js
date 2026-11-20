@@ -67,4 +67,19 @@ async function writeAudit(entry, req) {
   return doc;
 }
 
-module.exports = { writeAudit, AUDIT_TYPES, clientIp, sanitizeMeta };
+/**
+ * For audits recorded AFTER an action has already happened (e.g. a delete):
+ * a failed audit write is logged loudly but must not turn a completed action
+ * into an error response. Use writeAudit() (strict) when the audit must
+ * succeed BEFORE the action, e.g. before returning a decrypted vault value.
+ */
+async function writeAuditSafe(entry, req) {
+  try {
+    return await writeAudit(entry, req);
+  } catch (e) {
+    console.error('[audit] FAILED to record', entry && entry.type, entry && entry.target, '-', e && e.message);
+    return null;
+  }
+}
+
+module.exports = { writeAudit, writeAuditSafe, AUDIT_TYPES, clientIp, sanitizeMeta };

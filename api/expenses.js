@@ -8,6 +8,8 @@
 const { initializeApp, getApp, cert } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
+const shared = require('./_lib/firebaseAdmin');
+
 
 const CATEGORIES = [
   'Advertising & Marketing',
@@ -36,39 +38,9 @@ const APPS = [
 
 const SOURCES = ['email', 'manual', 'pdf', 'image'];
 
-let _mcApp = null;
 
 function getMcApp() {
-  if (_mcApp) return _mcApp;
-
-  const projectId = process.env.DAL_MC_FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.DAL_MC_FIREBASE_CLIENT_EMAIL;
-  const privateKey = (process.env.DAL_MC_FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
-  const storageBucket =
-    process.env.DAL_MC_FIREBASE_STORAGE_BUCKET ||
-    (projectId ? projectId + '.firebasestorage.app' : '');
-
-  if (!projectId || !clientEmail || !privateKey) {
-    throw new Error('Missing DAL_MC Firebase env vars');
-  }
-
-  const appName = 'dalMcAdmin';
-  let app;
-  try {
-    app = getApp(appName);
-  } catch (_) {
-    app = initializeApp(
-      {
-        credential: cert({ projectId, clientEmail, privateKey }),
-        projectId,
-        storageBucket,
-      },
-      appName
-    );
-  }
-
-  _mcApp = app;
-  return _mcApp;
+  return shared.getMcApp();
 }
 
 function getDb() {
@@ -235,7 +207,7 @@ async function deleteStoragePrefix(prefix) {
 }
 
 const { withSecurity } = require('./_lib/security');
-const { writeAudit } = require('./_lib/audit');
+const { writeAuditSafe: writeAudit } = require('./_lib/audit');
 
 module.exports = withSecurity({ name: 'expenses', methods: ['GET',  'POST',  'PUT',  'DELETE'], auth: 'admin' }, async (req, res) => {
   try {
