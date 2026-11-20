@@ -389,3 +389,11 @@ test('a copy dropped because the tab was hidden says so', async () => {
   expect(clipboard.text).toBe('');
   expect(container.textContent).toContain('Copy cancelled — try again');
 });
+
+test('when the browser blocks copying, the message says so in plain words', async () => {
+  await render();
+  clipboard.writeText = jest.fn(async () => { throw new Error("Failed to execute 'writeText' on 'Clipboard': Write permission denied."); });
+  await click(btn('Copy EIN'));
+  expect(container.textContent).toContain('This browser blocked copying, so nothing was copied. Use Reveal instead.');
+  expect(container.textContent).not.toContain('writeText');
+});
