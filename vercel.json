@@ -18,6 +18,10 @@
     {
       "source": "/api/vault/:path*",
       "destination": "/api/vault.js"
+    },
+    {
+      "source": "/api/ledger/:path*",
+      "destination": "/api/ledger.js"
     }
   ],
   "headers": [
@@ -84,5 +88,10 @@
         }
       ]
     }
-  ]
+  ],
+  "functions": {
+    "api/ledger.js": {
+      "maxDuration": 60
+    }
+  }
 }

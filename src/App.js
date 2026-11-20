@@ -13,7 +13,7 @@ import DALHeadquarters from './components/DALHeadquarters';
 import BlackBox from './components/BlackBox';
 import BlogAdmin from './pages/BlogAdmin';
 import ToolsHub from './pages/ToolsHub';
-import ExpensesTab from './tabs/ExpensesTab';
+import BooksPage from './ledger/BooksPage';
 import ProjectDetail from './components/ProjectDetail';
 import EnterpriseInquiriesTab from './tabs/EnterpriseInquiriesTab';
 import ClientJobsDashboard from './components/ClientJobsDashboard';
@@ -431,7 +431,7 @@ function DashboardApp() {
             }}
           />
         )}
-        {activeView === 'expenses' && <ExpensesTab />}
+        {(activeView === 'books' || activeView === 'expenses') && <BooksPage />}
         {activeView === 'enterprise-inquiries' && <EnterpriseInquiriesTab />}
         {activeView === 'subscriptions' && (
           <SubscriptionsDashboard projects={projects} />

@@ -62,7 +62,17 @@ security change. These rules are enforced by tests and by the Vercel build.
     rename or provider removal, delete the old variable in every environment and
     revoke the old key at the provider.
 
+15. **Books (ledger) rules** — see README "Books (ledger)". In short: money is integer
+    cents; every ledger id starts with `<companyId>_` and every query filters on
+    `companyId`; write transactions only through `core.planTransactionWrite()` via
+    `ledgerStore` (one Firestore transaction updates main + legs + mirrors + monthly
+    totals; never send empty maps to `ledgerMonthly`); reconciled rows are unlocked only
+    by `/api/ledger/unreconcile`; transfers and equity never touch P&L; reimbursements
+    change both companies together. Ledger rules live in their own block in
+    `firestore.rules` with tests in `tests/rules/ledger.rules.test.mjs`.
+
 ## Commands (PowerShell, from `C:\dev\dal-tracker`)
+- `npm run test:ledger` — Books core tests (money, transfers, intercompany, reconcile, P&L, import, migration)
 - `npm run test:api` — API unit tests (node:test)
 - `npx react-scripts test --watchAll=false` — React unit tests
 - `npm run test:rules` — Firestore/Storage rules tests (needs Java + firebase-tools)

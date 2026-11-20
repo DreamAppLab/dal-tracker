@@ -1,7 +1,7 @@
 // src/components/Dashboard.js
 import React, { useState, useEffect, useCallback } from 'react';
 import { db } from '../firebase';
-import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, setDoc, where } from 'firebase/firestore';
 import { STATUS_CONFIG } from '../data/initialData';
 import AddPipelineModal from './AddPipelineModal';
 import { sumClientProjectRevenue } from '../utils/revenueTotals';
@@ -164,20 +164,33 @@ const Dashboard = React.memo(function Dashboard({ projects, pipelineItems, onSel
   }, [reportLoadError, clearLoadError]);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'expenses'), (snapshot) => {
-      const now = new Date();
-      const prefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      const total = snapshot.docs.reduce((sum, d) => {
-        const data = d.data() || {};
-        if (String(data.date || '').startsWith(prefix)) {
-          return sum + Number(data.amount || 0);
-        }
-        return sum;
-      }, 0);
-      setMonthlyExpensesTotal(total);
+    // DAL's spending this month from the Books ledger (cached monthly totals:
+    // expense categories only — transfers, owner draws and amounts paid for
+    // Zerbiq are not expenses).
+    const now = new Date();
+    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    let monthDoc = null;
+    let cats = null;
+    const publish = () => {
+      if (!cats) return;
+      const totals = (monthDoc && monthDoc.cat) || {};
+      const spend = Object.entries(totals).reduce((sum, [catId, cents]) => (
+        cats[catId] === 'expense' ? sum - cents : sum
+      ), 0);
+      setMonthlyExpensesTotal(spend / 100);
       clearLoadError('Expenses');
-    }, (err) => reportLoadError('Expenses', err));
-    return () => unsub();
+    };
+    const u1 = onSnapshot(
+      query(collection(db, 'ledgerMonthly'), where('companyId', '==', 'dal'), where('month', '==', month)),
+      (snap) => { monthDoc = snap.empty ? null : snap.docs[0].data(); publish(); },
+      (err) => reportLoadError('Expenses', err)
+    );
+    const u2 = onSnapshot(
+      query(collection(db, 'ledgerCategories'), where('companyId', '==', 'dal')),
+      (snap) => { cats = Object.fromEntries(snap.docs.map((d) => [d.id, d.data().kind])); publish(); },
+      (err) => reportLoadError('Expenses', err)
+    );
+    return () => { u1(); u2(); };
   }, [reportLoadError, clearLoadError]);
 
   useEffect(() => {

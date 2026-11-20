@@ -29,7 +29,9 @@ service cloud.firestore {
 
     // Collections that only server functions may write.
     function serverOnlyWrite(collection) {
-      return collection in ['auditLog', 'rateLimits', 'companies', 'vaultSecrets', 'inboundMessages'];
+      // expenses + importedStatements: retired, read-only history (migrated into
+      // the ledger; kept untouched as the rollback source).
+      return collection in ['auditLog', 'rateLimits', 'companies', 'vaultSecrets', 'inboundMessages', 'expenses', 'importedStatements'];
     }
 
     // Collections no client may even read.
@@ -62,10 +64,183 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ====================================================================
+    // LEDGER (Books): bookkeeping for Dream App Lab LLC ("dal") and Zerbiq.
+    // Separate block; these collections are excluded from the catch-all below
+    // so ONLY these rules apply to them.
+    //
+    // Id convention: every ledger doc id, and every id it points at, starts
+    // with "<companyId>_". The rules use that to prove a document's id,
+    // account, top-level category and transfer account belong to its own
+    // company (no extra reads). Split lines (a list of maps) cannot be iterated
+    // by rules; their references are validated by the planner
+    // (src/ledger/core/transactions.js normalizeMain) on every write path.
+    // Only the allowlisted admin can write at all.
+    // ====================================================================
+    function ledgerCollection(collection) {
+      return collection in ['ledgerAccounts', 'ledgerCategories', 'ledgerTransactions',
+        'ledgerVendorRules', 'ledgerReconciliations', 'ledgerMonthly', 'ledgerImports',
+        'ledgerPrefs', 'ledgerMigrationBackups'];
+    }
+    function ledgerCompany(c) {
+      return c is string && c in ['dal', 'zerbiq'];
+    }
+    function ownedBy(id, c) {
+      return id is string && id.matches('^' + c + '_[A-Za-z0-9_-]{1,150}$');
+    }
+    function optOwnedBy(d, field, c) {
+      return !(field in d) || d[field] == null || ownedBy(d[field], c);
+    }
+    function isDate(v) {
+      return v is string && v.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$');
+    }
+    function isCents(v) {
+      return v is int && v > -100000000000 && v < 100000000000;
+    }
+    // Reads: admin only, and only documents that belong to a known company.
+    // (Queries must therefore filter on companyId; every ledger query does.)
+    function ledgerReadable() {
+      return isAdmin() && (resource == null || ledgerCompany(resource.data.companyId));
+    }
+    function sameCompany() {
+      return request.resource.data.companyId == resource.data.companyId;
+    }
+
+    match /ledgerAccounts/{id} {
+      allow read: if ledgerReadable();
+      allow create, update: if isAdmin()
+        && ledgerCompany(request.resource.data.companyId)
+        && ownedBy(id, request.resource.data.companyId)
+        && request.resource.data.kind in ['checking', 'credit_card', 'intercompany']
+        && request.resource.data.name is string && request.resource.data.name.size() <= 80
+        && isCents(request.resource.data.openingBalanceCents)
+        && isDate(request.resource.data.openingDate)
+        && (resource == null || (sameCompany() && request.resource.data.kind == resource.data.kind));
+      allow delete: if false; // archive instead: transactions point here
+    }
+
+    match /ledgerCategories/{id} {
+      allow read: if ledgerReadable();
+      allow create, update: if isAdmin()
+        && ledgerCompany(request.resource.data.companyId)
+        && ownedBy(id, request.resource.data.companyId)
+        && request.resource.data.kind in ['income', 'expense', 'equity']
+        && request.resource.data.name is string && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 80
+        && (resource == null || sameCompany());
+      allow delete: if false; // archive instead: history keeps its category
+    }
+
+    match /ledgerVendorRules/{id} {
+      allow read: if ledgerReadable();
+      allow create, update: if isAdmin()
+        && ledgerCompany(request.resource.data.companyId)
+        && ownedBy(id, request.resource.data.companyId)
+        && ownedBy(request.resource.data.categoryId, request.resource.data.companyId)
+        && request.resource.data.pattern is string && request.resource.data.pattern.size() > 0
+        && request.resource.data.pattern.size() <= 100
+        && (resource == null || sameCompany());
+      allow delete: if isAdmin() && ledgerCompany(resource.data.companyId);
+    }
+
+    function validTxn(d, id) {
+      return ledgerCompany(d.companyId)
+        && ownedBy(id, d.companyId)
+        && ownedBy(d.accountId, d.companyId)
+        && isDate(d.date)
+        && isCents(d.amountCents)
+        && d.status in ['uncleared', 'cleared', 'reconciled']
+        && d.type in ['expense', 'income', 'transfer', 'intercompany', 'equity']
+        && d.role in ['main', 'leg', 'mirror']
+        && d.deleted is bool
+        && d.payee is string && d.payee.size() <= 200
+        && optOwnedBy(d, 'categoryId', d.companyId)
+        && optOwnedBy(d, 'transferAccountId', d.companyId)
+        && d.splits is list && d.splits.size() <= 50
+        && (d.status != 'reconciled' || ownedBy(d.reconciliationId, d.companyId));
+    }
+    // A reconciled row is locked: its amount, date, account, status and
+    // deleted flag cannot change from a browser. Undo reconcile is a
+    // server-side, audit-logged action (/api/ledger/unreconcile).
+    function reconciledRowUnchanged() {
+      return request.resource.data.status == 'reconciled'
+        && request.resource.data.amountCents == resource.data.amountCents
+        && request.resource.data.date == resource.data.date
+        && request.resource.data.accountId == resource.data.accountId
+        && request.resource.data.deleted == resource.data.deleted
+        && request.resource.data.reconciliationId == resource.data.reconciliationId;
+    }
+
+    match /ledgerTransactions/{id} {
+      allow read: if ledgerReadable();
+      allow create: if isAdmin()
+        && validTxn(request.resource.data, id)
+        && request.resource.data.status != 'reconciled';
+      allow update: if isAdmin()
+        && validTxn(request.resource.data, id)
+        && sameCompany()
+        && (resource.data.status != 'reconciled' || reconciledRowUnchanged());
+      // No client deletes of reconciled rows (soft delete is the normal path).
+      allow delete: if isAdmin()
+        && ledgerCompany(resource.data.companyId)
+        && resource.data.status != 'reconciled';
+    }
+
+    match /ledgerReconciliations/{id} {
+      allow read: if ledgerReadable();
+      // Finishing a reconciliation creates its record; it is never edited or
+      // removed from a browser (undo happens server-side, audit-logged).
+      allow create: if isAdmin()
+        && ledgerCompany(request.resource.data.companyId)
+        && ownedBy(id, request.resource.data.companyId)
+        && ownedBy(request.resource.data.accountId, request.resource.data.companyId)
+        && request.resource.data.status == 'complete'
+        && isDate(request.resource.data.statementDate)
+        && isCents(request.resource.data.endingBalanceCents)
+        && isCents(request.resource.data.startingBalanceCents)
+        && request.resource.data.difference == 0;
+      allow update, delete: if false;
+    }
+
+    // Cached monthly aggregates: id is "<companyId>_<YYYY-MM>".
+    match /ledgerMonthly/{id} {
+      allow read: if ledgerReadable();
+      allow create, update: if isAdmin()
+        && ledgerCompany(request.resource.data.companyId)
+        && request.resource.data.month is string
+        && request.resource.data.month.matches('^[0-9]{4}-(0[1-9]|1[0-2])$')
+        && id == request.resource.data.companyId + '_' + request.resource.data.month
+        && (resource == null || sameCompany());
+      allow delete: if false;
+    }
+
+    // Imported statement fingerprints (re-import = no-op).
+    match /ledgerImports/{id} {
+      allow read: if ledgerReadable();
+      allow create, update: if isAdmin()
+        && ledgerCompany(request.resource.data.companyId)
+        && ownedBy(id, request.resource.data.companyId)
+        && ownedBy(request.resource.data.accountId, request.resource.data.companyId)
+        && (resource == null || sameCompany());
+      allow delete: if isAdmin() && ledgerCompany(resource.data.companyId);
+    }
+
+    // Per-user Books preferences (selected company).
+    match /ledgerPrefs/{uid} {
+      allow read: if isAdmin() && request.auth.uid == uid;
+      allow write: if isAdmin() && request.auth.uid == uid
+        && ledgerCompany(request.resource.data.companyId);
+    }
+
+    // Migration backups: written and read only by the migration script (Admin SDK).
+    match /ledgerMigrationBackups/{document=**} {
+      allow read, write: if false;
+    }
+
     // Everything else in Mission Control: admin only.
     match /{collection}/{document=**} {
-      allow read: if isAdmin() && !serverOnlyRead(collection);
-      allow write: if isAdmin() && !serverOnlyWrite(collection);
+      allow read: if isAdmin() && !serverOnlyRead(collection) && !ledgerCollection(collection);
+      allow write: if isAdmin() && !serverOnlyWrite(collection) && !ledgerCollection(collection);
     }
   }
 }

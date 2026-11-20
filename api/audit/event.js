@@ -8,7 +8,7 @@ const { withSecurity, parseJsonBody, validate } = require('../_lib/security');
 const { writeAudit } = require('../_lib/audit');
 
 const EventSchema = z.object({
-  type: z.enum(['delete', 'import', 'sensitive_update']),
+  type: z.enum(['delete', 'import', 'sensitive_update', 'ledger_delete', 'ledger_restore', 'ledger_update']),
   target: z.string().trim().min(1).max(300).regex(/^[A-Za-z0-9_\-/.: ]+$/),
   meta: z.record(z.string(), z.union([z.string().max(500), z.number(), z.boolean(), z.null()])).optional(),
 });
