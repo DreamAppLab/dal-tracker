@@ -333,6 +333,9 @@ function authSummary(body) {
     dkimDomains: dkimD.slice(0, 5),
     // Result tags and domains only (no addresses or IPs).
     authResults: (hm['authentication-results'] || []).map(authTags).slice(0, 3),
+    // Which server wrote each Authentication-Results header, in order (host names only).
+    authServIds: (hm['authentication-results'] || []).map((v) => (String(v).trim().split(/[;\s]/)[0] || '').toLowerCase().slice(0, 80)).slice(0, 6),
+    receivedBy: (hm['received'] || []).slice(0, 3).map((v) => ((String(v).match(/\bby\s+([^\s;()]+)/i) || [])[1] || '').toLowerCase().slice(0, 80)),
     receivedSpf: (hm['received-spf'] || []).map((v) => (String(v).trim().match(/^\w+/) || [''])[0].toLowerCase()).slice(0, 3),
     envelopeDomain: domainOf(emailAddress(field(body, 'sender'))),
     fromDomain: domainOf(emailAddress(field(body, 'from', 'From'))),
