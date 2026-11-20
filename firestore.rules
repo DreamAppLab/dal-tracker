@@ -3,7 +3,8 @@ rules_version = '2';
 // DAL Mission Control — Firestore security rules.
 //
 // Deny by default. Only Eddie's allowlisted account, with a VERIFIED email,
-// can read or write anything. Server-only collections (auditLog, rateLimits)
+// can read or write anything. Server-only collections (auditLog, rateLimits,
+// inboundMessages)
 // are never writable from a browser — the Vercel API
 // functions write them with the Admin SDK, which bypasses these rules.
 //
@@ -28,12 +29,12 @@ service cloud.firestore {
 
     // Collections that only server functions may write.
     function serverOnlyWrite(collection) {
-      return collection in ['auditLog', 'rateLimits', 'companies', 'vaultSecrets'];
+      return collection in ['auditLog', 'rateLimits', 'companies', 'vaultSecrets', 'inboundMessages'];
     }
 
     // Collections no client may even read.
     function serverOnlyRead(collection) {
-      return collection in ['rateLimits', 'vaultSecrets'];
+      return collection in ['rateLimits', 'vaultSecrets', 'inboundMessages'];
     }
 
     // Audit trail: readable by the admin, never writable by any client.

@@ -6,7 +6,7 @@
 // inbound address), so the client's replies thread back here and are copied to
 // lab@dreamapplab.com by /api/inbound-client-email.
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { collection, doc, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { apiFetch } from '../lib/apiClient';
@@ -41,6 +41,8 @@ export default function ClientEmailPanel({ contactId, projectId, onEditProject }
   const [contactLoaded, setContactLoaded] = useState(false);
   const [emails, setEmails] = useState([]);
   const [loadingEmails, setLoadingEmails] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const unreadRef = useRef([]);
   const [composing, setComposing] = useState(false);
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState(DAL_SIGNATURE);
@@ -60,8 +62,16 @@ export default function ClientEmailPanel({ contactId, projectId, onEditProject }
     );
   }, [contactId]);
 
+  const markVisibleRead = useCallback(() => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    const ids = unreadRef.current;
+    unreadRef.current = [];
+    ids.forEach((id) => updateDoc(doc(db, 'clientEmails', id), { read: true }).catch(() => {}));
+  }, []);
+
   useEffect(() => {
     setEmails([]);
+    unreadRef.current = [];
     if (!contactId) { setLoadingEmails(false); return undefined; }
     setLoadingEmails(true);
     const q = query(collection(db, 'clientEmails'), where('clientId', '==', contactId));
@@ -72,16 +82,27 @@ export default function ClientEmailPanel({ contactId, projectId, onEditProject }
         rows.sort((a, b) => sentAtMs(a.sentAt) - sentAtMs(b.sentAt));
         setEmails(rows);
         setLoadingEmails(false);
-        snap.docs.forEach((d) => {
-          const row = d.data();
-          if (row.direction === 'inbound' && row.read === false) {
-            updateDoc(doc(db, 'clientEmails', d.id), { read: true }).catch(() => {});
-          }
-        });
+        setLoadError('');
+        unreadRef.current = rows.filter((r) => r.direction === 'inbound' && r.read === false).map((r) => r.id);
+        markVisibleRead();
       },
-      () => setLoadingEmails(false)
+      () => { setLoadingEmails(false); setLoadError('Could not load emails. Refresh to try again.'); }
     );
-  }, [contactId]);
+  }, [contactId, markVisibleRead]);
+
+  // Replies count as read only when the page is actually visible.
+  useEffect(() => {
+    const onVisible = () => markVisibleRead();
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [markVisibleRead]);
+
+  // The success notice fades after a few seconds.
+  useEffect(() => {
+    if (!notice) return undefined;
+    const t = setTimeout(() => setNotice(''), 8000);
+    return () => clearTimeout(t);
+  }, [notice]);
 
   const canEmail = !!(contact && contact.email);
 
@@ -99,6 +120,14 @@ export default function ClientEmailPanel({ contactId, projectId, onEditProject }
     setComposing(false);
     setAttachment(null);
   };
+
+  useEffect(() => {
+    if (!composing) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') closeCompose(); };
+    document.addEventListener('keydown', onKey);
+    const t = setTimeout(() => { const el = document.getElementById('cep-subject'); if (el) el.focus(); }, 0);
+    return () => { document.removeEventListener('keydown', onKey); clearTimeout(t); };
+  });
 
   async function send() {
     if (!canEmail) { setError('This contact has no email address.'); return; }
@@ -158,7 +187,8 @@ export default function ClientEmailPanel({ contactId, projectId, onEditProject }
       {notice ? <div role="status" style={{ fontSize: 12, color: '#4ade80', marginBottom: 12 }}>{notice}</div> : null}
 
       {contactId && loadingEmails ? <p style={{ color: '#94a3b8', fontSize: 13, margin: 0 }}>Loading emails…</p> : null}
-      {contactId && !loadingEmails && emails.length === 0 ? (
+      {loadError ? <p role="alert" style={{ color: '#f87171', fontSize: 13, margin: 0 }}>{loadError}</p> : null}
+      {contactId && !loadingEmails && !loadError && emails.length === 0 ? (
         <p style={{ color: '#94a3b8', fontSize: 13, margin: 0 }}>No emails with this client yet. Click Compose to send the first one.</p>
       ) : null}
 
@@ -177,7 +207,7 @@ export default function ClientEmailPanel({ contactId, projectId, onEditProject }
                   padding: 14,
                 }}>
                 <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6 }}>
-                  {outbound ? `Sent to ${email.to}` : `Reply from ${email.to}`} · {formatSentAt(email.sentAt)}
+                  {outbound ? `Sent to ${email.to}` : `${email.parentId ? 'Reply from' : 'From'} ${email.to}`} · {formatSentAt(email.sentAt)}
                   {email.source && SOURCE_LABEL[email.source] && email.source !== 'webProject' ? ` · via ${SOURCE_LABEL[email.source]}` : ''}
                 </div>
                 <div style={{ fontWeight: 700, marginBottom: 6, fontSize: 14 }}>{email.subject}</div>
@@ -203,16 +233,16 @@ export default function ClientEmailPanel({ contactId, projectId, onEditProject }
             </div>
             <div className="modal-body">
               <div className="form-group">
-                <label className="form-label">To</label>
-                <input className="form-input" value={`${contact?.name || ''} <${contact?.email || ''}>`} readOnly />
+                <label className="form-label" htmlFor="cep-to">To</label>
+                <input id="cep-to" className="form-input" value={`${contact?.name || ''} <${contact?.email || ''}>`} readOnly />
               </div>
               <div className="form-group">
                 <label className="form-label" htmlFor="cep-subject">Subject</label>
                 <input id="cep-subject" className="form-input" value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={300} />
               </div>
               <div className="form-group">
-                <label className="form-label">Message</label>
-                <EmailBodyEditor defaultHtml={body} onChange={setBody} />
+                <div className="form-label" id="cep-message-label">Message</div>
+                <div aria-labelledby="cep-message-label"><EmailBodyEditor defaultHtml={body} onChange={setBody} /></div>
               </div>
               <div className="form-group">
                 <label className="form-label" htmlFor="cep-attachment">Attachment (optional)</label>

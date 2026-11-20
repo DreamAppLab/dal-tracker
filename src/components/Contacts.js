@@ -320,18 +320,17 @@ export default function Contacts({ onUnreadCount }) {
   useEffect(() => {
     const q = query(
       collection(db, 'clientEmails'),
-      where('source', '==', 'contact'),
       where('direction', '==', 'inbound'),
       where('read', '==', false)
     );
     const unsub = onSnapshot(q, (snapshot) => {
+      // Contacts shows mail sent from Contacts and from Web Projects (Client Jobs
+      // keeps its own count for project mail).
+      const rows = snapshot.docs.map((d) => d.data()).filter((r) => r.source === 'contact' || r.source === 'webProject');
       const ids = new Set();
-      snapshot.docs.forEach((d) => {
-        const clientId = d.data().clientId;
-        if (clientId) ids.add(clientId);
-      });
+      rows.forEach((r) => { if (r.clientId) ids.add(r.clientId); });
       setUnreadClientIds(ids);
-      setUnreadCount(snapshot.size);
+      setUnreadCount(rows.length);
     });
     return () => unsub();
   }, []);
@@ -350,21 +349,21 @@ export default function Contacts({ onUnreadCount }) {
     setLoadingEmails(true);
     const q = query(
       collection(db, 'clientEmails'),
-      where('clientId', '==', contactId),
-      where('source', '==', 'contact')
+      where('clientId', '==', contactId)
     );
     const unsub = onSnapshot(
       q,
       (snapshot) => {
         const data = snapshot.docs
           .map((d) => ({ id: d.id, ...d.data() }))
+          .filter((e) => e.source === 'contact' || e.source === 'webProject')
           .sort((a, b) => sentAtMillis(b.sentAt) - sentAtMillis(a.sentAt))
           .slice(0, 50);
         setContactEmails(data);
         setLoadingEmails(false);
         snapshot.docs.forEach((emailDoc) => {
           const row = emailDoc.data();
-          if (row.direction === 'inbound' && row.read === false) {
+          if (row.direction === 'inbound' && row.read === false && (row.source === 'contact' || row.source === 'webProject')) {
             updateDoc(doc(db, 'clientEmails', emailDoc.id), { read: true }).catch(() => {});
           }
         });

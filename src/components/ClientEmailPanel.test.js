@@ -116,3 +116,31 @@ test('a contact without an email address cannot be emailed', () => {
   expect(button('Compose')).toBeUndefined();
   expect(container.textContent).toContain('has no email address');
 });
+
+test('replies are not marked read while the tab is hidden, then are when it becomes visible', () => {
+  global.mockFs.emails = [{ id: 'e5', direction: 'inbound', parentId: 'o1', to: 'j@example.com', subject: 'Re', body: 'hi', read: false, source: 'webProject', sentAt: '2026-11-20T10:00:00Z' }];
+  const vis = jest.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+  render({ contactId: 'c1', projectId: 'p' });
+  expect(global.mockFs.updates).toEqual([]);
+  vis.mockReturnValue('visible');
+  act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+  expect(global.mockFs.updates).toEqual([['e5', { read: true }]]);
+  vis.mockRestore();
+});
+
+test('inbound email content is shown as text, never as HTML', () => {
+  global.mockFs.emails = [{ id: 'x1', direction: 'inbound', to: 'j@example.com', subject: 'Hi', body: '<img src=x onerror=alert(1)><script>bad()</script>', read: true, source: 'contact', sentAt: '2026-11-20T10:00:00Z' }];
+  render({ contactId: 'c1', projectId: 'p' });
+  expect(container.querySelector('img')).toBeNull();
+  expect(container.querySelector('script')).toBeNull();
+  expect(container.textContent).toContain('<script>bad()</script>');
+  expect(container.textContent).toContain('From j@example.com'); // not a reply
+});
+
+test('Escape closes the compose dialog', () => {
+  render({ contactId: 'c1', projectId: 'p' });
+  act(() => button('Compose').click());
+  expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+  act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+  expect(container.querySelector('[role="dialog"]')).toBeNull();
+});

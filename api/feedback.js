@@ -22,6 +22,7 @@ const { getMcDb } = require('./_lib/firebaseAdmin');
 const { withSecurity, HttpError, parseJsonBody, validate, isAppOrigin, bearerToken, verifyAdmin } = require('./_lib/security');
 const { checkRateLimit } = require('./_lib/rateLimit');
 const { clientIp, writeAuditSafe: writeAudit } = require('./_lib/audit');
+const { labInbox } = require('./_lib/mail');
 
 const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN || 'inbound.dreamapplab.com';
 const MAILGUN_FROM = process.env.MAILGUN_FROM || 'Dream App Lab <lab@inbound.dreamapplab.com>';
@@ -295,7 +296,7 @@ async function handlePostPin(req, res) {
     <p><a href="${escHtml(viewLink)}" style="background:#4CC1F3;color:#000;padding:8px 16px;border-radius:6px;text-decoration:none;font-weight:bold;">View on page →</a></p>
     ${body.screenshot_base64 ? '<p>A screenshot is attached to this note in Mission Control.</p>' : ''}
   `;
-  await sendMailgun('lab@dreamapplab.com', `📍 New feedback — ${String(project.project_name || body.project_id).slice(0, 120)}`, html);
+  await sendMailgun(labInbox(), `📍 New feedback — ${String(project.project_name || body.project_id).slice(0, 120)}`, html);
 
   const pinSnap = await pinRef.get();
   return res.status(200).json({ ok: true, pin: publicPin(pinSnap, body.session_id) });
