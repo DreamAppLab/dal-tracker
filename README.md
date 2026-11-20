@@ -71,7 +71,7 @@ scan on every pull request.
 | `FEEDBACK_ADMIN_TOKEN_SECRET` | widget "Open as admin" links |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_SERVICE_ACCOUNT_JSON` | Google Calendar |
 | `REVENUECAT_SECRET_<APP>`, `REVENUECAT_SECRET_KEY` | revenue sync, Tools Hub |
-| `GITHUB_TOKEN`, `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `SENTRY_AUTH_TOKEN`, `POSTHOG_PERSONAL_API_KEY`, `EXPO_TOKEN`, `CRISP_API_IDENTIFIER`, `CRISP_API_KEY`, `CRISP_WEBSITE_IDS`, `UPTIMEROBOT_API_KEY` | Tools Hub / Website Analytics |
+| `GITHUB_TOKEN`, `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `UPTIMEROBOT_API_KEY` | Tools page live cards (GitHub, Vercel) / Website Analytics. Sentry, PostHog, Expo and Crisp are link-only: Mission Control holds no keys for them. |
 | `FT_ADMIN_SECRET` | FamilyThread admin proxy |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` | SMS |
 | `STRIPE_SECRET_KEY` | payment links |
