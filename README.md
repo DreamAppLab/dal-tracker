@@ -85,10 +85,10 @@ it can be revoked without touching anything else. Use the least access listed.
 | Vercel variable | Provider key | Access |
 | --- | --- | --- |
 | `GITHUB_TOKEN` | GitHub fine-grained token "Mission Control Tools page (read-only)" | DreamAppLab repos: Metadata + Pull requests, read-only |
-| `VERCEL_TOKEN` | Vercel token "Mission Control server (Nov 2026)" | Dream App Lab team, expires Nov 2027 |
+| `VERCEL_TOKEN` | Vercel token "Mission Control server (Nov 2026 b)" | Dream App Lab team, expires Nov 2027 |
 | `MAILGUN_API_KEY` | Mailgun key "DAL Shared (Nov 2026)" | Admin (sending, stats, webhook signing key); also used by wright-way-vacations |
 | `REVENUECAT_SECRET_KEY` and `REVENUECAT_SECRET_<APP>` | RevenueCat v2 secret key "Mission Control (Nov 2026, read-only)" in each project | Charts metrics + project configuration, read-only |
-| `FT_ADMIN_SECRET` | FamilyThread Runtime Config `admin/secret` (`getAdminData`) | Shared secret header |
+| `FT_ADMIN_SECRET` | FamilyThread Runtime Config `admin/secret` in `familythread-prod` (read by the `getAdminData` function) | Shared secret header; change both together (`gcloud beta runtime-config configs variables set secret NEW --config-name=admin --is-text`) |
 
 To rotate one: create the new key at the provider, update the Vercel variable
 (Sensitive), redeploy, check the Tools page, then revoke the old key.
