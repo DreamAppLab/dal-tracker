@@ -81,7 +81,44 @@ const aligned = (a, b) => {
 // the envelope domain aligned to From, or Mailgun DKIM pass with a DKIM-Signature
 // d= aligned to From. Duplicated Mailgun result headers (a sender could plant
 // one) count as unverified.
+// Mailgun's receiving servers, as they sign their Authentication-Results header
+// (observed live: "mxa.mailgun.org"). Pinned on purpose: no substring matching.
+const MAILGUN_AUTHSERV_IDS = new Set(['mxa.mailgun.org', 'mxb.mailgun.org', 'mxa.eu.mailgun.org', 'mxb.eu.mailgun.org']);
+
+const authServId = (v) => (String(v || '').trim().split(/[;\s]/)[0] || '').toLowerCase();
+
+// Mailgun's own Authentication-Results (RFC 8601): trusted only when the topmost
+// A-R header is written by a Mailgun receiving host and no second header claims a
+// Mailgun id (a sender can plant A-R headers lower in the message; fail closed).
+// Verified = dmarc=pass with header.from aligned to From, or dkim=pass with an
+// aligned header.d/header.i, or spf=pass with an aligned smtp.mailfrom.
+function mailgunAuthResultsVerified(arHeaders, fromDomain) {
+  if (!arHeaders.length || !MAILGUN_AUTHSERV_IDS.has(authServId(arHeaders[0]))) return false;
+  if (arHeaders.filter((v) => MAILGUN_AUTHSERV_IDS.has(authServId(v))).length !== 1) return false;
+  // Drop the authserv-id, and comments like "(i=1 spf=pass ...)" which are not results.
+  let text = String(arHeaders[0]).trim().replace(/^[^;]*;/, '');
+  for (let i = 0; i < 5; i += 1) text = text.replace(/\([^()]*\)/g, ' ');
+  for (const seg of text.split(';')) {
+    const m = seg.trim().match(/^([a-z-]+)\s*=\s*([a-z]+)\b(.*)$/i);
+    if (!m) continue;
+    const method = m[1].toLowerCase();
+    const result = m[2].toLowerCase();
+    const props = {};
+    (m[3].match(/[a-z-]+\.[a-z-]+\s*=\s*[^\s;]+/gi) || []).forEach((p) => {
+      const [k, ...rest] = p.split('=');
+      props[k.trim().toLowerCase()] = rest.join('=').trim().replace(/^"|"$/g, '').toLowerCase();
+    });
+    if (result !== 'pass') continue;
+    const domainProp = (v) => (v && v.includes('@') ? v.split('@').pop() : v);
+    if (method === 'dmarc' && aligned(props['header.from'], fromDomain)) return true;
+    if (method === 'dkim' && (aligned(props['header.d'], fromDomain) || aligned(domainProp(props['header.i']), fromDomain))) return true;
+    if (method === 'spf' && aligned(domainProp(props['smtp.mailfrom']), fromDomain)) return true;
+  }
+  return false;
+}
+
 function senderVerified(h, fromAddr, envelopeAddr) {
+  if (mailgunAuthResultsVerified(h['authentication-results'] || [], domainOf(fromAddr))) return true;
   const spf = h['x-mailgun-spf'] || [];
   const dkim = h['x-mailgun-dkim-check-result'] || [];
   // Mailgun can repeat a header (different case); only conflicting values count.

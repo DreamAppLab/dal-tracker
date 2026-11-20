@@ -320,3 +320,26 @@ test('identical repeated Mailgun result headers still verify; conflicting ones d
   assert.ok(!JSON.stringify(s).includes('203.0.113.9'));
   assert.ok(!JSON.stringify(s).includes('jo@'));
 });
+
+const MG_AR = 'mxa.mailgun.org; dkim=pass header.i=@gmail.com header.s=20230601 header.b=abc; spf=pass (mxa.mailgun.org: domain of jo@gmail.com designates 209.85.128.46 as permitted sender) smtp.mailfrom=jo@gmail.com; spf=none smtp.helo=mail-yx1-f46.google.com; dmarc=pass (p=NONE sp=QUARANTINE dis=NONE) header.from=gmail.com; arc=pass (i=1 spf=pass spfdomain=gmail.com dkim=pass dkdomain=gmail.com dmarc=pass fromdomain=gmail.com)';
+
+test('Mailgun\'s own Authentication-Results verifies a genuine sender', () => {
+  const m = parseInbound({ from: 'Jo <jo@gmail.com>', sender: 'jo@gmail.com', 'message-headers': headers([['Authentication-Results', MG_AR], ['Received', 'by mxa.mailgun.org']]) });
+  assert.equal(m.verified, true);
+});
+
+test('Authentication-Results: planted, foreign, misaligned or missing results stay unverified', () => {
+  const v = (pairs, from = 'jo@gmail.com') => parseInbound({ from, sender: from, 'message-headers': headers(pairs) }).verified;
+  // A sender-planted Mailgun-looking A-R below Mailgun's own: two Mailgun ids → fail closed.
+  assert.equal(v([['Authentication-Results', MG_AR], ['Authentication-Results', 'mxa.mailgun.org; dmarc=pass header.from=gmail.com']]), false);
+  // Topmost A-R not written by Mailgun.
+  assert.equal(v([['Authentication-Results', 'mx.evil.test; dmarc=pass header.from=gmail.com'], ['Authentication-Results', MG_AR]]), false);
+  // Loose lookalike ids are not trusted.
+  assert.equal(v([['Authentication-Results', 'mxa.mailgun.org.evil.test; dmarc=pass header.from=gmail.com']]), false);
+  // Passes for another domain don't verify a From claiming the client.
+  assert.equal(v([['Authentication-Results', 'mxa.mailgun.org; dmarc=pass header.from=evil.test; dkim=pass header.d=evil.test; spf=pass smtp.mailfrom=x@evil.test']], 'jaclyn@client.com'), false);
+  // A pass only inside a comment doesn't count.
+  assert.equal(v([['Authentication-Results', 'mxa.mailgun.org; dmarc=fail (p=none; was dmarc=pass header.from=gmail.com) header.from=gmail.com; arc=pass (i=1 dkim=pass dkdomain=gmail.com)']]), false);
+  // Nothing at all.
+  assert.equal(v([]), false);
+});
