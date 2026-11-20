@@ -50,20 +50,21 @@ function errorText(e) {
 // Browsers only allow writing the clipboard while this tab has focus. So the
 // clear runs at 30 s if the tab is focused; otherwise it runs as soon as the
 // tab is focused again, and a banner offers "Clear clipboard now" (a click is
-// always allowed). Closing the tab before then cannot clear it; the banner and
-// the Copy note say so.
-const clip = { value: null, gen: 0, timer: null, due: false, listeners: new Set() };
+// always allowed; Firefox/Safari allow clipboard writes only on a click, so
+// there the banner is the way to clear). Closing the tab first leaves the value
+// on the clipboard; the banner says so.
+const clip = { value: null, gen: 0, timer: null, due: false, writing: false, listeners: new Set() };
 const emitClip = () => clip.listeners.forEach((fn) => fn());
 
 async function clearClipboard(fromClick = false) {
-  if (!clip.value) return;
+  if (!clip.value || clip.writing) return;
   const gen = clip.gen;
   try {
     if (!fromClick && navigator.permissions && navigator.clipboard.readText) {
       const perm = await navigator.permissions.query({ name: 'clipboard-read' }).catch(() => null);
       if (perm && perm.state === 'granted') {
         const current = await navigator.clipboard.readText();
-        if (gen !== clip.gen) return; // a newer copy happened meanwhile
+        if (gen !== clip.gen || clip.writing) return; // a newer copy started meanwhile
         if (current !== clip.value) {
           // Something else was copied since; leave it alone.
           clip.value = null;
@@ -73,12 +74,13 @@ async function clearClipboard(fromClick = false) {
         }
       }
     }
-    if (gen !== clip.gen) return;
+    if (gen !== clip.gen || clip.writing) return;
     await navigator.clipboard.writeText('');
     if (gen !== clip.gen) return;
     clip.value = null;
     clip.due = false;
   } catch {
+    if (gen !== clip.gen) return; // a stale clear failing must not flag a newer copy
     clip.due = true; // not focused or no user gesture: retry on focus / show banner
   }
   emitClip();
@@ -92,12 +94,29 @@ if (typeof window !== 'undefined') {
   document.addEventListener('visibilitychange', retry);
 }
 
+// The generation is bumped and the old timer cancelled BEFORE the write, and
+// clears are blocked while a write is in flight, so an older copy's clear can
+// never land after (and wipe) a newer value.
 export async function copySensitive(value, clearAfterSeconds) {
-  await navigator.clipboard.writeText(value);
-  clip.gen += 1;
+  const g = ++clip.gen;
+  clearTimeout(clip.timer);
+  clip.timer = null;
+  clip.writing = true;
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch (e) {
+    clip.writing = false;
+    if (clip.value) {
+      // The old value is still on the clipboard: keep it scheduled for clearing.
+      clip.due = true;
+      emitClip();
+    }
+    throw e;
+  }
+  clip.writing = false;
+  if (g !== clip.gen) return;
   clip.value = value;
   clip.due = false;
-  clearTimeout(clip.timer);
   clip.timer = setTimeout(() => {
     clip.timer = null;
     clip.due = true;
@@ -121,7 +140,7 @@ function ClipboardNotice() {
   if (!pending) return null;
   return (
     <div className="vault-alert vault-clip-notice" role="alert">
-      <span>A copied number is still on your clipboard.</span>
+      <span>A copied number is still on your clipboard. Clear it before closing this tab.</span>
       <button type="button" className="btn btn-secondary btn-sm" onClick={() => clearClipboard(true)}>Clear clipboard now</button>
     </div>
   );
@@ -213,6 +232,7 @@ function SecretValue({ path, field, masked, label }) {
     setNote(null);
     try {
       const { v, secs } = await fetchValue('copy');
+      if (gen !== genRef.current) return; // hidden, record changed or unmounted: don't copy
       await copySensitive(v, secs);
       if (gen === genRef.current) flash(`Copied · clipboard clears in ${secs}s`, true, 3500);
     } catch (e) {
@@ -278,6 +298,7 @@ function Modal({ title, onClose, children, footer, locked = false }) {
       const items = [...node.querySelectorAll(FOCUSABLE)];
       if (!items.length) return;
       const [a, z] = [items[0], items[items.length - 1]];
+      if (!node.contains(document.activeElement)) { e.preventDefault(); a.focus(); return; }
       if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); }
       else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
     };
@@ -347,6 +368,7 @@ function CompanyForm({ company, onClose }) {
     f.documentNumber = '';
     return f;
   });
+  const [initial] = useState(form); // values the form opened with
   const [clear, setClear] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -360,7 +382,7 @@ function CompanyForm({ company, onClose }) {
       // Send only what changed, so an edit in another tab isn't overwritten.
       const body = { companyId: company.companyId };
       [...PROFILE_FIELDS.map(([k]) => k), 'notes'].forEach((k) => {
-        if (form[k] !== (company[k] || '')) body[k] = form[k];
+        if (form[k] !== initial[k]) body[k] = form[k];
       });
       if (form.ein.trim()) body.ein = form.ein;
       if (form.documentNumber.trim()) body.documentNumber = form.documentNumber;
@@ -725,7 +747,7 @@ export default function Companies() {
 
           <section className="vault-card">
             <div className="vault-card-header">
-              <h2 className="section-title">Bank accounts <span className="vault-count">{banks.length}</span></h2>
+              <h2 className="section-title">Bank accounts {listsReady && <span className="vault-count">{banks.length}</span>}</h2>
               <button type="button" className="btn btn-primary btn-sm" onClick={() => setModal({ type: 'bank' })}>+ Add account</button>
             </div>
             {!listsReady ? (
@@ -766,7 +788,7 @@ export default function Companies() {
 
           <section className="vault-card">
             <div className="vault-card-header">
-              <h2 className="section-title">Credit cards <span className="vault-count">{cards.length}</span></h2>
+              <h2 className="section-title">Credit cards {listsReady && <span className="vault-count">{cards.length}</span>}</h2>
               <button type="button" className="btn btn-primary btn-sm" onClick={() => setModal({ type: 'card' })}>+ Add card</button>
             </div>
             {!listsReady ? (

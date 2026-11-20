@@ -149,7 +149,18 @@ export function ReauthProvider({ children }) {
     window.addEventListener('keydown', onKey, true);
     return () => {
       window.removeEventListener('keydown', onKey, true);
-      if (opener && typeof opener.focus === 'function' && document.contains(opener)) opener.focus();
+      // The opener (Save / Reveal / Copy) is usually disabled until the caller's
+      // next render, so restore focus on the next frame, falling back to the
+      // nearest dialog's first control.
+      requestAnimationFrame(() => {
+        if (opener && document.contains(opener) && !opener.disabled && typeof opener.focus === 'function') {
+          opener.focus();
+          if (document.activeElement === opener) return;
+        }
+        const dialog = opener && opener.closest && opener.closest('[role="dialog"]');
+        const target = dialog && dialog.querySelector('input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])');
+        if (target) target.focus();
+      });
     };
   }, [isOpen]);
 
@@ -182,7 +193,7 @@ export function ReauthProvider({ children }) {
                   autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                                    required
+                  required
                 />
                 <button type="submit" className="btn btn-primary reauth-btn" disabled={busy || !password}>
                   {busy ? 'Confirming…' : 'Confirm'}

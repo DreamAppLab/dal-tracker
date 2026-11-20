@@ -37,8 +37,9 @@ cards (`companies/{id}/bankAccounts`, `.../creditCards`).
   returned, and auto-hide after 30 seconds (also when the tab is hidden).
   Copied values are cleared from the clipboard after 30 seconds if this tab has
   focus, otherwise as soon as you return to it (browsers block clipboard writes
-  from background tabs); until then a banner offers "Clear clipboard now".
-  Closing the tab first leaves the value on the clipboard.
+  from background tabs; Firefox and Safari allow it only on a click, so there use
+  the button); until then a banner offers "Clear clipboard now". Closing the tab
+  first leaves the value on the clipboard.
 - CVV, PIN and online-banking passwords are never accepted (strict schemas).
 - Without `VAULT_ENCRYPTION_KEY` (preview deployments) the vault API returns 503
   for anything that would store or reveal a number. Losing the key makes every

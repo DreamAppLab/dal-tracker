@@ -87,7 +87,7 @@ function fakeDb(seed = {}) {
   const depth = (p) => p.split('/').length;
   const collection = (name) => ({
     doc: (id) => docRef(`${name}/${id || `auto${++autoId}`}`),
-    async add(data) { const ref = docRef(`${name}/auto${++autoId}`); store.set(ref.path, data); return ref; },
+    async add(data) { validateWrite(data, 'create'); const ref = docRef(`${name}/auto${++autoId}`); store.set(ref.path, data); return ref; },
     where(field, op, value) {
       return {
         async get() {
@@ -163,7 +163,17 @@ function fakeDb(seed = {}) {
         update: (ref, d) => ops.push(() => ref.update(d)),
         set: (ref, d, o) => ops.push(() => ref.set(d, o)),
         delete: (ref) => ops.push(() => ref.delete()),
-        async commit() { for (const op of ops) await op(); },
+        // Atomic like Firestore: all writes or none.
+        async commit() {
+          const backup = new Map(store);
+          try {
+            for (const op of ops) await op();
+          } catch (e) {
+            store.clear();
+            backup.forEach((v, k) => store.set(k, v));
+            throw e;
+          }
+        },
       };
     },
   };

@@ -332,3 +332,33 @@ test('sensitive inputs have spellcheck and autofill off', async () => {
   expect(ein.getAttribute('spellcheck')).toBe('false');
   expect(ein.getAttribute('autocomplete')).toBe('off');
 });
+
+test("an edit made in another tab while the modal is open is not reverted", async () => {
+  const dialog = await openCompanyForm();
+  // Another tab changes the phone while this form is open.
+  global.mockFs.data['companies/dal'] = { ...global.mockFs.data['companies/dal'], phone: '(904) 555-7777' };
+  await act(async () => { global.mockFs.emit('companies/dal'); });
+  await typeInto(inputFor(dialog, 'DBA'), 'DAL');
+  await click(byText('Save'));
+  const [, opts] = apiJson.mock.calls.find(([u]) => u === '/api/vault/company');
+  expect(opts.body).toEqual({ companyId: 'dal', dba: 'DAL' });
+});
+
+test('a copy still in flight when switching company is dropped', async () => {
+  await render();
+  let open;
+  revealGate = new Promise((r) => { open = r; });
+  await click(btn('Copy EIN'));
+  await click(tab('Zerbiq'));
+  await act(async () => { open(); });
+  expect(clipboard.text).toBe('');
+  expect(clipboard.writeText).not.toHaveBeenCalled();
+});
+
+test('bank/card counts are hidden while lists load', async () => {
+  await render();
+  global.mockFs.hold.add('companies/zerbiq/bankAccounts');
+  global.mockFs.hold.add('companies/zerbiq/creditCards');
+  await click(tab('Zerbiq'));
+  expect(container.querySelectorAll('.vault-count')).toHaveLength(0);
+});
