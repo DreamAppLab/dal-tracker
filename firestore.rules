@@ -28,7 +28,12 @@ service cloud.firestore {
 
     // Collections that only server functions may write.
     function serverOnlyWrite(collection) {
-      return collection in ['auditLog', 'rateLimits'];
+      return collection in ['auditLog', 'rateLimits', 'companies', 'vaultSecrets'];
+    }
+
+    // Collections no client may even read.
+    function serverOnlyRead(collection) {
+      return collection in ['rateLimits', 'vaultSecrets'];
     }
 
     // Audit trail: readable by the admin, never writable by any client.
@@ -42,9 +47,23 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Company vault (Dream App Lab LLC, Zerbiq): profiles, bank accounts and
+    // cards. Client-readable for display and ledger pickers — these docs hold
+    // only masked values / last 4 digits. All writes go through /api/vault
+    // (server-side encryption + audit).
+    match /companies/{companyId}/{document=**} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // Vault ciphertext: server only — never readable or writable by a client.
+    match /vaultSecrets/{secretId} {
+      allow read, write: if false;
+    }
+
     // Everything else in Mission Control: admin only.
     match /{collection}/{document=**} {
-      allow read: if isAdmin();
+      allow read: if isAdmin() && !serverOnlyRead(collection);
       allow write: if isAdmin() && !serverOnlyWrite(collection);
     }
   }
