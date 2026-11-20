@@ -64,16 +64,84 @@ cards (`companies/{id}/bankAccounts`, `.../creditCards`).
   for anything that would store or reveal a number. Losing the key makes every
   stored number unreadable: keep a copy in the password manager.
 
+## Books (ledger)
+Bookkeeping for **Dream App Lab LLC (`dal`)** and **Zerbiq (`zerbiq`)**. It replaces the
+two Quicken Online subscriptions and the old Expenses tab (the `expenses` and
+`importedStatements` collections are now read-only history). Open **Books** in the
+sidebar; the bar at the top always shows whose books are open (DAL is teal, Zerbiq is
+violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
+
+### Data model (Firestore, all top-level, every doc has `companyId`)
+| Collection | Holds |
+|---|---|
+| `ledgerAccounts` | `checking`, `credit_card` and one `intercompany` account per company (`dal_checking`, `dal_card`, `dal_ic_zerbiq`, …). Each has an opening balance (cents) and opening date, plus an optional link to the vault's `bankAccounts` / `creditCards` record and its last 4 digits. |
+| `ledgerCategories` | Per-company `income` / `expense` / `equity` categories. These are archived, never deleted. |
+| `ledgerTransactions` | `date`, `amountCents` (integer, signed), `payee`, `memo`, `status` (`uncleared` / `cleared` / `reconciled`), `type`, `categoryId` or `transferAccountId`, `splits[]`, `fingerprint`, `deleted` (soft delete). `role` is `main`, `leg` or `mirror`. |
+| `ledgerVendorRules` | "Payee contains X" → category, applied on entry and import (the longest match wins). |
+| `ledgerReconciliations` | Finished statements (`startingBalanceCents`, `endingBalanceCents`, `statementDate`, `status`). |
+| `ledgerMonthly` | Cached totals per company per month (`acct` and `cat` maps), kept up to date with atomic increments. |
+| `ledgerImports` | Fingerprints of imported statement files. |
+| `ledgerMigrationBackups` | Server-only backup made before the Expenses migration. |
+
+### Rules of the road
+1. **Money is integer cents.** Use `src/ledger/core/money.js` (`parseMoneyToCents`, `formatCents`) and never floats.
+   Signs are always from the account's point of view: checking `+` is a deposit; a card `−` is a charge and
+   `+` is a payment or credit; intercompany `+` is due from the other company and `−` is due to it.
+2. **Ids carry the company.** Every ledger id, and every id a ledger doc points at, starts with
+   `<companyId>_`. `firestore.rules` uses this to reject any document whose id, account, category or transfer
+   account belongs to the other company. Split lines are a list the rules cannot loop over, so the planner
+   validates them on every write path.
+   Every query filters on `companyId`, and the rules refuse unscoped reads.
+3. **Write through the planner.** `core.planTransactionWrite()` turns one main transaction into all of its
+   docs: transfer legs, intercompany mirrors and monthly deltas. In the browser, `ledgerStore.saveTransaction`,
+   `setDeleted` and `purgeDeleted` run it inside a Firestore transaction with fresh reads. Never write
+   `ledgerTransactions` or `ledgerMonthly` any other way. Monthly payloads must omit empty maps, because
+   with `merge: true` an empty map wipes the stored totals.
+4. **Transfers are never expenses.** A card payment is one main entry plus a linked leg in the other account.
+   Owner contributions and draws use `equity` categories.
+5. **Intercompany.** A line booked as "Paid for Zerbiq" (whole amount or one split line) moves into the
+   payer's intercompany account (a receivable), and the other company gets a **mirror** expense with its own
+   category plus a payable. Reimbursements are recorded on the Intercompany screen as two paired mains
+   (`<payer>_set_<id>_p` / `<receiver>_set_<id>_r`). Both halves always change together, and partial
+   payments are fine.
+6. **P&L** (cash basis) counts only income and expense category lines. Transfers, equity, intercompany
+   receivables and uncategorized lines are excluded; uncategorized lines are flagged so they get fixed.
+7. **Reconciled rows are locked by the rules.** Their amount, date, account, status and delete flag can't
+   change. **Undo reconcile** is server-side (`/api/ledger/unreconcile`), requires a sign-in within the last
+   15 minutes, is written to the audit log first, and works on the latest statement only.
+8. **Imports are idempotent.** The file hash, then each row's fingerprint (or the bank's FITID for
+   QFX/OFX), are checked against what is already there. A row that matches something already entered
+   (a manual entry or the other leg of a card payment) is attached to it rather than duplicated.
+   **Chase is the primary bank**: in Download account activity, pick *Quicken Web Connect (.QFX)* (best)
+   or *CSV*. Capital One PDF / CSV and Excel (including the Fiverr export) are also supported.
+9. **Destructive actions are audited** through `recordAuditEvent()` (`ledger_delete`, `ledger_restore`,
+   `ledger_update`) and on the server (`ledger_unreconcile`, `ledger_migration`).
+10. **Maintenance.** Books → Setup → *Rebuild totals* recomputes `ledgerMonthly` for a company from its
+   transactions. The Expenses migration runs from Books → Setup (Dry run / Migrate / Roll back), or with
+   `node scripts/migrate-expenses-to-ledger.js [--apply|--rollback]` where the service account is in the
+   environment. Migrate backs up first and is safe to re-run.
+
+### Indexes
+Composite indexes live in `firestore.indexes.json`. Deploy them with
+`firebase deploy --only firestore:indexes --project dal-mission-control`. Rules deploy separately with
+`--only firestore:rules`, after the PR is merged.
+
 ## Local development (PowerShell)
 ```powershell
 cd C:\dev\dal-tracker
 npm install
 npm start
 ```
+To work on Books without touching production, run the emulators
+(`npx firebase emulators:start --only firestore,auth --project dal-mission-control`), set
+`localStorage['mc.emulators'] = '1'` on `http://localhost:3000`, reload, and sign in with an
+Auth-emulator user (lab@dreamapplab.com, email verified). This switch is compiled out of
+production builds.
 
 ## Tests
 ```powershell
 cd C:\dev\dal-tracker
+npm run test:ledger
 npm run test:api
 npx react-scripts test --watchAll=false
 npm run test:rules

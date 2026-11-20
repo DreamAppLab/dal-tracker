@@ -1,0 +1,376 @@
+// Firestore data layer for Books. Every query is scoped by companyId (the
+// rules refuse unscoped ledger queries) and date-bounded where it can grow.
+import {
+  collection, doc, getDoc, getDocs, increment, onSnapshot, query, runTransaction, serverTimestamp,
+  setDoc, where, writeBatch,
+} from 'firebase/firestore';
+import { db } from '../firebase';
+import { recordAuditEvent } from '../lib/audit';
+import { apiFetch } from '../lib/apiClient';
+import * as core from './core';
+
+const { COL } = core;
+
+export function newTxnId(companyId) {
+  return `${companyId}_${doc(collection(db, COL.transactions)).id}`;
+}
+export function newId(companyId, kind) {
+  return `${companyId}_${kind}_${doc(collection(db, COL.transactions)).id.slice(0, 12)}`;
+}
+
+const withId = (snap) => ({ id: snap.id, ...snap.data() });
+
+/** Subscribe to a company-scoped collection. Returns unsubscribe. */
+export function watchCompany(col, companyId, onRows, onError) {
+  return onSnapshot(
+    query(collection(db, col), where('companyId', '==', companyId)),
+    (s) => onRows(s.docs.map(withId)),
+    onError
+  );
+}
+
+/** Register window: one account, dates >= from (inclusive). Live. */
+export function watchAccountWindow(companyId, accountId, fromDate, onRows, onError) {
+  return onSnapshot(
+    query(
+      collection(db, COL.transactions),
+      where('companyId', '==', companyId),
+      where('accountId', '==', accountId),
+      where('date', '>=', fromDate)
+    ),
+    (s) => onRows(s.docs.map(withId)),
+    onError
+  );
+}
+
+export async function fetchRange(companyId, from, to) {
+  const s = await getDocs(query(
+    collection(db, COL.transactions),
+    where('companyId', '==', companyId),
+    where('date', '>=', from),
+    where('date', '<=', to)
+  ));
+  return s.docs.map(withId);
+}
+
+export async function fetchAccountRange(companyId, accountId, from, to) {
+  const s = await getDocs(query(
+    collection(db, COL.transactions),
+    where('companyId', '==', companyId),
+    where('accountId', '==', accountId),
+    where('date', '>=', from),
+    where('date', '<=', to)
+  ));
+  return s.docs.map(withId);
+}
+
+/** Unreconciled rows of an account (for reconciliation). */
+export async function fetchUnreconciled(companyId, accountId) {
+  const s = await getDocs(query(
+    collection(db, COL.transactions),
+    where('companyId', '==', companyId),
+    where('accountId', '==', accountId),
+    where('status', 'in', ['uncleared', 'cleared'])
+  ));
+  return s.docs.map(withId);
+}
+
+export function watchFlag(companyId, field, value, onRows, onError) {
+  return onSnapshot(
+    query(collection(db, COL.transactions), where('companyId', '==', companyId), where(field, '==', value)),
+    (s) => onRows(s.docs.map(withId)),
+    onError
+  );
+}
+
+export async function getTxn(id) {
+  const s = await getDoc(doc(db, COL.transactions, id));
+  return s.exists() ? withId(s) : null;
+}
+
+function stripId(t) {
+  if (!t) return null;
+  const { id, ...rest } = t;
+  return rest;
+}
+
+/** Existing legs/mirrors implied by a main transaction. */
+export async function loadLinked(mainId, before, accounts) {
+  const out = {};
+  if (!before) return out;
+  const { legIds, mirrorIds } = core.linkedIdsOf(mainId, before, accounts);
+  const snaps = await Promise.all([...legIds, ...mirrorIds].map((lid) => getDoc(doc(db, COL.transactions, lid))));
+  snaps.forEach((s) => { if (s.exists()) out[s.id] = s.data(); });
+  return out;
+}
+
+const incMap = (m) => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, increment(v)]));
+
+/**
+ * Monthly increment payload. Empty maps are OMITTED on purpose: with
+ * { merge: true } an empty map value REPLACES the stored map (wiping its totals).
+ */
+export function monthlyPayload(d) {
+  const out = { companyId: d.companyId, month: d.month, count: increment(d.count) };
+  if (Object.keys(d.acct).length) out.acct = incMap(d.acct);
+  if (Object.keys(d.cat).length) out.cat = incMap(d.cat);
+  return out;
+}
+
+/** Apply a planner result to a Firestore batch (txn sets/deletes + monthly increments). */
+export function addPlanToBatch(batch, plan) {
+  plan.sets.forEach(({ id, data }) => {
+    batch.set(doc(db, COL.transactions, id), { ...data, updatedAt: serverTimestamp() }, { merge: true });
+  });
+  plan.deletes.forEach(({ id }) => batch.delete(doc(db, COL.transactions, id)));
+  Object.entries(plan.deltas).forEach(([id, d]) => {
+    batch.set(
+      doc(db, COL.monthly, id),
+      monthlyPayload(d),
+      { merge: true }
+    );
+  });
+}
+
+export function planOps(plan) {
+  return plan.sets.length + plan.deletes.length + Object.keys(plan.deltas).length;
+}
+
+export async function commitPlan(plan) {
+  const batch = writeBatch(db);
+  addPlanToBatch(batch, plan);
+  await batch.commit();
+}
+
+/**
+ * Re-plan one or more main transactions inside a Firestore transaction: the
+ * main docs and every linked leg/mirror are READ FRESH, so a stale screen or a
+ * second tab can never apply the same aggregate delta twice.
+ *   entries: [{ id, makeDraft: (freshBefore|null) => draft|null|undefined, linkedOverrides? }]
+ *   makeDraft returning undefined skips the entry (e.g. an import row whose
+ *   id already exists). linkedOverrides seeds own fields (status, fingerprint)
+ *   of legs/mirrors that do not exist yet.
+ */
+export async function runPlans(entries, accounts, categories) {
+  return runTransaction(db, async (tx) => {
+    const plans = [];
+    const reads = [];
+    for (const e of entries) {
+      const snap = await tx.get(doc(db, COL.transactions, e.id));
+      const before = snap.exists() ? snap.data() : null;
+      const draft = e.makeDraft(before);
+      if (draft === undefined) continue;
+      const wanted = new Set([
+        ...Object.values(core.linkedIdsOf(e.id, before, accounts)).flat(),
+        ...(draft ? Object.values(core.linkedIdsOf(e.id, draft, accounts)).flat() : []),
+      ]);
+      reads.push({ e, before, draft, wanted: [...wanted] });
+    }
+    for (const r of reads) {
+      r.existing = {};
+      for (const lid of r.wanted) {
+        const ls = await tx.get(doc(db, COL.transactions, lid));
+        if (ls.exists()) r.existing[lid] = ls.data();
+      }
+      for (const [lid, own] of Object.entries(r.e.linkedOverrides || {})) {
+        if (!r.existing[lid]) r.existing[lid] = own;
+      }
+    }
+    for (const r of reads) {
+      plans.push(core.planTransactionWrite({ id: r.e.id, draft: r.draft, before: r.before, existing: r.existing, accounts, categories }));
+    }
+    const plan = core.mergePlans(plans);
+    plan.sets.forEach(({ id, data }) => tx.set(doc(db, COL.transactions, id), { ...data, updatedAt: serverTimestamp() }, { merge: true }));
+    plan.deletes.forEach(({ id }) => tx.delete(doc(db, COL.transactions, id)));
+    Object.entries(plan.deltas).forEach(([id, d]) => {
+      tx.set(doc(db, COL.monthly, id), monthlyPayload(d), { merge: true });
+    });
+    return { plan, befores: reads.map((r) => r.before) };
+  });
+}
+
+/** Save (create or edit) a main transaction with all derived records. */
+export async function saveTransaction({ id, draft, before, accounts, categories }) {
+  const clean = stripId(draft);
+  const { plan, befores } = await runPlans([{ id, makeDraft: () => clean }], accounts, categories);
+  const prev = befores[0];
+  // Audit edits that move money on an existing transaction.
+  if (prev && (prev.amountCents !== clean.amountCents || prev.date !== clean.date || prev.accountId !== clean.accountId)) {
+    recordAuditEvent('ledger_update', `ledgerTransactions/${id}`, {
+      companyId: prev.companyId, fromAmountCents: prev.amountCents, toAmountCents: clean.amountCents, fromDate: prev.date, toDate: clean.date,
+    });
+  }
+  return plan;
+}
+
+/** Ids that must change together: a reimbursement's two halves. */
+function groupIds(txn) {
+  const peer = txn.settlementId ? core.settlementPeerId(txn.id) : null;
+  return peer ? [txn.id, peer] : [txn.id];
+}
+
+export async function setDeleted({ txn, deleted, accounts, categories }) {
+  if (txn.role !== 'main') throw new Error('Delete linked entries from their main transaction.');
+  const entries = groupIds(txn).map((id) => ({
+    id,
+    makeDraft: (before) => {
+      if (!before) throw new Error('Transaction not found.');
+      if (before.role !== 'main') throw new Error('Delete linked entries from their main transaction.');
+      return { ...before, deleted: !!deleted };
+    },
+  }));
+  const { plan } = await runPlans(entries, accounts, categories);
+  recordAuditEvent(deleted ? 'ledger_delete' : 'ledger_restore', `ledgerTransactions/${txn.id}`, {
+    companyId: txn.companyId, accountId: txn.accountId, date: txn.date, amountCents: txn.amountCents, bothCompanies: entries.length > 1,
+  });
+  return plan;
+}
+
+/** Permanently remove a soft-deleted main transaction and its legs/mirrors. */
+export async function purgeDeleted({ txn, accounts, categories }) {
+  const entries = groupIds(txn).map((id) => ({
+    id,
+    makeDraft: (before) => {
+      if (before && !before.deleted) throw new Error('Only deleted transactions can be removed permanently.');
+      return null;
+    },
+  }));
+  const { plan } = await runPlans(entries, accounts, categories);
+  recordAuditEvent('ledger_delete', `ledgerTransactions/${txn.id}`, {
+    companyId: txn.companyId, accountId: txn.accountId, date: txn.date, amountCents: txn.amountCents, permanent: true,
+  });
+  return plan;
+}
+
+/** Create both halves of a reimbursement atomically. */
+export async function recordSettlement(drafts, accounts, categories) {
+  const { plan } = await runPlans(drafts.map((d) => ({ id: d.id, makeDraft: (before) => {
+    if (before) throw new Error('Reimbursement already exists.');
+    return d.draft;
+  } })), accounts, categories);
+  const payer = drafts[0].draft;
+  recordAuditEvent('ledger_update', `ledgerTransactions/${drafts[0].id}`, { action: 'settlement', companyId: payer.companyId, amountCents: Math.abs(payer.amountCents), date: payer.date });
+  return plan;
+}
+
+/** Status-only change (cleared flag) — no money moves, no aggregates. */
+export async function setStatus(txn, status) {
+  await setDoc(doc(db, COL.transactions, txn.id), { status, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+export async function saveDoc(col, id, data, merge = true) {
+  await setDoc(doc(db, col, id), { ...data, updatedAt: serverTimestamp() }, { merge });
+}
+
+export async function deleteRule(rule) {
+  const batch = writeBatch(db);
+  batch.delete(doc(db, COL.vendorRules, rule.id));
+  await batch.commit();
+  recordAuditEvent('ledger_delete', `ledgerVendorRules/${rule.id}`, { companyId: rule.companyId, pattern: rule.pattern });
+}
+
+/** Seed missing default accounts / categories / rules for a company (never overwrites). */
+export async function seedCompany(companyId, existing, opening) {
+  const batch = writeBatch(db);
+  let n = 0;
+  const add = (col, docs, have) => docs.forEach(({ id, data }) => {
+    if (have.has(id)) return;
+    batch.set(doc(db, col, id), { ...data, createdAt: serverTimestamp() });
+    n += 1;
+  });
+  add(COL.accounts, core.defaultAccountDocs(companyId, opening), new Set(existing.accounts.map((a) => a.id)));
+  add(COL.categories, core.defaultCategoryDocs(companyId), new Set(existing.categories.map((c) => c.id)));
+  add(COL.vendorRules, core.defaultRuleDocs(companyId), new Set(existing.rules.map((r) => r.id)));
+  if (n) await batch.commit();
+  return n;
+}
+
+export async function finishReconciliation({ companyId, account, statementDate, startingBalanceCents, endingBalanceCents, txnIds }) {
+  const recId = newId(companyId, 'rec');
+  const ops = [];
+  ops.push((b) => b.set(doc(db, COL.reconciliations, recId), {
+    companyId,
+    accountId: account.id,
+    status: 'complete',
+    statementDate,
+    startingBalanceCents,
+    endingBalanceCents,
+    difference: 0,
+    txnCount: txnIds.length,
+    finishedAt: new Date().toISOString(),
+    createdAt: serverTimestamp(),
+  }));
+  txnIds.forEach((id) => ops.push((b) => b.set(doc(db, COL.transactions, id), { status: 'reconciled', reconciliationId: recId, updatedAt: serverTimestamp() }, { merge: true })));
+  // One atomic batch when possible (≤ 450 rows). Larger statements commit in
+  // chunks with the record FIRST, so an interrupted finish can always be
+  // undone from the history (and /unreconcile also unlocks orphaned rows).
+  for (let i = 0; i < ops.length; i += 450) {
+    const batch = writeBatch(db);
+    ops.slice(i, i + 450).forEach((op) => op(batch));
+    await batch.commit();
+  }
+  return recId;
+}
+
+export async function apiPost(path, body) {
+  const res = await apiFetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
+const RECEIPT_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/gif'];
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const r = String(reader.result || '');
+      resolve(r.slice(r.indexOf(',') + 1));
+    };
+    reader.onerror = () => reject(new Error('Could not read the file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+export async function uploadReceipt(txn, file) {
+  const type = file.type === 'image/jpg' ? 'image/jpeg' : file.type;
+  if (!RECEIPT_TYPES.includes(type)) throw new Error('Receipts must be a PDF or an image.');
+  if (file.size > 3 * 1024 * 1024) throw new Error('Receipts must be 3 MB or smaller.');
+  return apiPost('/api/ledger/receipt', { companyId: txn.companyId, txnId: txn.id, name: file.name.slice(0, 150), type, base64: await fileToBase64(file) });
+}
+
+/** Opens a receipt via a short-lived link (new tab opened first so pop-up blockers allow it). */
+export async function openReceipt(txn) {
+  if (!txn.attachmentPath && txn.attachmentUrl) {
+    window.open(txn.attachmentUrl, '_blank', 'noopener');
+    return;
+  }
+  const win = window.open('', '_blank');
+  try {
+    const { url } = await apiPost('/api/ledger/receipt-url', { companyId: txn.companyId, txnId: txn.id });
+    if (win) { win.opener = null; win.location.href = url; } else window.open(url, '_blank', 'noopener');
+  } catch (e) {
+    if (win) win.close();
+    throw e;
+  }
+}
+
+export async function prefsGet(uid) {
+  const s = await getDoc(doc(db, COL.prefs, uid));
+  return s.exists() ? s.data() : null;
+}
+export async function prefsSet(uid, data) {
+  await setDoc(doc(db, COL.prefs, uid), { ...data, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+export async function importRecordExists(id) {
+  const s = await getDoc(doc(db, COL.imports, id));
+  return s.exists() ? s.data() : null;
+}
+
+export { db, doc, writeBatch, serverTimestamp, COL };

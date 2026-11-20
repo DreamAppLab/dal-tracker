@@ -214,11 +214,11 @@ export default function Sidebar({
               {sidebarOpen && <span className="sidebar-item-text">Calendar</span>}
             </button>
             <button
-              className={`sidebar-item ${activeView === 'expenses' ? 'active' : ''}`}
-              onClick={() => onNavigate('expenses')}
+              className={`sidebar-item ${activeView === 'books' || activeView === 'expenses' ? 'active' : ''}`}
+              onClick={() => onNavigate('books')}
             >
-              <span className="sidebar-item-icon">🧾</span>
-              {sidebarOpen && <span className="sidebar-item-text">Expenses</span>}
+              <span className="sidebar-item-icon">📒</span>
+              {sidebarOpen && <span className="sidebar-item-text">Books</span>}
             </button>
             <button
               className={`sidebar-item ${activeView === 'enterprise-inquiries' ? 'active' : ''}`}

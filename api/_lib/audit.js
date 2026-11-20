@@ -18,6 +18,12 @@ const AUDIT_TYPES = Object.freeze([
   'import',
   'delete',
   'access_denied',
+  // Books (ledger)
+  'ledger_unreconcile',
+  'ledger_delete',
+  'ledger_restore',
+  'ledger_update',
+  'ledger_migration',
 ]);
 
 function clientIp(req) {

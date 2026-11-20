@@ -1,4 +1,12 @@
-import { taxYearFromDate } from '../data/expensesData';
+// Capital One PDF statement parser (moved from src/utils/parseExpenseStatement.js
+// into Books). Returns rows { date, vendor, amount, credit } where amount is a
+// positive dollar string/number and credit=true marks payments/credits (money
+// INTO the card). The ledger converts them to signed cents.
+
+function taxYearFromDate(dateStr) {
+  const year = Number(String(dateStr || '').slice(0, 4));
+  return Number.isFinite(year) && year > 1900 ? year : new Date().getFullYear();
+}
 
 const PDFJS_VERSION = '3.11.174';
 const PDFJS_CDN = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`;
@@ -23,8 +31,8 @@ const KEYWORD_RULES = VENDOR_CATEGORY_RULES.flatMap((rule) =>
 
 const SKIP_LINE = /^(date|description|amount|balance|trans(?:action)?\s*date|post(?:ing)?\s*date|merchant|details|page\s+\d+|account\s+(?:number|summary)|previous\s+balance|new\s+balance|minimum\s+payment|payment\s+thank\s+you|total\s+(?:fees|interest|payments)|purchases|fees\s+charged)$/i;
 
-const DATE_FULL = /\b(0?[1-9]|1[0-2])[/\-](0?[1-9]|[12]\d|3[01])[/\-](\d{2}|\d{4})\b/g;
-const DATE_SHORT = /\b(0?[1-9]|1[0-2])[/\-](0?[1-9]|[12]\d|3[01])\b/g;
+const DATE_FULL = /\b(0?[1-9]|1[0-2])[/-](0?[1-9]|[12]\d|3[01])[/-](\d{2}|\d{4})\b/g;
+const DATE_SHORT = /\b(0?[1-9]|1[0-2])[/-](0?[1-9]|[12]\d|3[01])\b/g;
 const AMOUNT = /(?:USD|US\$|\$)?\s*(-?\(?\d{1,3}(?:,\d{3})*(?:\.\d{2})\)?)(?:\s*(?:CR|DR))?/gi;
 
 function loadScript(src) {
@@ -160,6 +168,21 @@ function detectCapOneYear(lines) {
   return Number.isFinite(year) ? year : new Date().getFullYear();
 }
 
+/** Statement period, so Dec→Jan statements date each row in the right year. */
+function detectCapOnePeriod(lines) {
+  const text = lines.join('\n');
+  const m = text.match(/([A-Za-z]{3})\s+(\d{1,2}),\s+(\d{4})\s*[-–]\s*([A-Za-z]{3})\s+(\d{1,2}),\s+(\d{4})/);
+  if (m) return { startYear: Number(m[3]), endYear: Number(m[6]), startMonth: monthFromName(m[1]) };
+  const y = detectCapOneYear(lines);
+  return { startYear: y, endYear: y, startMonth: 1 };
+}
+
+function yearFor(period, transDate) {
+  const month = monthFromName(String(transDate).split(/\s+/)[0]);
+  if (period.startYear !== period.endYear && month >= period.startMonth) return period.startYear;
+  return period.endYear;
+}
+
 function transDateToIso(transDate, year) {
   const parsed = new Date(`${transDate} ${year}`);
   if (Number.isNaN(parsed.getTime())) return '';
@@ -182,12 +205,14 @@ function isFxContinuationLine(line) {
   return false;
 }
 
+const CAP_ONE_CREDIT = /^([A-Za-z]{3}\s+\d{1,2})\s+([A-Za-z]{3}\s+\d{1,2})\s+(.+?)\s+-?\s*\$?([\d,]+\.\d{2})$/;
 const CAP_ONE_TX = /^([A-Za-z]{3}\s+\d{1,2})\s+([A-Za-z]{3}\s+\d{1,2})\s+(.+?)\s+\$?([\d,]+\.\d{2})$/;
 
 /** Capital One multi-cardholder: "Mar 2 Mar 3 VENDOR $10.00" under ": Transactions" sections. */
 export function parseTransactions(lines) {
-  const year = detectCapOneYear(lines);
+  const period = detectCapOnePeriod(lines);
   let inTransactions = false;
+  let inCredits = false;
   const transactions = [];
   const seen = new Set();
 
@@ -197,10 +222,30 @@ export function parseTransactions(lines) {
 
     if (/:\s*Transactions$/i.test(line)) {
       inTransactions = true;
+      inCredits = false;
       return;
     }
     if (/:\s*Payments, Credits and Adjustments$/i.test(line)) {
       inTransactions = false;
+      inCredits = true;
+      return;
+    }
+    if (/:\s*Total Payments|Total Payments, Credits/i.test(line)) {
+      inCredits = false;
+    }
+
+    if (inCredits) {
+      if (isCapOneSummaryLine(line) || isFxContinuationLine(line)) return;
+      const cm = line.match(CAP_ONE_CREDIT);
+      if (!cm) return;
+      const cvendor = String(cm[3] || '').replace(/[\s-]+$/, '').replace(/\s+/g, ' ').trim();
+      const camount = Number(String(cm[4] || '').replace(/,/g, ''));
+      const cdate = transDateToIso(cm[1], yearFor(period, cm[1]));
+      if (!cvendor || !cdate || !Number.isFinite(camount) || camount === 0) return;
+      const ckey = `${cdate}|-${camount}|${cvendor.toLowerCase()}`;
+      if (seen.has(ckey)) return;
+      seen.add(ckey);
+      transactions.push({ date: cdate, vendor: cvendor, amount: camount, credit: true, category: '', appId: DEFAULT_APP, taxYear: taxYearFromDate(cdate), selected: true });
       return;
     }
     if (/:\s*Total Transactions/i.test(line)) {
@@ -221,7 +266,7 @@ export function parseTransactions(lines) {
     const amount = Number(String(m[4] || '').replace(/,/g, ''));
     if (!Number.isFinite(amount) || amount === 0) return;
 
-    const date = transDateToIso(m[1], year);
+    const date = transDateToIso(m[1], yearFor(period, m[1]));
     if (!date) return;
 
     const key = `${date}|${amount}|${vendor.toLowerCase()}`;
@@ -239,7 +284,6 @@ export function parseTransactions(lines) {
     });
   });
 
-  console.log(`Capital One parser found ${transactions.length} transactions`, transactions);
   return transactions;
 }
 
@@ -326,7 +370,7 @@ function cleanVendorName(vendor) {
   return String(vendor || '')
     .replace(/\s+/g, ' ')
     .trim()
-    .replace(/[\s#*·•\-]+[A-Z0-9]{4,}\s*$/i, '')
+    .replace(/[\s#*·•-]+[A-Z0-9]{4,}\s*$/i, '')
     .replace(/\s+\d{4,}\s*$/, '')
     .replace(/\s+/g, ' ')
     .trim();

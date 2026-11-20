@@ -30,7 +30,8 @@
     "check:secrets:src": "node scripts/check-secrets.js src",
     "check:secrets:bundle": "node scripts/check-secrets.js bundle",
     "test:api": "node --test --test-concurrency=1 tests/api/*.test.js",
-    "test:rules": "firebase emulators:exec --project demo-dal-mission-control --only firestore,storage \"node --test --test-concurrency=1 tests/rules/firestore.rules.test.mjs\""
+    "test:rules": "firebase emulators:exec --project demo-dal-mission-control --only firestore,storage \"node --test --test-concurrency=1 tests/rules/firestore.rules.test.mjs tests/rules/ledger.rules.test.mjs\"",
+    "test:ledger": "node --test --test-concurrency=1 tests/ledger/*.test.js"
   },
   "eslintConfig": {
     "extends": [
