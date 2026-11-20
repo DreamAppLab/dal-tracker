@@ -11,7 +11,7 @@
 const ADMIN_EMAILS = Object.freeze(['lab@dreamapplab.com']);
 
 // Optional extra pinning by Firebase uid (still requires a verified email).
-const ADMIN_UIDS = Object.freeze([]);
+const ADMIN_UIDS = Object.freeze(['l33Ct0aFTwYS1JeNFFWY4UZRIH02']); // lab@dreamapplab.com (Google)
 
 function isAdminClaims(claims) {
   if (!claims || typeof claims !== 'object') return false;

@@ -22,7 +22,7 @@ service cloud.firestore {
         && request.auth.token.email_verified == true
         && (
           request.auth.token.email.lower() in ['lab@dreamapplab.com']
-          || request.auth.uid in []
+          || request.auth.uid in ['l33Ct0aFTwYS1JeNFFWY4UZRIH02']
         );
     }
 
