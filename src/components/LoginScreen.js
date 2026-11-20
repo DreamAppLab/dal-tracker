@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth, markActivity } from '../contexts/AuthContext';
 import { auth } from '../firebase';
-import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { signInWithPopup } from 'firebase/auth';
+import { adminGoogleProvider, ADMIN_GOOGLE_ACCOUNT } from '../lib/googleSignIn';
 
 export default function LoginScreen() {
   const { login, signOutReason, setSignOutReason } = useAuth();
@@ -47,6 +48,28 @@ export default function LoginScreen() {
               You were signed out after 30 minutes of inactivity.
             </p>
           )}
+          {error && <p className="login-error" role="alert">{error}</p>}
+          <button
+            className="login-btn login-btn-google"
+            type="button"
+            onClick={async () => {
+              setError('');
+              setSignOutReason(null);
+              markActivity();
+              try {
+                await signInWithPopup(auth, adminGoogleProvider());
+              } catch (err) {
+                const code = err && err.code;
+                if (code === 'auth/popup-blocked') setError('The sign-in window was blocked. Allow pop-ups for this site and try again.');
+                else if (code === 'auth/admin-restricted-operation') setError(`This Google account is not allowed. Sign in with ${ADMIN_GOOGLE_ACCOUNT}.`);
+                else if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') setError('Google sign-in failed. Try again.');
+              }
+            }}
+          >
+            Sign in with Google
+          </button>
+          <p className="login-hint">Use your {ADMIN_GOOGLE_ACCOUNT} Google account.</p>
+          <div className="login-divider" role="separator"><span>or sign in with email</span></div>
           <form className="login-form" onSubmit={handleSubmit}>
             <label className="login-label">
               Email
@@ -70,30 +93,10 @@ export default function LoginScreen() {
                 required
               />
             </label>
-            {error && <p className="login-error">{error}</p>}
             <button type="submit" className="login-btn" disabled={submitting}>
               {submitting ? 'Signing in…' : 'Sign In'}
             </button>
           </form>
-          <button
-            className="login-btn login-btn-google"
-            type="button"
-            onClick={async () => {
-              setError('');
-              setSignOutReason(null);
-              markActivity();
-              try {
-                await signInWithPopup(auth, new GoogleAuthProvider());
-              } catch (err) {
-                const code = err && err.code;
-                if (code === 'auth/popup-blocked') setError('The sign-in window was blocked. Allow pop-ups for this site and try again.');
-                else if (code === 'auth/admin-restricted-operation') setError('This Google account is not allowed. Sign in with lab@dreamapplab.com.');
-                else if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') setError('Google sign-in failed. Try again.');
-              }
-            }}
-          >
-            Sign in with Google
-          </button>
         </div>
       </div>
     </div>

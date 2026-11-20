@@ -182,7 +182,29 @@ body.login-page-active {
 }
 .login-btn-google {
   width: 100%;
-  margin-top: 12px !important;
+  margin-top: 0 !important;
+}
+.login-hint {
+  margin: 10px 0 0;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  text-align: center;
+}
+.login-card .login-error { margin: 0 0 12px; text-align: center; }
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 22px 0 18px;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 12px;
+}
+.login-divider::before,
+.login-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(88, 194, 255, 0.2);
 }
 .login-notice {
   margin: 0 0 12px;

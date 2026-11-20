@@ -11,11 +11,11 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   EmailAuthProvider,
-  GoogleAuthProvider,
   reauthenticateWithCredential,
   reauthenticateWithPopup,
 } from 'firebase/auth';
 import { auth } from '../firebase';
+import { adminGoogleProvider } from '../lib/googleSignIn';
 import { setReauthHandler } from '../lib/apiClient';
 import { markActivity } from './AuthContext';
 
@@ -82,7 +82,7 @@ export function ReauthProvider({ children }) {
     setBusy(true);
     setError('');
     try {
-      await reauthenticateWithPopup(auth.currentUser, new GoogleAuthProvider());
+      await reauthenticateWithPopup(auth.currentUser, adminGoogleProvider());
       await finish();
     } catch (e) {
       setError(e && e.code === 'auth/user-mismatch' ? 'Use the same Google account you are signed in with.' : 'Google confirmation failed. Try again.');
