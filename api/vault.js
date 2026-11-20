@@ -22,6 +22,7 @@ const S = require('./_lib/vaultSchema');
 
 const REVEAL_MAX_AGE = 5 * 60;
 const EDIT_MAX_AGE = 15 * 60;
+const HIDE_AFTER_SECONDS = 30;
 
 function requireVaultKey() {
   if (!isConfigured()) throw new HttpError(503, 'Vault encryption is not configured on this deployment');
@@ -40,22 +41,19 @@ function sealFields(path, kind, data) {
   return { ciphertexts, masked };
 }
 
-function publicFieldsOf(data, kind) {
-  const out = { ...data };
-  for (const f of S.SENSITIVE[kind]) delete out[f];
-  delete out.clear;
-  delete out.id;
-  return out;
+function isAlreadyExists(e) {
+  return e && (e.code === 6 || e.code === 'already-exists' || /ALREADY_EXISTS/.test(String(e.message)));
 }
 
+// Creates any missing company profile. create() fails if the doc exists, so two
+// tabs racing here never overwrite each other or double-audit.
 async function ensureCompanies(req, res) {
   const db = getMcDb();
   const created = [];
   for (const id of S.COMPANY_IDS) {
     const ref = db.collection('companies').doc(id);
-    const snap = await ref.get();
-    if (!snap.exists) {
-      await ref.set({
+    try {
+      await ref.create({
         companyId: id,
         stateOfFormation: '',
         formationDate: '',
@@ -66,41 +64,59 @@ async function ensureCompanies(req, res) {
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       });
-      created.push(id);
-      await writeAuditSafe({ type: 'sensitive_create', actor: req.auth, target: `companies/${id}`, meta: { kind: 'company' } }, req);
+    } catch (e) {
+      if (isAlreadyExists(e)) continue;
+      throw e;
     }
+    created.push(id);
+    await writeAuditSafe({ type: 'sensitive_create', actor: req.auth, target: `companies/${id}`, meta: { kind: 'company' } }, req);
   }
   return res.status(200).json({ ok: true, created });
+}
+
+// Secret-doc write: merge so fields not in this request keep their ciphertext.
+function secretWrite(path, ciphertexts, clear = []) {
+  const fields = { ...ciphertexts };
+  for (const f of clear) fields[f] = FieldValue.delete();
+  return { path, fields, updatedAt: FieldValue.serverTimestamp() };
 }
 
 async function upsertCompany(req, res) {
   requireRecentAuth(req.auth, EDIT_MAX_AGE);
   const data = validate(S.CompanySchema, parseJsonBody(req, { maxBytes: 64 * 1024 }));
+  const clear = (data.clear || []).filter((f) => data[f] === undefined);
   const path = `companies/${data.companyId}`;
-  const hasSecrets = S.SENSITIVE.company.some((f) => data[f] !== undefined) || (data.clear && data.clear.length);
+  const hasSecrets = S.SENSITIVE.company.some((f) => data[f] !== undefined) || clear.length > 0;
   if (hasSecrets) requireVaultKey();
+  const { ciphertexts, masked } = sealFields(path, 'company', data);
+
+  // Only fields the caller sent are written (partial update).
+  const profile = {};
+  for (const f of S.COMPANY_PROFILE_FIELDS) if (data[f] !== undefined) profile[f] = data[f];
 
   const db = getMcDb();
   const ref = db.doc(path);
   const secretRef = db.collection('vaultSecrets').doc(S.secretDocId(path));
-  const { ciphertexts, masked } = sealFields(path, 'company', data);
-
-  const pub = publicFieldsOf(data, 'company');
-  const update = { ...pub, updatedAt: FieldValue.serverTimestamp() };
-  for (const [f, m] of Object.entries(masked)) update[`masked.${f}`] = m;
-  for (const f of data.clear || []) update[`masked.${f}`] = null;
-
-  const batch = db.batch();
-  const snap = await ref.get();
-  if (!snap.exists) batch.set(ref, { createdAt: FieldValue.serverTimestamp(), masked: { ein: null, documentNumber: null } });
-  batch.set(ref, flattenForSet(update), { merge: true });
-  if (Object.keys(ciphertexts).length || (data.clear && data.clear.length)) {
-    const secretUpdate = { path, updatedAt: FieldValue.serverTimestamp() };
-    for (const [f, c] of Object.entries(ciphertexts)) secretUpdate[`fields.${f}`] = c;
-    for (const f of data.clear || []) secretUpdate[`fields.${f}`] = FieldValue.delete();
-    batch.set(secretRef, flattenForSet(secretUpdate), { merge: true });
-  }
-  await batch.commit();
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (snap.exists) {
+      const update = { ...profile, updatedAt: FieldValue.serverTimestamp() };
+      for (const [f, m] of Object.entries(masked)) update[`masked.${f}`] = m;
+      for (const f of clear) update[`masked.${f}`] = null;
+      tx.update(ref, update);
+    } else {
+      const m = { ein: null, documentNumber: null, ...masked };
+      tx.create(ref, {
+        companyId: data.companyId,
+        ...S.COMPANY_DEFAULTS[data.companyId],
+        ...profile,
+        masked: m,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+    if (Object.keys(ciphertexts).length || clear.length) tx.set(secretRef, secretWrite(path, ciphertexts, clear), { merge: true });
+  });
 
   // Data is committed; a failed audit write is logged, not turned into a 500.
   await writeAuditSafe(
@@ -108,33 +124,23 @@ async function upsertCompany(req, res) {
       type: 'sensitive_update',
       actor: req.auth,
       target: path,
-      meta: { kind: 'company', sensitiveFieldsChanged: [...Object.keys(ciphertexts), ...(data.clear || [])] },
+      meta: { kind: 'company', fieldsChanged: Object.keys(profile), sensitiveFieldsChanged: [...Object.keys(ciphertexts), ...clear] },
     },
     req
   );
   return res.status(200).json({ ok: true });
 }
 
-// Firestore merge-set does not interpret dotted keys; convert them to nested maps.
-function flattenForSet(update) {
-  const out = {};
-  for (const [k, v] of Object.entries(update)) {
-    if (!k.includes('.')) {
-      out[k] = v;
-      continue;
-    }
-    const [a, b] = k.split('.');
-    out[a] = { ...(out[a] || {}), [b]: v };
-  }
-  return out;
-}
-
+// One transaction per write: the record, its linked bank account and its
+// secrets are read and written together, so a concurrent delete can't be undone
+// by an in-flight edit, and a card can't link to an account being deleted.
 async function upsertRecord(req, res, kind, schema) {
   requireRecentAuth(req.auth, EDIT_MAX_AGE);
   requireVaultKey();
   const data = validate(schema, parseJsonBody(req, { maxBytes: 32 * 1024 }));
   const db = getMcDb();
-  const col = db.collection('companies').doc(data.companyId).collection(kind);
+  const companyRef = db.collection('companies').doc(data.companyId);
+  const col = companyRef.collection(kind);
   const isCreate = !data.id;
   const ref = isCreate ? col.doc() : col.doc(data.id);
   const path = `companies/${data.companyId}/${kind}/${ref.id}`;
@@ -142,38 +148,41 @@ async function upsertRecord(req, res, kind, schema) {
   if (isCreate) {
     const missing = S.SENSITIVE[kind].filter((f) => data[f] === undefined);
     if (missing.length) throw new HttpError(400, `Required: ${missing.join(', ')}`);
-  } else {
-    const existing = await ref.get();
-    if (!existing.exists) throw new HttpError(404, 'Record not found');
-  }
-
-  if (kind === 'creditCards' && data.linkedBankAccountId) {
-    const linked = await db.collection('companies').doc(data.companyId).collection('bankAccounts').doc(data.linkedBankAccountId).get();
-    if (!linked.exists) throw new HttpError(400, 'Linked bank account not found for this company');
   }
 
   const { ciphertexts, masked } = sealFields(path, kind, data);
-  const pub = publicFieldsOf(data, kind);
-  if (kind === 'creditCards') pub.linkedBankAccountId = data.linkedBankAccountId || null;
-  const doc = { ...pub, companyId: data.companyId, updatedAt: FieldValue.serverTimestamp() };
-  if (Object.keys(masked).length) doc.masked = masked;
+  const doc = {};
+  for (const [k, v] of Object.entries(data)) {
+    if (k === 'id' || S.SENSITIVE[kind].includes(k)) continue;
+    doc[k] = v;
+  }
+  if (kind === 'creditCards') doc.linkedBankAccountId = data.linkedBankAccountId || null;
   if (kind === 'bankAccounts') {
     if (data.accountNumber !== undefined) doc.last4 = S.last4(data.accountNumber);
     if (data.routingNumber !== undefined) doc.routingLast4 = S.last4(data.routingNumber);
   }
   if (kind === 'creditCards' && data.cardNumber !== undefined) doc.last4 = S.last4(data.cardNumber);
-  if (isCreate) doc.createdAt = FieldValue.serverTimestamp();
+  doc.updatedAt = FieldValue.serverTimestamp();
 
-  const batch = db.batch();
-  batch.set(ref, doc, { merge: true });
-  if (Object.keys(ciphertexts).length) {
-    batch.set(
-      db.collection('vaultSecrets').doc(S.secretDocId(path)),
-      { path, fields: ciphertexts, updatedAt: FieldValue.serverTimestamp() },
-      { merge: true }
-    );
-  }
-  await batch.commit();
+  await db.runTransaction(async (tx) => {
+    const existing = isCreate ? null : await tx.get(ref);
+    if (!isCreate && !existing.exists) throw new HttpError(404, 'Record not found');
+    if (kind === 'creditCards' && doc.linkedBankAccountId) {
+      const linked = await tx.get(companyRef.collection('bankAccounts').doc(doc.linkedBankAccountId));
+      if (!linked.exists) throw new HttpError(400, 'Linked bank account not found for this company');
+    }
+    if (isCreate) {
+      tx.create(ref, { ...doc, masked, createdAt: FieldValue.serverTimestamp() });
+    } else {
+      const update = { ...doc };
+      // Dotted paths: masks for fields not sent this time are kept.
+      for (const [f, m] of Object.entries(masked)) update[`masked.${f}`] = m;
+      tx.update(ref, update);
+    }
+    if (Object.keys(ciphertexts).length) {
+      tx.set(db.collection('vaultSecrets').doc(S.secretDocId(path)), secretWrite(path, ciphertexts), { merge: true });
+    }
+  });
 
   // Data is committed; a failed audit write is logged, not turned into a 500.
   await writeAuditSafe(
@@ -192,23 +201,23 @@ async function deleteRecord(req, res) {
   requireRecentAuth(req.auth, EDIT_MAX_AGE);
   const { companyId, kind, id } = validate(S.DeleteSchema, parseJsonBody(req));
   const db = getMcDb();
-  const ref = db.collection('companies').doc(companyId).collection(kind).doc(id);
-  const snap = await ref.get();
-  if (!snap.exists) throw new HttpError(404, 'Record not found');
+  const companyRef = db.collection('companies').doc(companyId);
+  const ref = companyRef.collection(kind).doc(id);
   const path = `companies/${companyId}/${kind}/${id}`;
 
-  const batch = db.batch();
-  batch.delete(ref);
-  batch.delete(db.collection('vaultSecrets').doc(S.secretDocId(path)));
-  let unlinked = 0;
-  if (kind === 'bankAccounts') {
-    const cards = await db.collection('companies').doc(companyId).collection('creditCards').where('linkedBankAccountId', '==', id).get();
-    cards.docs.forEach((c) => {
-      batch.set(c.ref, { linkedBankAccountId: null, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-      unlinked += 1;
-    });
-  }
-  await batch.commit();
+  const unlinked = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new HttpError(404, 'Record not found');
+    let cards = [];
+    if (kind === 'bankAccounts') {
+      const q = await tx.get(companyRef.collection('creditCards').where('linkedBankAccountId', '==', id));
+      cards = q.docs;
+    }
+    tx.delete(ref);
+    tx.delete(db.collection('vaultSecrets').doc(S.secretDocId(path)));
+    cards.forEach((c) => tx.update(c.ref, { linkedBankAccountId: null, updatedAt: FieldValue.serverTimestamp() }));
+    return cards.length;
+  });
   await writeAuditSafe({ type: 'sensitive_delete', actor: req.auth, target: path, meta: { kind, cardsUnlinked: unlinked } }, req);
   return res.status(200).json({ ok: true });
 }
@@ -233,7 +242,7 @@ async function reveal(req, res) {
   // Audit BEFORE returning the plaintext: no audit entry, no reveal.
   await writeAudit({ type: action === 'copy' ? 'vault_copy' : 'vault_reveal', actor: req.auth, target: path, meta: { field } }, req);
   res.setHeader('Cache-Control', 'no-store, max-age=0');
-  return res.status(200).json({ ok: true, value, hideAfterSeconds: 30 });
+  return res.status(200).json({ ok: true, value, hideAfterSeconds: HIDE_AFTER_SECONDS });
 }
 
 const ROUTES = {
@@ -257,4 +266,4 @@ module.exports = withSecurity(
   { name: 'vault', methods: ['POST'], auth: 'admin', rateLimit: { limit: 60, windowMs: 60_000 } },
   router
 );
-module.exports.__test = { flattenForSet, sealFields };
+module.exports.__test = { sealFields, secretWrite };

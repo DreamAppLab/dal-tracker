@@ -3037,7 +3037,6 @@ option { background: var(--bg-card); }
 .reauth-error { margin: 0; color: var(--coral); font-size: 13px; }
 
 /* ── COMPANIES (vault) ── */
-.vault-page { max-width: 1200px; }
 .vault-switcher {
   display: inline-flex;
   gap: 4px;
@@ -3104,17 +3103,20 @@ option { background: var(--bg-card); }
 .vault-row dt { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
 .vault-row dd { margin: 0; font-size: 14px; color: var(--text-primary); overflow-wrap: anywhere; }
 .vault-notes { white-space: pre-wrap; color: var(--text-secondary); }
-.vault-secret { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.vault-secret { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; row-gap: 4px; }
 .vault-secret-value {
   font-family: var(--font-mono);
   font-size: 13px;
   letter-spacing: 0.04em;
   color: var(--text-primary);
-  min-width: 112px;
+  font-variant-numeric: tabular-nums;
+  min-width: 21ch; /* fits a 19-digit card number: no reflow on reveal */
+  white-space: nowrap;
 }
 .vault-secret-value.revealed { color: var(--amber); }
 .vault-secret-actions { display: inline-flex; gap: 6px; }
-.vault-btn { min-width: 64px; justify-content: center; }
+.vault-btn { min-width: 64px; justify-content: center; font-variant-numeric: tabular-nums; }
+.vault-btn-reveal { min-width: 84px; } /* fits "Hide · 30s" */
 .vault-note { font-size: 12px; }
 .vault-note.ok { color: var(--green); }
 .vault-note.err { color: var(--coral); }

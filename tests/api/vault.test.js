@@ -183,3 +183,141 @@ test('vault refuses to store secrets when the key is missing (503)', async () =>
   assert.equal(res.statusCode, 503);
   process.env.VAULT_ENCRYPTION_KEY = KEY;
 });
+
+// ── Review follow-ups ────────────────────────────────────────────────────────
+const bankBody = (extra = {}) => ({ companyId: 'dal', bankName: 'Chase', nickname: 'Op', accountType: 'Checking', routingNumber: ROUTING, accountNumber: ACCOUNT, ...extra });
+
+test('truncated or malformed GCM tag / IV is rejected', () => {
+  const path = 'companies/dal/creditCards/c1';
+  const c = encryptField(CARD, path, 'cardNumber');
+  const parts = c.split('.');
+  const shortTag = [...parts];
+  shortTag[3] = Buffer.from(parts[3], 'base64url').subarray(0, 4).toString('base64url');
+  assert.throws(() => decryptField(shortTag.join('.'), path, 'cardNumber'), /Malformed/);
+  const shortIv = [...parts];
+  shortIv[2] = Buffer.from(parts[2], 'base64url').subarray(0, 8).toString('base64url');
+  assert.throws(() => decryptField(shortIv.join('.'), path, 'cardNumber'), /Malformed/);
+});
+
+test('partial company update leaves other profile fields untouched', async () => {
+  const db = setup();
+  await call('ensure-companies', {});
+  const before = db.store.get('companies/dal');
+  const res = await call('company', { companyId: 'dal', phone: '(904) 555-0100' });
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+  const after = db.store.get('companies/dal');
+  assert.equal(after.phone, '(904) 555-0100');
+  for (const k of ['legalName', 'dba', 'businessAddress', 'website']) assert.equal(after[k], before[k], k);
+  assert.equal((await call('company', { companyId: 'dal', legalName: '' })).statusCode, 400, 'legal name cannot be blanked');
+});
+
+test('updating only the account number keeps the routing ciphertext and mask', async () => {
+  const db = setup();
+  const bank = await call('bank-account', bankBody());
+  const path = `companies/dal/bankAccounts/${bank.body.id}`;
+  const res = await call('bank-account', { companyId: 'dal', id: bank.body.id, bankName: 'Chase', nickname: 'Op', accountType: 'Checking', accountNumber: '99998888' });
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+  const pub = db.store.get(path);
+  assert.equal(pub.masked.accountNumber, '•••• 8888');
+  assert.equal(pub.masked.routingNumber, '•••• 0021');
+  assert.equal(pub.routingLast4, '0021');
+  assert.equal((await call('reveal', { path, field: 'routingNumber', action: 'reveal' })).body.value, ROUTING);
+  assert.equal((await call('reveal', { path, field: 'accountNumber', action: 'reveal' })).body.value, '99998888');
+});
+
+test('an edit to a deleted record returns 404 and does not resurrect it', async () => {
+  const db = setup();
+  const bank = await call('bank-account', bankBody());
+  const path = `companies/dal/bankAccounts/${bank.body.id}`;
+  await call('delete', { companyId: 'dal', kind: 'bankAccounts', id: bank.body.id });
+  const res = await call('bank-account', { companyId: 'dal', id: bank.body.id, bankName: 'Chase', nickname: 'Op', accountType: 'Checking', accountNumber: '99998888' });
+  assert.equal(res.statusCode, 404);
+  assert.equal(db.store.get(path), undefined);
+  assert.equal(db.store.get(`vaultSecrets/${S.secretDocId(path)}`), undefined);
+});
+
+test('a card cannot link to the other company\'s bank account', async () => {
+  setup();
+  const bank = await call('bank-account', bankBody({ companyId: 'zerbiq' }));
+  const res = await call('credit-card', { companyId: 'dal', issuer: 'Chase', nickname: 'Ink', cardholder: 'Eddie', expiry: '01/30', cardNumber: CARD, linkedBankAccountId: bank.body.id });
+  assert.equal(res.statusCode, 400);
+});
+
+test('deleting a card removes its ciphertext', async () => {
+  const db = setup();
+  const card = await call('credit-card', { companyId: 'dal', issuer: 'Chase', nickname: 'Ink', cardholder: 'Eddie', expiry: '01/30', cardNumber: CARD });
+  const path = `companies/dal/creditCards/${card.body.id}`;
+  assert.equal((await call('delete', { companyId: 'dal', kind: 'creditCards', id: card.body.id })).statusCode, 200);
+  assert.equal(db.store.get(path), undefined);
+  assert.equal(db.store.get(`vaultSecrets/${S.secretDocId(path)}`), undefined);
+  assert.equal((await call('delete', { companyId: 'dal', kind: 'creditCards', id: card.body.id })).statusCode, 404);
+});
+
+test('server-set fields cannot be mass-assigned', async () => {
+  setup();
+  for (const extra of [{ last4: '0000' }, { masked: { accountNumber: 'x' } }, { createdAt: 'x' }, { fields: {} }, { routingLast4: '1' }]) {
+    assert.equal((await call('bank-account', bankBody(extra))).statusCode, 400, JSON.stringify(extra));
+  }
+  assert.equal((await call('company', { companyId: 'dal', masked: { ein: 'x' } })).statusCode, 400);
+});
+
+test('reveal fails closed when the audit write fails', async () => {
+  const db = setup();
+  const card = await call('credit-card', { companyId: 'dal', issuer: 'Chase', nickname: 'Ink', cardholder: 'Eddie', expiry: '01/30', cardNumber: CARD });
+  const path = `companies/dal/creditCards/${card.body.id}`;
+  const realCollection = db.collection;
+  db.collection = (name) => {
+    if (name !== 'auditLog') return realCollection(name);
+    const broken = () => { throw new Error('audit store down'); };
+    return { add: broken, doc: () => ({ set: broken, create: broken }) };
+  };
+  const errors = [];
+  const origErr = console.error;
+  console.error = (...a) => errors.push(a.map(String).join(' '));
+  try {
+    const res = await call('reveal', { path, field: 'cardNumber', action: 'reveal' });
+    assert.equal(res.statusCode, 500);
+    assert.equal(res.body.value, undefined);
+    assert.doesNotMatch(JSON.stringify(res.body), new RegExp(CARD));
+  } finally {
+    console.error = origErr;
+    db.collection = realCollection;
+  }
+  assert.doesNotMatch(errors.join('\n'), new RegExp(CARD));
+});
+
+test('decrypt failure returns a generic error without ciphertext or plaintext', async () => {
+  const db = setup();
+  const card = await call('credit-card', { companyId: 'dal', issuer: 'Chase', nickname: 'Ink', cardholder: 'Eddie', expiry: '01/30', cardNumber: CARD });
+  const path = `companies/dal/creditCards/${card.body.id}`;
+  const secretPath = `vaultSecrets/${S.secretDocId(path)}`;
+  const token = db.store.get(secretPath).fields.cardNumber;
+  const parts = token.split('.');
+  const ct = Buffer.from(parts[4], 'base64url');
+  ct[0] ^= 1;
+  parts[4] = ct.toString('base64url');
+  db.store.get(secretPath).fields.cardNumber = parts.join('.');
+  const errors = [];
+  const origErr = console.error;
+  console.error = (...a) => errors.push(a.map(String).join(' '));
+  let res;
+  try {
+    res = await call('reveal', { path, field: 'cardNumber', action: 'reveal' });
+  } finally {
+    console.error = origErr;
+  }
+  assert.equal(res.statusCode, 500);
+  const out = JSON.stringify(res.body) + errors.join('\n');
+  assert.doesNotMatch(out, new RegExp(CARD));
+  assert.doesNotMatch(out, /v1\.k1\./);
+  assert.equal([...db.store.values()].filter((d) => d && d.type === 'vault_reveal').length, 0);
+});
+
+test('ensure-companies racing twice creates each company and audit entry once', async () => {
+  const db = setup();
+  const [a, b] = await Promise.all([call('ensure-companies', {}), call('ensure-companies', {})]);
+  assert.equal(a.statusCode, 200);
+  assert.equal(b.statusCode, 200);
+  assert.equal([...a.body.created, ...b.body.created].sort().join(','), 'dal,zerbiq');
+  assert.equal([...db.store.values()].filter((d) => d && d.type === 'sensitive_create').length, 2);
+});

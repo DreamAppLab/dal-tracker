@@ -68,6 +68,9 @@ function luhnValid(n) {
 const str = (max) => z.string().trim().max(max);
 const optStr = (max) => str(max).optional().default('');
 const dateStr = z.union([z.literal(''), z.string().regex(/^\d{4}-\d{2}-\d{2}$/)]).optional().default('');
+// Company profile updates are partial: a field left out is left unchanged.
+const patchStr = (max) => str(max).optional();
+const patchDate = z.union([z.literal(''), z.string().regex(/^\d{4}-\d{2}-\d{2}$/)]).optional();
 
 const ein = z
   .string()
@@ -93,16 +96,16 @@ const recordId = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 const CompanySchema = z
   .object({
     companyId,
-    legalName: str(200).min(1),
-    dba: optStr(200),
-    entityType: optStr(60),
-    stateOfFormation: optStr(60),
-    formationDate: dateStr,
-    registeredAgent: optStr(300),
-    businessAddress: optStr(300),
-    phone: optStr(40),
-    website: optStr(200),
-    notes: optStr(5000),
+    legalName: str(200).min(1).optional(),
+    dba: patchStr(200),
+    entityType: patchStr(60),
+    stateOfFormation: patchStr(60),
+    formationDate: patchDate,
+    registeredAgent: patchStr(300),
+    businessAddress: patchStr(300),
+    phone: patchStr(40),
+    website: patchStr(200),
+    notes: patchStr(5000),
     ein: ein.optional(),
     documentNumber: documentNumber.optional(),
     clear: z.array(z.enum(SENSITIVE.company)).max(2).optional(),
@@ -136,6 +139,11 @@ const CreditCardSchema = z
   .strict();
 
 const DeleteSchema = z.object({ companyId, kind: z.enum(['bankAccounts', 'creditCards']), id: recordId }).strict();
+
+const COMPANY_PROFILE_FIELDS = Object.freeze([
+  'legalName', 'dba', 'entityType', 'stateOfFormation', 'formationDate',
+  'registeredAgent', 'businessAddress', 'phone', 'website', 'notes',
+]);
 
 const RECORD_PATH_RE = /^companies\/(dal|zerbiq)(\/(bankAccounts|creditCards)\/[A-Za-z0-9_-]{1,64})?$/;
 const RevealSchema = z
@@ -177,6 +185,7 @@ module.exports = {
   SENSITIVE,
   ACCOUNT_TYPES,
   CompanySchema,
+  COMPANY_PROFILE_FIELDS,
   BankAccountSchema,
   CreditCardSchema,
   DeleteSchema,

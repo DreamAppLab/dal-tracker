@@ -8,7 +8,7 @@
 //    the audit log by the server, and revealed values auto-hide after 30 seconds.
 //  - CVV, PIN and online-banking passwords are never collected.
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { collection, doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { apiJson } from '../lib/apiClient';
@@ -46,60 +46,115 @@ function errorText(e) {
   return (e && e.message) || 'Something went wrong';
 }
 
+// ── Clipboard: copied numbers are cleared after 30 seconds ─────────────────
+// Module-level so the clear still happens if the page is left before it fires.
+// If the window isn't focused when the timer fires (browsers refuse clipboard
+// writes then), the clear runs as soon as the window regains focus.
+let clipboardTimer = null;
+let clipboardPending = false;
+
+async function clearClipboardNow() {
+  try {
+    if (navigator.permissions && navigator.clipboard.readText) {
+      const perm = await navigator.permissions.query({ name: 'clipboard-read' }).catch(() => null);
+      if (perm && perm.state === 'granted') {
+        const current = await navigator.clipboard.readText();
+        if (current !== clipboardPending) {
+          clipboardPending = false;
+          return; // something else was copied since; leave it alone
+        }
+      }
+    }
+    await navigator.clipboard.writeText('');
+    clipboardPending = false;
+  } catch {
+    // Not focused: retry on focus (listener below).
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('focus', () => {
+    if (clipboardPending && !clipboardTimer) clearClipboardNow();
+  });
+}
+
+export async function copySensitive(value, clearAfterSeconds) {
+  await navigator.clipboard.writeText(value);
+  clipboardPending = value;
+  if (clipboardTimer) clearTimeout(clipboardTimer);
+  clipboardTimer = setTimeout(() => {
+    clipboardTimer = null;
+    clearClipboardNow();
+  }, clearAfterSeconds * 1000);
+}
+
 // ── Masked sensitive value with Reveal / Copy ──────────────────────────────
+// Render with key={`${path}|${field}`} so state never carries over to another record.
 function SecretValue({ path, field, masked, label }) {
   const { requireRecentAuth } = useRecentAuth();
   const [value, setValue] = useState(null);
-  const [secondsLeft, setSecondsLeft] = useState(0);
+  const [deadline, setDeadline] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(null); // 'reveal' | 'copy'
-  const [note, setNote] = useState('');
-  const timerRef = useRef(null);
+  const [note, setNote] = useState(null); // { text, ok }
+  const hideTimer = useRef(null);
+  const tickTimer = useRef(null);
+  const noteTimer = useRef(null);
 
   const hide = useCallback(() => {
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = null;
+    clearTimeout(hideTimer.current);
+    clearInterval(tickTimer.current);
+    hideTimer.current = null;
+    tickTimer.current = null;
     setValue(null);
-    setSecondsLeft(0);
+    setDeadline(0);
   }, []);
 
+  const flash = useCallback((text, ok, ms = 4000) => {
+    clearTimeout(noteTimer.current);
+    setNote({ text, ok });
+    noteTimer.current = setTimeout(() => setNote(null), ms);
+  }, []);
+
+  // Hide when the tab is hidden, and on unmount.
   useEffect(() => {
-    const onHidden = () => {
-      if (document.visibilityState === 'hidden') hide();
-    };
-    document.addEventListener('visibilitychange', onHidden);
+    const onVis = () => document.visibilityState === 'hidden' && hide();
+    document.addEventListener('visibilitychange', onVis);
     return () => {
-      document.removeEventListener('visibilitychange', onHidden);
-      if (timerRef.current) clearInterval(timerRef.current);
+      document.removeEventListener('visibilitychange', onVis);
+      clearTimeout(hideTimer.current);
+      clearInterval(tickTimer.current);
+      clearTimeout(noteTimer.current);
     };
   }, [hide]);
+
+  // A saved value changed underneath a revealed one: hide the stale plaintext.
+  useEffect(() => hide(), [path, field, masked, hide]);
 
   const fetchValue = async (action) => {
     await requireRecentAuth(REVEAL_MAX_AGE);
     const data = await apiJson('/api/vault/reveal', { method: 'POST', body: { path, field, action } });
-    return data.value;
+    const secs = Number(data.hideAfterSeconds) > 0 ? Math.min(Number(data.hideAfterSeconds), HIDE_AFTER_SECONDS) : HIDE_AFTER_SECONDS;
+    return { v: data.value, secs };
   };
 
   const onReveal = async () => {
     if (value) return hide();
     setBusy('reveal');
-    setNote('');
+    setNote(null);
     try {
-      const v = await fetchValue('reveal');
+      const { v, secs } = await fetchValue('reveal');
+      const until = Date.now() + secs * 1000;
       setValue(v);
-      setSecondsLeft(HIDE_AFTER_SECONDS);
-      if (timerRef.current) clearInterval(timerRef.current);
-      timerRef.current = setInterval(() => {
-        setSecondsLeft((s) => {
-          if (s <= 1) {
-            hide();
-            return 0;
-          }
-          return s - 1;
-        });
-      }, 1000);
+      setDeadline(until);
+      setNow(Date.now());
+      clearTimeout(hideTimer.current);
+      clearInterval(tickTimer.current);
+      hideTimer.current = setTimeout(hide, secs * 1000);
+      tickTimer.current = setInterval(() => setNow(Date.now()), 250);
     } catch (e) {
       const t = errorText(e);
-      if (t) setNote(t);
+      if (t) flash(t, false);
     } finally {
       setBusy(null);
     }
@@ -107,21 +162,21 @@ function SecretValue({ path, field, masked, label }) {
 
   const onCopy = async () => {
     setBusy('copy');
-    setNote('');
+    setNote(null);
     try {
-      const v = await fetchValue('copy');
-      await navigator.clipboard.writeText(v);
-      setNote('Copied');
-      setTimeout(() => setNote(''), 2500);
+      const { v, secs } = await fetchValue('copy');
+      await copySensitive(v, secs);
+      flash(`Copied · clears in ${secs}s`, true, 3000);
     } catch (e) {
       const t = errorText(e);
-      if (t) setNote(t);
+      if (t) flash(t, false);
     } finally {
       setBusy(null);
     }
   };
 
   if (!masked) return <span className="vault-muted">Not saved</span>;
+  const secondsLeft = value ? Math.max(0, Math.ceil((deadline - now) / 1000)) : 0;
 
   return (
     <span className="vault-secret">
@@ -129,31 +184,64 @@ function SecretValue({ path, field, masked, label }) {
         {value || masked}
       </span>
       <span className="vault-secret-actions">
-        <button type="button" className="btn btn-secondary btn-sm vault-btn" onClick={onReveal} disabled={!!busy} aria-label={`${value ? 'Hide' : 'Reveal'} ${label}`}>
-          {busy === 'reveal' ? '…' : value ? `Hide (${secondsLeft}s)` : 'Reveal'}
+        <button type="button" className="btn btn-secondary btn-sm vault-btn vault-btn-reveal" onClick={onReveal} disabled={!!busy} aria-label={`${value ? 'Hide' : 'Reveal'} ${label}`}>
+          {busy === 'reveal' ? '…' : value ? `Hide · ${secondsLeft}s` : 'Reveal'}
         </button>
         <button type="button" className="btn btn-secondary btn-sm vault-btn" onClick={onCopy} disabled={!!busy} aria-label={`Copy ${label}`}>
           {busy === 'copy' ? '…' : 'Copy'}
         </button>
       </span>
-      {note && <span className={`vault-note ${note === 'Copied' ? 'ok' : 'err'}`}>{note}</span>}
+      {note && <span className={`vault-note ${note.ok ? 'ok' : 'err'}`} role="status">{note.text}</span>}
     </span>
   );
 }
 
 // ── Modal shell ─────────────────────────────────────────────────────────────
-function Modal({ title, onClose, children, footer }) {
+// Escape closes unless locked (saving, or the "Confirm it's you" dialog is open).
+// No backdrop-click close: a stray click must never throw away a typed form.
+// Focus moves into the dialog, Tab is trapped, and focus returns on close.
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function Modal({ title, onClose, children, footer, locked = false }) {
+  const { isConfirming } = useRecentAuth();
+  const isLocked = locked || isConfirming;
+  const ref = useRef(null);
+  const titleId = useId();
+  const lockedRef = useRef(isLocked);
+  lockedRef.current = isLocked;
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
   useEffect(() => {
-    const onKey = (e) => e.key === 'Escape' && onClose();
+    const opener = document.activeElement;
+    const node = ref.current;
+    const first = node && (node.querySelector('.modal-body ' + FOCUSABLE) || node.querySelector(FOCUSABLE));
+    if (first) first.focus();
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        if (!lockedRef.current) closeRef.current();
+        return;
+      }
+      if (e.key !== 'Tab' || !node) return;
+      const items = [...node.querySelectorAll(FOCUSABLE)];
+      if (!items.length) return;
+      const [a, z] = [items[0], items[items.length - 1]];
+      if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); }
+      else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      if (opener && typeof opener.focus === 'function' && document.contains(opener)) opener.focus();
+    };
+  }, []);
+
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal vault-modal">
+    <div className="modal-overlay">
+      <div className="modal vault-modal" role="dialog" aria-modal="true" aria-labelledby={titleId} ref={ref}>
         <div className="modal-header">
-          <h2 className="modal-title">{title}</h2>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} aria-label="Close">✕</button>
+          <h2 className="modal-title" id={titleId}>{title}</h2>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} disabled={isLocked} aria-label="Close">✕</button>
         </div>
         <div className="modal-body">{children}</div>
         <div className="modal-footer">{footer}</div>
@@ -162,14 +250,33 @@ function Modal({ title, onClose, children, footer }) {
   );
 }
 
+// Label is tied to its input (htmlFor/id) for screen readers.
 function Field({ label, children, hint, wide }) {
+  const id = useId();
+  const hintId = `${id}-hint`;
+  const child = React.Children.only(children);
   return (
     <div className={`form-group ${wide ? 'vault-wide' : ''}`}>
-      <label className="form-label">{label}</label>
-      {children}
-      {hint && <div className="vault-hint">{hint}</div>}
+      <label className="form-label" htmlFor={id}>{label}</label>
+      {React.cloneElement(child, { id, 'aria-describedby': hint ? hintId : undefined })}
+      {hint && <div className="vault-hint" id={hintId}>{hint}</div>}
     </div>
   );
+}
+
+// Props for inputs that hold account / card / tax numbers: no spellcheck (Chrome's
+// enhanced spellcheck sends field text to Google), no autofill / "save card".
+const SENSITIVE_INPUT = {
+  autoComplete: 'off',
+  spellCheck: false,
+  autoCorrect: 'off',
+  autoCapitalize: 'off',
+  'data-lpignore': 'true',
+  'data-1p-ignore': 'true',
+};
+
+function savedHint(maskedValue) {
+  return `Saved: ${maskedValue || 'yes'}. Leave blank to keep.`;
 }
 
 // ── Edit company profile ─────────────────────────────────────────────────────
@@ -216,7 +323,7 @@ function CompanyForm({ company, onClose }) {
       label={label}
       hint={masked ? (
         <>
-          Saved: {masked}. Leave blank to keep.{' '}
+          {savedHint(masked)}{' '}
           <label className="vault-clear">
             <input type="checkbox" checked={clear.includes(key)} onChange={(e) => setClear((c) => (e.target.checked ? [...c, key] : c.filter((x) => x !== key)))} />
             Remove saved value
@@ -224,7 +331,7 @@ function CompanyForm({ company, onClose }) {
         </>
       ) : 'Encrypted when saved.'}
     >
-      <input className="form-input vault-mono" value={form[key]} onChange={set(key)} placeholder={placeholder} autoComplete="off" spellCheck="false" />
+      <input className="form-input vault-mono" name={`vault-${key}`} value={form[key]} onChange={set(key)} placeholder={placeholder} {...SENSITIVE_INPUT} />
     </Field>
   );
 
@@ -232,6 +339,7 @@ function CompanyForm({ company, onClose }) {
     <Modal
       title={`Edit ${company.legalName || 'company'}`}
       onClose={onClose}
+      locked={saving}
       footer={(
         <>
           {error && <span className="vault-form-error">{error}</span>}
@@ -298,6 +406,7 @@ function BankForm({ companyId, account, onClose }) {
     <Modal
       title={isEdit ? `Edit ${account.nickname}` : 'Add bank account'}
       onClose={onClose}
+      locked={saving}
       footer={(
         <>
           {error && <span className="vault-form-error">{error}</span>}
@@ -315,11 +424,11 @@ function BankForm({ companyId, account, onClose }) {
           </select>
         </Field>
         <Field label="Opening date"><input className="form-input" type="date" value={form.openingDate} onChange={set('openingDate')} /></Field>
-        <Field label="Routing number" hint={isEdit ? `Saved: ${account.masked && account.masked.routingNumber}. Leave blank to keep.` : 'Encrypted when saved.'}>
-          <input className="form-input vault-mono" inputMode="numeric" autoComplete="off" value={form.routingNumber} onChange={set('routingNumber')} />
+        <Field label="Routing number" hint={isEdit ? savedHint(account.masked && account.masked.routingNumber) : 'Encrypted when saved.'}>
+          <input className="form-input vault-mono" name="vault-routing" inputMode="numeric" value={form.routingNumber} onChange={set('routingNumber')} {...SENSITIVE_INPUT} />
         </Field>
-        <Field label="Account number" hint={isEdit ? `Saved: ${account.masked && account.masked.accountNumber}. Leave blank to keep.` : 'Encrypted when saved.'}>
-          <input className="form-input vault-mono" inputMode="numeric" autoComplete="off" value={form.accountNumber} onChange={set('accountNumber')} />
+        <Field label="Account number" hint={isEdit ? savedHint(account.masked && account.masked.accountNumber) : 'Encrypted when saved.'}>
+          <input className="form-input vault-mono" name="vault-account" inputMode="numeric" value={form.accountNumber} onChange={set('accountNumber')} {...SENSITIVE_INPUT} />
         </Field>
       </div>
       <p className="vault-hint">Online-banking usernames and passwords are never stored here.</p>
@@ -380,6 +489,7 @@ function CardForm({ companyId, card, bankAccounts, onClose }) {
     <Modal
       title={isEdit ? `Edit ${card.nickname}` : 'Add credit card'}
       onClose={onClose}
+      locked={saving}
       footer={(
         <>
           {error && <span className="vault-form-error">{error}</span>}
@@ -392,9 +502,9 @@ function CardForm({ companyId, card, bankAccounts, onClose }) {
         <Field label="Issuer"><input className="form-input" value={form.issuer} onChange={set('issuer')} placeholder="Capital One" /></Field>
         <Field label="Nickname"><input className="form-input" value={form.nickname} onChange={set('nickname')} placeholder="Spark Cash" /></Field>
         <Field label="Cardholder"><input className="form-input" value={form.cardholder} onChange={set('cardholder')} /></Field>
-        <Field label="Expiry (MM/YY)"><input className="form-input vault-mono" inputMode="numeric" value={form.expiry} onChange={onExpiry} placeholder="08/29" /></Field>
-        <Field label="Card number" wide hint={isEdit ? `Saved: ${card.masked && card.masked.cardNumber}. Leave blank to keep.` : 'Encrypted when saved. Last 4 shown everywhere else.'}>
-          <input className="form-input vault-mono" inputMode="numeric" autoComplete="off" value={form.cardNumber} onChange={set('cardNumber')} />
+        <Field label="Expiry (MM/YY)"><input className="form-input vault-mono" name="vault-exp" inputMode="numeric" value={form.expiry} onChange={onExpiry} placeholder="08/29" {...SENSITIVE_INPUT} /></Field>
+        <Field label="Card number" wide hint={isEdit ? savedHint(card.masked && card.masked.cardNumber) : 'Encrypted when saved. Last 4 shown everywhere else.'}>
+          <input className="form-input vault-mono" name="vault-number" inputMode="numeric" value={form.cardNumber} onChange={set('cardNumber')} {...SENSITIVE_INPUT} />
         </Field>
         <Field label="Linked bank account" wide>
           <select className="form-select" value={form.linkedBankAccountId} onChange={set('linkedBankAccountId')}>
@@ -415,6 +525,7 @@ function ConfirmDelete({ label, onCancel, onConfirm }) {
     <Modal
       title="Delete record"
       onClose={onCancel}
+      locked={busy}
       footer={(
         <>
           {error && <span className="vault-form-error">{error}</span>}
@@ -511,7 +622,11 @@ export default function Companies() {
       {loadError && <div className="vault-alert">{loadError}</div>}
 
       {!company ? (
-        <div className="empty-state"><div className="empty-state-text">Loading company…</div></div>
+        <div className="empty-state">
+          <div className="empty-state-text">
+            {company === null && loadError ? 'This company record could not be created. Reload to try again.' : 'Loading company…'}
+          </div>
+        </div>
       ) : (
         <>
           <section className="vault-card">
@@ -528,11 +643,11 @@ export default function Companies() {
               ))}
               <div className="vault-row">
                 <dt>EIN</dt>
-                <dd><SecretValue path={`companies/${companyId}`} field="ein" label="EIN" masked={company.masked && company.masked.ein} /></dd>
+                <dd><SecretValue key={`companies/${companyId}|ein`} path={`companies/${companyId}`} field="ein" label="EIN" masked={company.masked && company.masked.ein} /></dd>
               </div>
               <div className="vault-row">
                 <dt>LLC / document number</dt>
-                <dd><SecretValue path={`companies/${companyId}`} field="documentNumber" label="document number" masked={company.masked && company.masked.documentNumber} /></dd>
+                <dd><SecretValue key={`companies/${companyId}|documentNumber`} path={`companies/${companyId}`} field="documentNumber" label="document number" masked={company.masked && company.masked.documentNumber} /></dd>
               </div>
               {company.notes && (
                 <div className="vault-row vault-row-wide">
@@ -566,8 +681,8 @@ export default function Companies() {
                           <td className="vault-strong">{a.nickname}</td>
                           <td>{a.bankName}</td>
                           <td>{a.accountType}</td>
-                          <td><SecretValue path={path} field="routingNumber" label="routing number" masked={a.masked && a.masked.routingNumber} /></td>
-                          <td><SecretValue path={path} field="accountNumber" label="account number" masked={a.masked && a.masked.accountNumber} /></td>
+                          <td><SecretValue key={`${path}|routingNumber`} path={path} field="routingNumber" label="routing number" masked={a.masked && a.masked.routingNumber} /></td>
+                          <td><SecretValue key={`${path}|accountNumber`} path={path} field="accountNumber" label="account number" masked={a.masked && a.masked.accountNumber} /></td>
                           <td className="vault-nowrap">{formatDate(a.openingDate)}</td>
                           <td className="vault-col-actions">
                             <button type="button" className="btn btn-ghost btn-sm" onClick={() => setModal({ type: 'bank', record: a })}>Edit</button>
@@ -605,7 +720,7 @@ export default function Companies() {
                           <td className="vault-strong">{c.nickname}</td>
                           <td>{c.issuer}</td>
                           <td>{c.cardholder}</td>
-                          <td><SecretValue path={`companies/${companyId}/creditCards/${c.id}`} field="cardNumber" label="card number" masked={c.masked && c.masked.cardNumber} /></td>
+                          <td><SecretValue key={`companies/${companyId}/creditCards/${c.id}|cardNumber`} path={`companies/${companyId}/creditCards/${c.id}`} field="cardNumber" label="card number" masked={c.masked && c.masked.cardNumber} /></td>
                           <td className="vault-mono vault-nowrap">{c.expiry}</td>
                           <td>{linked ? `${linked.nickname} (•••• ${linked.last4})` : '—'}</td>
                           <td className="vault-col-actions">

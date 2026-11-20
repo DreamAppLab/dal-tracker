@@ -105,6 +105,15 @@ test('company vault: admin can read profiles/accounts/cards but never write them
   await assertFails(db.doc('companies/dal/bankAccounts/b1').update({ last4: '0000' }));
   await assertFails(db.collection('companies/dal/creditCards').add({ cardNumber: '4111111111111111' }));
   await assertFails(db.doc('companies/dal/bankAccounts/b1').delete());
+
+  // Nobody but the verified admin can read the vault's subcollections.
+  const unverified = env.authenticatedContext('eddie-unverified', { email: 'lab@dreamapplab.com', email_verified: false }).firestore();
+  const intruder = env.authenticatedContext('intruder', { email: 'intruder@example.com', email_verified: true }).firestore();
+  for (const other of [anon(), unverified, intruder]) {
+    await assertFails(other.doc('companies/dal/bankAccounts/b1').get());
+    await assertFails(other.collection('companies/zerbiq/creditCards').get());
+    await assertFails(other.doc('companies/zerbiq').get());
+  }
 });
 
 test('vaultSecrets ciphertext is unreadable and unwritable by every client', async () => {

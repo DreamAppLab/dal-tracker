@@ -113,8 +113,21 @@ export function ReauthProvider({ children }) {
     if (r) r.reject(Object.assign(new Error('Sign-in confirmation cancelled'), { code: 'reauth-cancelled' }));
   };
 
+  // Escape cancels this dialog only; capture + stopPropagation keeps it from
+  // also closing a form modal underneath while a save is waiting on us.
+  useEffect(() => {
+    if (!request) return undefined;
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      if (!busy) cancel();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  });
+
   return (
-    <ReauthContext.Provider value={{ requireRecentAuth }}>
+    <ReauthContext.Provider value={{ requireRecentAuth, isConfirming: !!request }}>
       {children}
       {request && (
         <div className="modal-overlay reauth-overlay" role="dialog" aria-modal="true" aria-labelledby="reauth-title">

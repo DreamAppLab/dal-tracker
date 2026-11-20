@@ -45,7 +45,24 @@ function fakeDb(seed = {}) {
       return { exists: data !== undefined, id: path.split('/').pop(), data: () => data, ref: docRef(path) };
     },
     async set(data, opts) { store.set(path, opts && opts.merge ? deepMerge(store.get(path), data) : data); },
-    async update(data) { store.set(path, { ...(store.get(path) || {}), ...data }); },
+    // Like Firestore: create() fails if the doc exists (code 6), update() fails
+    // if it is missing (code 5) and treats dotted keys as nested field paths.
+    async create(data) {
+      if (store.has(path)) throw Object.assign(new Error('6 ALREADY_EXISTS: Document already exists'), { code: 6 });
+      store.set(path, data);
+    },
+    async update(data) {
+      if (!store.has(path)) throw Object.assign(new Error('5 NOT_FOUND: No document to update'), { code: 5 });
+      const out = { ...store.get(path) };
+      for (const [k, v] of Object.entries(data)) {
+        const keys = k.split('.');
+        let cur = out;
+        for (const part of keys.slice(0, -1)) { cur[part] = { ...(cur[part] || {}) }; cur = cur[part]; }
+        const last = keys[keys.length - 1];
+        if (isDeleteSentinel(v)) delete cur[last]; else cur[last] = v;
+      }
+      store.set(path, out);
+    },
     async delete() { store.delete(path); },
     collection: (name) => collection(`${path}/${name}`),
   });
@@ -74,12 +91,24 @@ function fakeDb(seed = {}) {
     store,
     collection,
     doc: docRef,
+    // Writes are buffered and applied only if fn resolves (all-or-nothing).
     async runTransaction(fn) {
-      return fn({ get: (ref) => ref.get(), set: (ref, data) => ref.set(data) });
+      const ops = [];
+      const tx = {
+        get: (refOrQuery) => refOrQuery.get(),
+        set: (ref, d, o) => { ops.push(() => ref.set(d, o)); return tx; },
+        update: (ref, d) => { ops.push(() => ref.update(d)); return tx; },
+        create: (ref, d) => { ops.push(() => ref.create(d)); return tx; },
+        delete: (ref) => { ops.push(() => ref.delete()); return tx; },
+      };
+      const result = await fn(tx);
+      for (const op of ops) await op();
+      return result;
     },
     batch() {
       const ops = [];
       return {
+        create: (ref, d) => ops.push(() => ref.create(d)),
         update: (ref, d) => ops.push(() => ref.update(d)),
         set: (ref, d, o) => ops.push(() => ref.set(d, o)),
         delete: (ref) => ops.push(() => ref.delete()),
