@@ -16,7 +16,7 @@
 const { FieldValue } = require('firebase-admin/firestore');
 const { getMcDb } = require('./_lib/firebaseAdmin');
 const { withSecurity, HttpError, parseJsonBody, validate, requireRecentAuth } = require('./_lib/security');
-const { writeAudit } = require('./_lib/audit');
+const { writeAudit, writeAuditSafe } = require('./_lib/audit');
 const { encryptField, decryptField, isConfigured } = require('./_lib/vaultCrypto');
 const S = require('./_lib/vaultSchema');
 
@@ -67,7 +67,7 @@ async function ensureCompanies(req, res) {
         updatedAt: FieldValue.serverTimestamp(),
       });
       created.push(id);
-      await writeAudit({ type: 'sensitive_create', actor: req.auth, target: `companies/${id}`, meta: { kind: 'company' } }, req);
+      await writeAuditSafe({ type: 'sensitive_create', actor: req.auth, target: `companies/${id}`, meta: { kind: 'company' } }, req);
     }
   }
   return res.status(200).json({ ok: true, created });
@@ -102,7 +102,8 @@ async function upsertCompany(req, res) {
   }
   await batch.commit();
 
-  await writeAudit(
+  // Data is committed; a failed audit write is logged, not turned into a 500.
+  await writeAuditSafe(
     {
       type: 'sensitive_update',
       actor: req.auth,
@@ -174,7 +175,8 @@ async function upsertRecord(req, res, kind, schema) {
   }
   await batch.commit();
 
-  await writeAudit(
+  // Data is committed; a failed audit write is logged, not turned into a 500.
+  await writeAuditSafe(
     {
       type: isCreate ? 'sensitive_create' : 'sensitive_update',
       actor: req.auth,
@@ -207,7 +209,7 @@ async function deleteRecord(req, res) {
     });
   }
   await batch.commit();
-  await writeAudit({ type: 'sensitive_delete', actor: req.auth, target: path, meta: { kind, cardsUnlinked: unlinked } }, req);
+  await writeAuditSafe({ type: 'sensitive_delete', actor: req.auth, target: path, meta: { kind, cardsUnlinked: unlinked } }, req);
   return res.status(200).json({ ok: true });
 }
 
