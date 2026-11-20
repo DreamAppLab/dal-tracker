@@ -324,7 +324,7 @@ test('identical repeated Mailgun result headers still verify; conflicting ones d
 const MG_AR = 'mxa.mailgun.org; dkim=pass header.i=@gmail.com header.s=20230601 header.b=abc; spf=pass (mxa.mailgun.org: domain of jo@gmail.com designates 209.85.128.46 as permitted sender) smtp.mailfrom=jo@gmail.com; spf=none smtp.helo=mail-yx1-f46.google.com; dmarc=pass (p=NONE sp=QUARANTINE dis=NONE) header.from=gmail.com; arc=pass (i=1 spf=pass spfdomain=gmail.com dkim=pass dkdomain=gmail.com dmarc=pass fromdomain=gmail.com)';
 
 test('Mailgun\'s own Authentication-Results verifies a genuine sender', () => {
-  const m = parseInbound({ from: 'Jo <jo@gmail.com>', sender: 'jo@gmail.com', 'message-headers': headers([['Authentication-Results', MG_AR], ['Received', 'by mxa.mailgun.org']]) });
+  const m = parseInbound({ from: 'Jo <jo@gmail.com>', sender: 'jo@gmail.com', 'message-headers': headers([['Received', 'by hash'], ['Authentication-Results', MG_AR], ['X-Mailgun-Incoming', 'Yes']]) });
   assert.equal(m.verified, true);
 });
 
@@ -344,15 +344,19 @@ test('Authentication-Results: planted, foreign, misaligned or missing results st
   assert.equal(v([]), false);
 });
 
-test("only an Authentication-Results above the first Received line (Mailgun's own) is trusted", () => {
+test("only Mailgun's own Authentication-Results (directly before its X-Mailgun-Incoming) is trusted", () => {
   const v = (pairs, from = 'jaclyn@client.com') => parseInbound({ from, sender: from, 'message-headers': headers(pairs) }).verified;
-  const planted = 'mxa.mailgun.org; dmarc=pass header.from=client.com';
-  // Mailgun added no A-R; a sender planted one below the trace headers.
-  assert.equal(v([['Received', 'by mx.mailgun (hash)'], ['Received', 'by mail.evil.test'], ['Authentication-Results', planted]]), false);
-  // A planted A-R above a forged Received further down is still below Mailgun's Received.
-  assert.equal(v([['Received', 'by mx.mailgun (hash)'], ['Authentication-Results', planted], ['Received', 'by forged']]), false);
-  // Mailgun's own, above its Received: trusted.
-  assert.equal(v([['Authentication-Results', planted], ['Received', 'by mx.mailgun (hash)']]), true);
+  const AR = 'mxa.mailgun.org; dmarc=pass header.from=client.com';
+  const MG = (ar) => [['Received', 'by hash'], ['Received', 'from x by y'], ['Authentication-Results', ar], ['X-Mailgun-Incoming', 'Yes'], ['X-Envelope-From', '<jaclyn@client.com>']];
+  // Observed live layout: trusted.
+  assert.equal(v(MG(AR)), true);
+  // Mailgun added no A-R; the sender planted one among their own headers.
+  assert.equal(v([['Received', 'by hash'], ['Received', 'from x by y'], ['X-Mailgun-Incoming', 'Yes'], ['X-Envelope-From', '<j@c>'], ['Authentication-Results', AR]]), false);
+  // The sender also planted an X-Mailgun-Incoming right after their A-R: two of them → fail closed.
+  assert.equal(v([...MG('mxa.mailgun.org; dmarc=fail header.from=client.com'), ['Authentication-Results', AR], ['X-Mailgun-Incoming', 'Yes']]), false);
+  // A second A-R claiming a Mailgun id anywhere → fail closed.
+  assert.equal(v([...MG(AR), ['Authentication-Results', 'mxa.mailgun.org; dkim=pass header.d=client.com']]), false);
   // header.i-only DKIM pass, EU id, folded header.
-  assert.equal(v([['Authentication-Results', 'mxa.eu.mailgun.org;' + String.fromCharCode(13,10) + '  dkim=pass' + String.fromCharCode(13,10) + '  header.i=@client.com header.s=s1'], ['Received', 'by x']]), true);
+  const folded = 'mxa.eu.mailgun.org;' + String.fromCharCode(13, 10) + '  dkim=pass' + String.fromCharCode(13, 10) + '  header.i=@client.com header.s=s1';
+  assert.equal(v(MG(folded)), true);
 });
