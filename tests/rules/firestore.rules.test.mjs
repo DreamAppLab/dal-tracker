@@ -91,6 +91,41 @@ test('auditLog: admin can read, nobody can write', async () => {
   await assertFails(db.doc('auditLog/a1').delete());
 });
 
+test('company vault: admin can read profiles/accounts/cards but never write them from a client', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().doc('companies/dal/bankAccounts/b1').set({ nickname: 'Op', last4: '6789', companyId: 'dal' });
+    await ctx.firestore().doc('companies/zerbiq/creditCards/c1').set({ nickname: 'Gold', last4: '1111', companyId: 'zerbiq' });
+    await ctx.firestore().doc('vaultSecrets/companies__dal__bankAccounts__b1').set({ fields: { accountNumber: 'v1.k1.x.y.z' } });
+  });
+  const db = admin();
+  await assertSucceeds(db.doc('companies/dal').get());
+  await assertSucceeds(db.doc('companies/dal/bankAccounts/b1').get());
+  await assertSucceeds(db.collection('companies/zerbiq/creditCards').get());
+  await assertFails(db.doc('companies/dal').set({ legalName: 'tampered' }, { merge: true }));
+  await assertFails(db.doc('companies/dal/bankAccounts/b1').update({ last4: '0000' }));
+  await assertFails(db.collection('companies/dal/creditCards').add({ cardNumber: '4111111111111111' }));
+  await assertFails(db.doc('companies/dal/bankAccounts/b1').delete());
+
+  // Nobody but the verified admin can read the vault's subcollections.
+  const unverified = env.authenticatedContext('eddie-unverified', { email: 'lab@dreamapplab.com', email_verified: false }).firestore();
+  const intruder = env.authenticatedContext('intruder', { email: 'intruder@example.com', email_verified: true }).firestore();
+  for (const other of [anon(), unverified, intruder]) {
+    await assertFails(other.doc('companies/dal/bankAccounts/b1').get());
+    await assertFails(other.collection('companies/zerbiq/creditCards').get());
+    await assertFails(other.doc('companies/zerbiq').get());
+  }
+});
+
+test('vaultSecrets ciphertext is unreadable and unwritable by every client', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().doc('vaultSecrets/s1').set({ fields: { ein: 'v1.k1.a.b.c' } });
+  });
+  await assertFails(admin().doc('vaultSecrets/s1').get());
+  await assertFails(admin().collection('vaultSecrets').get());
+  await assertFails(admin().doc('vaultSecrets/s2').set({ fields: {} }));
+  await assertFails(anon().doc('vaultSecrets/s1').get());
+});
+
 test('rateLimits are server-only', async () => {
   await assertFails(admin().doc('rateLimits/k').set({ count: 0 }));
   await assertFails(anon().doc('rateLimits/k').get());

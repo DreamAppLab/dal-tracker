@@ -47,7 +47,10 @@ security change. These rules are enforced by tests and by the Vercel build.
 10. **Headers:** CSP, HSTS, frame-ancestors none, etc. live in `vercel.json`. If you
     add a third-party script/API, add only its exact origin to the CSP. The widget
     (`public/widget/`) must stay embeddable on client preview sites.
-11. **No CVV, PIN or online-banking passwords are ever stored.**
+11. **No CVV, PIN or online-banking passwords are ever stored.** Vault numbers are
+    encrypted only in `api/vault.js` (`api/_lib/vaultCrypto.js`); never add a
+    plaintext copy, a client-side decrypt, or a new sensitive field without adding
+    it to `SENSITIVE` in `api/_lib/vaultSchema.js` and to the tests.
 12. **Never commit** `.env*`, service-account JSON, or `build/`. Source maps are not
     published (`GENERATE_SOURCEMAP=false`).
 

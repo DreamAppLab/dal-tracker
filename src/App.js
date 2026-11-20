@@ -21,6 +21,7 @@ import MaintenanceTab from './components/MaintenanceTab';
 import Contacts from './components/Contacts';
 import WebProjects from './pages/WebProjects';
 import WebsiteAnalytics from './pages/WebsiteAnalytics';
+import Companies from './pages/Companies';
 import Sidebar from './components/Sidebar';
 import { QuotesUnreadListener } from './tabs/QuotesTab';
 import { useOnboardingUploads } from './hooks/useOnboardingUploads';
@@ -445,6 +446,7 @@ function DashboardApp() {
           <ReviewRequestsDashboard projects={projects} />
         )}
         {activeView === 'hq' && <DALHeadquarters />}
+        {activeView === 'companies' && <Companies />}
         {activeView === 'blackbox' && <BlackBox project={currentProject} />}
         {activeView === 'blog' && <BlogAdmin />}
         {activeView === 'tools' && <ToolsHub />}

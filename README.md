@@ -1,8 +1,8 @@
 # DAL Mission Control
 
 Dream App Lab's internal operations hub: apps, websites, client projects, quotes,
-revenue, expenses, maintenance, and (from Part B) the company vault for
-Dream App Lab LLC and Zerbiq.
+revenue, expenses, maintenance, and the **Companies** vault for Dream App Lab LLC
+and Zerbiq.
 
 **Read [CLAUDE.md](./CLAUDE.md) before changing anything** — it holds the security
 rules every change must follow.
@@ -23,6 +23,27 @@ rules every change must follow.
   only to the validated, rate-limited `/api/feedback/*` endpoints. Admin controls
   on a preview site are unlocked with a 12-hour signed link from
   Web Projects → **Open as admin**.
+
+## Companies vault
+Company profiles (`companies/dal`, `companies/zerbiq`), bank accounts and credit
+cards (`companies/{id}/bankAccounts`, `.../creditCards`).
+- EIN, LLC/document number, routing, account and card numbers are encrypted in
+  `api/vault.js` with AES-256-GCM (`VAULT_ENCRYPTION_KEY`, production only; the AAD
+  binds each ciphertext to its record and field). Ciphertext lives in the
+  server-only `vaultSecrets` collection; client-readable docs hold masked values
+  and last 4 only, so the ledger module can read them.
+- All writes go through `/api/vault/*` (transactions, sign-in within 15 minutes).
+  Reveal/Copy need a sign-in within 5 minutes, are audited before the value is
+  returned, and auto-hide after 30 seconds (also when the tab is hidden).
+  Copied values are cleared from the clipboard after 30 seconds if this tab has
+  focus, otherwise as soon as you return to it (browsers block clipboard writes
+  from background tabs; Firefox and Safari allow it only on a click, so there use
+  the button); until then a banner offers "Clear clipboard now". Closing the tab
+  first leaves the value on the clipboard.
+- CVV, PIN and online-banking passwords are never accepted (strict schemas).
+- Without `VAULT_ENCRYPTION_KEY` (preview deployments) the vault API returns 503
+  for anything that would store or reveal a number. Losing the key makes every
+  stored number unreadable: keep a copy in the password manager.
 
 ## Local development (PowerShell)
 ```powershell
@@ -54,4 +75,5 @@ scan on every pull request.
 | `FT_ADMIN_SECRET` | FamilyThread admin proxy |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` | SMS |
 | `STRIPE_SECRET_KEY` | payment links |
+| `VAULT_ENCRYPTION_KEY` (Sensitive, production only) | Companies vault encryption — base64 of 32 random bytes |
 | `REACT_APP_FT_*`, `REACT_APP_ZERBIQ_FIREBASE_*` (public) | Firebase **web** config only — never secrets |
