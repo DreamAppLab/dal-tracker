@@ -260,7 +260,7 @@ test('the replay token is recorded only after success, so Mailgun retries get th
 test('a Mailgun token can only ever carry the message it first arrived with', async () => {
   const { bindToken } = require('../../api/_lib/inboundEmail');
   const db = setup({});
-  const genuine = { token: 'tok-1', timestamp: '1', signature: 'x', from: 'jaclyn@example.com', subject: 'Re: Draft', 'body-plain': 'Love it', 'Message-Id': '<g1@mail>' };
+  const genuine = { token: 'tok-1', timestamp: String(Math.floor(Date.now() / 1000)), signature: 'x', from: 'jaclyn@example.com', subject: 'Re: Draft', 'body-plain': 'Love it', 'Message-Id': '<g1@mail>' };
   assert.equal(await bindToken(db, genuine), true);
   assert.equal(await bindToken(db, { ...genuine }), true, 'an identical retry is allowed');
   assert.equal(await bindToken(db, { ...genuine, 'body-plain': 'Please wire the deposit to…', 'Message-Id': '<evil@x>' }), false);
@@ -281,4 +281,16 @@ test('future-dated Mailgun timestamps are rejected even with the wide retry wind
   const ts = String(Math.floor(Date.now() / 1000) + 3600);
   const body = { timestamp: ts, token: 'future-1', signature: computeSignature('k', ts, 'future-1') };
   assert.equal(await verifyMailgunRequest(body, { keyOverride: 'k', recordToken: false, maxSkewSeconds: 9 * 3600 }), false);
+});
+
+test('a token first seen more than 15 minutes after signing is rejected; a bound one keeps the retry window', async () => {
+  const { bindToken } = require('../../api/_lib/inboundEmail');
+  const db = setup({});
+  const now = Date.now();
+  const fresh = { token: 'tok-r', timestamp: String(Math.floor(now / 1000)), signature: 'x', from: 'j@example.com', subject: 's', 'body-plain': 'b' };
+  assert.equal(await bindToken(db, fresh, { now }), true);
+  assert.equal(await bindToken(db, fresh, { now: now + 2 * 3600 * 1000 }), true, 'genuine retry 2 h later');
+  const foreign = { token: 'tok-from-another-webhook', timestamp: String(Math.floor(now / 1000) - 3600), signature: 'x', from: 'j@example.com', subject: 's', 'body-plain': 'b' };
+  assert.equal(await bindToken(db, foreign, { now }), false, 'never-seen token older than 15 min');
+  assert.equal(await bindToken(db, { ...fresh, 'in-reply-to': '<other@x>' }, { now }), false, 'any extra field changes the fingerprint');
 });

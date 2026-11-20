@@ -21,6 +21,7 @@ const { sendMail, labInbox, escHtml } = require('./mail');
 
 const clip = (v, n) => String(v || '').slice(0, n);
 const MAX_THREAD_IDS = 10;
+const FIRST_SIGHTING_MAX_AGE_SECONDS = 15 * 60;
 
 function field(body, ...names) {
   for (const n of names) {
@@ -281,16 +282,25 @@ async function handleInbound(db, body, { send = sendMail, attachments = [] } = {
  * re-deliver that same message (a genuine retry) — never different content.
  * Returns true if this body may be processed.
  */
-async function bindToken(db, body) {
+async function bindToken(db, body, { now = Date.now() } = {}) {
   const token = field(body, 'token');
   if (!token) return false;
-  // Fingerprint of everything that matters; a genuine Mailgun retry resends it unchanged.
-  const key = crypto
-    .createHash('sha256')
-    .update(JSON.stringify(['sender', 'from', 'recipient', 'subject', 'body-plain', 'stripped-text', 'body-html', 'message-headers', 'Message-Id', 'In-Reply-To', 'References', 'attachment-count']
-      .map((n) => field(body, n))))
-    .digest('hex');
+  // Fingerprint of every posted field except the signature trio; a genuine
+  // Mailgun retry resends exactly the same body.
+  const entries = Object.keys(body)
+    .filter((k) => !['timestamp', 'token', 'signature'].includes(k))
+    .sort()
+    .map((k) => [k, field(body, k)]);
+  const key = crypto.createHash('sha256').update(JSON.stringify(entries)).digest('hex');
   const ref = db.collection('inboundMessages').doc(`tok_${crypto.createHash('sha256').update(token).digest('hex')}`);
+  // A token seen here for the first time must be fresh (a genuine first delivery
+  // arrives within seconds). Only already-bound tokens get the long retry window,
+  // so signatures from the account's other webhooks can't open a new message.
+  const ageSeconds = now / 1000 - Number(field(body, 'timestamp'));
+  if (!Number.isFinite(ageSeconds) || ageSeconds > FIRST_SIGHTING_MAX_AGE_SECONDS) {
+    const snap = await ref.get();
+    return snap.exists && (snap.data() || {}).key === key;
+  }
   try {
     await ref.create({ key, at: FieldValue.serverTimestamp() });
     return true;
