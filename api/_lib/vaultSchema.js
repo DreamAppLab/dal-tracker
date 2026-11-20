@@ -145,6 +145,12 @@ const COMPANY_PROFILE_FIELDS = Object.freeze([
   'registeredAgent', 'businessAddress', 'phone', 'website', 'notes',
 ]);
 
+// Every profile field present (blank if unknown), then the known defaults.
+function newCompanyDoc(id) {
+  const blank = Object.fromEntries(COMPANY_PROFILE_FIELDS.map((f) => [f, '']));
+  return { ...blank, ...COMPANY_DEFAULTS[id] };
+}
+
 const RECORD_PATH_RE = /^companies\/(dal|zerbiq)(\/(bankAccounts|creditCards)\/[A-Za-z0-9_-]{1,64})?$/;
 const RevealSchema = z
   .object({
@@ -186,6 +192,7 @@ module.exports = {
   ACCOUNT_TYPES,
   CompanySchema,
   COMPANY_PROFILE_FIELDS,
+  newCompanyDoc,
   BankAccountSchema,
   CreditCardSchema,
   DeleteSchema,

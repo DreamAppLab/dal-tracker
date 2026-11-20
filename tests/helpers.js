@@ -37,6 +37,19 @@ function fakeDb(seed = {}) {
     }
     return out;
   }
+  // Mirror the Admin SDK's write validation so tests catch what production would reject.
+  const isPlainMap = (v) => v && typeof v === 'object' && !Array.isArray(v) && (!v.constructor || v.constructor.name === 'Object');
+  function validateWrite(data, mode, depth = 0) {
+    for (const [k, v] of Object.entries(data || {})) {
+      if (v === undefined) throw new Error(`Cannot use "undefined" as a Firestore value (found in field "${k}")`);
+      if (isDeleteSentinel(v)) {
+        if (mode === 'set' || mode === 'create') throw new Error('FieldValue.delete() must appear at the top-level and can only be used in update() or set() with {merge:true}');
+        if (mode === 'update' && depth > 0) throw new Error('FieldValue.delete() must appear at the top-level and can only be used in update() or set() with {merge:true}');
+        continue;
+      }
+      if (isPlainMap(v)) validateWrite(v, mode, depth + 1);
+    }
+  }
   const docRef = (path) => ({
     id: path.split('/').pop(),
     path,
@@ -44,14 +57,19 @@ function fakeDb(seed = {}) {
       const data = store.get(path);
       return { exists: data !== undefined, id: path.split('/').pop(), data: () => data, ref: docRef(path) };
     },
-    async set(data, opts) { store.set(path, opts && opts.merge ? deepMerge(store.get(path), data) : data); },
+    async set(data, opts) {
+      validateWrite(data, opts && opts.merge ? 'merge' : 'set');
+      store.set(path, opts && opts.merge ? deepMerge(store.get(path), data) : data);
+    },
     // Like Firestore: create() fails if the doc exists (code 6), update() fails
     // if it is missing (code 5) and treats dotted keys as nested field paths.
     async create(data) {
+      validateWrite(data, 'create');
       if (store.has(path)) throw Object.assign(new Error('6 ALREADY_EXISTS: Document already exists'), { code: 6 });
       store.set(path, data);
     },
     async update(data) {
+      validateWrite(data, 'update');
       if (!store.has(path)) throw Object.assign(new Error('5 NOT_FOUND: No document to update'), { code: 5 });
       const out = { ...store.get(path) };
       for (const [k, v] of Object.entries(data)) {
@@ -91,19 +109,52 @@ function fakeDb(seed = {}) {
     store,
     collection,
     doc: docRef,
-    // Writes are buffered and applied only if fn resolves (all-or-nothing).
+    // Optimistic transactions like Firestore's: reads must come before writes;
+    // at commit, if any document or query read inside the transaction changed,
+    // the whole function is retried (up to 5 times); writes are atomic (rolled
+    // back if any fails). Tests can set db.beforeCommit = () => {...} to simulate
+    // a concurrent write between the transaction's reads and its commit.
     async runTransaction(fn) {
-      const ops = [];
-      const tx = {
-        get: (refOrQuery) => refOrQuery.get(),
-        set: (ref, d, o) => { ops.push(() => ref.set(d, o)); return tx; },
-        update: (ref, d) => { ops.push(() => ref.update(d)); return tx; },
-        create: (ref, d) => { ops.push(() => ref.create(d)); return tx; },
-        delete: (ref) => { ops.push(() => ref.delete()); return tx; },
-      };
-      const result = await fn(tx);
-      for (const op of ops) await op();
-      return result;
+      const fp = (v) => JSON.stringify(v === undefined ? null : v);
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const ops = [];
+        const reads = []; // [() => current fingerprint, fingerprint at read]
+        const tx = {
+          async get(refOrQuery) {
+            if (ops.length) throw new Error('Firestore transactions require all reads to be executed before all writes.');
+            const snap = await refOrQuery.get();
+            const now = async () => {
+              const s2 = await refOrQuery.get();
+              return fp(s2.docs ? s2.docs.map((d) => [d.id, d.data()]) : s2.exists ? s2.data() : null);
+            };
+            reads.push([now, await now()]);
+            return snap;
+          },
+          set: (ref, d, o) => { validateWrite(d, o && o.merge ? 'merge' : 'set'); ops.push(() => ref.set(d, o)); return tx; },
+          update: (ref, d) => { validateWrite(d, 'update'); ops.push(() => ref.update(d)); return tx; },
+          create: (ref, d) => { validateWrite(d, 'create'); ops.push(() => ref.create(d)); return tx; },
+          delete: (ref) => { ops.push(() => ref.delete()); return tx; },
+        };
+        const result = await fn(tx);
+        if (typeof this.beforeCommit === 'function') {
+          const hook = this.beforeCommit;
+          this.beforeCommit = null;
+          await hook();
+        }
+        let conflict = false;
+        for (const [now, then] of reads) if ((await now()) !== then) conflict = true;
+        if (conflict) continue;
+        const backup = new Map(store);
+        try {
+          for (const op of ops) await op();
+        } catch (e) {
+          store.clear();
+          backup.forEach((v, k) => store.set(k, v));
+          throw e;
+        }
+        return result;
+      }
+      throw Object.assign(new Error('10 ABORTED: Too much contention'), { code: 10 });
     },
     batch() {
       const ops = [];

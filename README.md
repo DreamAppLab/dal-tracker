@@ -34,8 +34,11 @@ cards (`companies/{id}/bankAccounts`, `.../creditCards`).
   and last 4 only, so the ledger module can read them.
 - All writes go through `/api/vault/*` (transactions, sign-in within 15 minutes).
   Reveal/Copy need a sign-in within 5 minutes, are audited before the value is
-  returned, auto-hide after 30 seconds (also when the tab is hidden), and copied
-  values are cleared from the clipboard after 30 seconds.
+  returned, and auto-hide after 30 seconds (also when the tab is hidden).
+  Copied values are cleared from the clipboard after 30 seconds if this tab has
+  focus, otherwise as soon as you return to it (browsers block clipboard writes
+  from background tabs); until then a banner offers "Clear clipboard now".
+  Closing the tab first leaves the value on the clipboard.
 - CVV, PIN and online-banking passwords are never accepted (strict schemas).
 - Without `VAULT_ENCRYPTION_KEY` (preview deployments) the vault API returns 503
   for anything that would store or reveal a number. Losing the key makes every

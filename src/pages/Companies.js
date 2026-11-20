@@ -47,50 +47,91 @@ function errorText(e) {
 }
 
 // ── Clipboard: copied numbers are cleared after 30 seconds ─────────────────
-// Module-level so the clear still happens if the page is left before it fires.
-// If the window isn't focused when the timer fires (browsers refuse clipboard
-// writes then), the clear runs as soon as the window regains focus.
-let clipboardTimer = null;
-let clipboardPending = false;
+// Browsers only allow writing the clipboard while this tab has focus. So the
+// clear runs at 30 s if the tab is focused; otherwise it runs as soon as the
+// tab is focused again, and a banner offers "Clear clipboard now" (a click is
+// always allowed). Closing the tab before then cannot clear it; the banner and
+// the Copy note say so.
+const clip = { value: null, gen: 0, timer: null, due: false, listeners: new Set() };
+const emitClip = () => clip.listeners.forEach((fn) => fn());
 
-async function clearClipboardNow() {
+async function clearClipboard(fromClick = false) {
+  if (!clip.value) return;
+  const gen = clip.gen;
   try {
-    if (navigator.permissions && navigator.clipboard.readText) {
+    if (!fromClick && navigator.permissions && navigator.clipboard.readText) {
       const perm = await navigator.permissions.query({ name: 'clipboard-read' }).catch(() => null);
       if (perm && perm.state === 'granted') {
         const current = await navigator.clipboard.readText();
-        if (current !== clipboardPending) {
-          clipboardPending = false;
-          return; // something else was copied since; leave it alone
+        if (gen !== clip.gen) return; // a newer copy happened meanwhile
+        if (current !== clip.value) {
+          // Something else was copied since; leave it alone.
+          clip.value = null;
+          clip.due = false;
+          emitClip();
+          return;
         }
       }
     }
+    if (gen !== clip.gen) return;
     await navigator.clipboard.writeText('');
-    clipboardPending = false;
+    if (gen !== clip.gen) return;
+    clip.value = null;
+    clip.due = false;
   } catch {
-    // Not focused: retry on focus (listener below).
+    clip.due = true; // not focused or no user gesture: retry on focus / show banner
   }
+  emitClip();
 }
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('focus', () => {
-    if (clipboardPending && !clipboardTimer) clearClipboardNow();
-  });
+  const retry = () => {
+    if (clip.due && document.visibilityState !== 'hidden') clearClipboard();
+  };
+  window.addEventListener('focus', retry);
+  document.addEventListener('visibilitychange', retry);
 }
 
 export async function copySensitive(value, clearAfterSeconds) {
   await navigator.clipboard.writeText(value);
-  clipboardPending = value;
-  if (clipboardTimer) clearTimeout(clipboardTimer);
-  clipboardTimer = setTimeout(() => {
-    clipboardTimer = null;
-    clearClipboardNow();
+  clip.gen += 1;
+  clip.value = value;
+  clip.due = false;
+  clearTimeout(clip.timer);
+  clip.timer = setTimeout(() => {
+    clip.timer = null;
+    clip.due = true;
+    clearClipboard();
   }, clearAfterSeconds * 1000);
+  emitClip();
+}
+
+function useClipboardPending() {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const fn = () => force((n) => n + 1);
+    clip.listeners.add(fn);
+    return () => clip.listeners.delete(fn);
+  }, []);
+  return !!clip.value && clip.due;
+}
+
+function ClipboardNotice() {
+  const pending = useClipboardPending();
+  if (!pending) return null;
+  return (
+    <div className="vault-alert vault-clip-notice" role="alert">
+      <span>A copied number is still on your clipboard.</span>
+      <button type="button" className="btn btn-secondary btn-sm" onClick={() => clearClipboard(true)}>Clear clipboard now</button>
+    </div>
+  );
 }
 
 // ── Masked sensitive value with Reveal / Copy ──────────────────────────────
 // Render with key={`${path}|${field}`} so state never carries over to another record.
 function SecretValue({ path, field, masked, label }) {
+  const genRef = useRef(0); // bumped on hide/unmount: late responses are dropped
+  const mountedRef = useRef(true);
   const { requireRecentAuth } = useRecentAuth();
   const [value, setValue] = useState(null);
   const [deadline, setDeadline] = useState(0);
@@ -102,6 +143,7 @@ function SecretValue({ path, field, masked, label }) {
   const noteTimer = useRef(null);
 
   const hide = useCallback(() => {
+    genRef.current += 1;
     clearTimeout(hideTimer.current);
     clearInterval(tickTimer.current);
     hideTimer.current = null;
@@ -120,7 +162,10 @@ function SecretValue({ path, field, masked, label }) {
   useEffect(() => {
     const onVis = () => document.visibilityState === 'hidden' && hide();
     document.addEventListener('visibilitychange', onVis);
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
+      genRef.current += 1;
       document.removeEventListener('visibilitychange', onVis);
       clearTimeout(hideTimer.current);
       clearInterval(tickTimer.current);
@@ -140,10 +185,12 @@ function SecretValue({ path, field, masked, label }) {
 
   const onReveal = async () => {
     if (value) return hide();
+    const gen = genRef.current;
     setBusy('reveal');
     setNote(null);
     try {
       const { v, secs } = await fetchValue('reveal');
+      if (gen !== genRef.current) return; // hidden, tab switched or unmounted meanwhile
       const until = Date.now() + secs * 1000;
       setValue(v);
       setDeadline(until);
@@ -154,24 +201,25 @@ function SecretValue({ path, field, masked, label }) {
       tickTimer.current = setInterval(() => setNow(Date.now()), 250);
     } catch (e) {
       const t = errorText(e);
-      if (t) flash(t, false);
+      if (t && gen === genRef.current) flash(t, false);
     } finally {
-      setBusy(null);
+      if (mountedRef.current) setBusy(null);
     }
   };
 
   const onCopy = async () => {
+    const gen = genRef.current;
     setBusy('copy');
     setNote(null);
     try {
       const { v, secs } = await fetchValue('copy');
       await copySensitive(v, secs);
-      flash(`Copied · clears in ${secs}s`, true, 3000);
+      if (gen === genRef.current) flash(`Copied · clipboard clears in ${secs}s`, true, 3500);
     } catch (e) {
       const t = errorText(e);
-      if (t) flash(t, false);
+      if (t && gen === genRef.current) flash(t, false);
     } finally {
-      setBusy(null);
+      if (mountedRef.current) setBusy(null);
     }
   };
 
@@ -211,18 +259,22 @@ function Modal({ title, onClose, children, footer, locked = false }) {
   lockedRef.current = isLocked;
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+  const confirmingRef = useRef(isConfirming);
+  confirmingRef.current = isConfirming;
 
   useEffect(() => {
     const opener = document.activeElement;
     const node = ref.current;
-    const first = node && (node.querySelector('.modal-body ' + FOCUSABLE) || node.querySelector(FOCUSABLE));
+    const body = node && node.querySelector('.modal-body');
+    const first = (body && body.querySelector(FOCUSABLE)) || (node && node.querySelector('.modal-footer button:not([disabled])')) || (node && node.querySelector(FOCUSABLE));
     if (first) first.focus();
     const onKey = (e) => {
       if (e.key === 'Escape') {
         if (!lockedRef.current) closeRef.current();
         return;
       }
-      if (e.key !== 'Tab' || !node) return;
+      // While "Confirm it's you" is open, it owns the keyboard.
+      if (e.key !== 'Tab' || !node || confirmingRef.current) return;
       const items = [...node.querySelectorAll(FOCUSABLE)];
       if (!items.length) return;
       const [a, z] = [items[0], items[items.length - 1]];
@@ -232,7 +284,12 @@ function Modal({ title, onClose, children, footer, locked = false }) {
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);
-      if (opener && typeof opener.focus === 'function' && document.contains(opener)) opener.focus();
+      if (opener && typeof opener.focus === 'function' && document.contains(opener) && opener !== document.body) opener.focus();
+      else {
+        // The opener is gone (e.g. its row was deleted): land on the page heading.
+        const heading = document.querySelector('.vault-page .page-title');
+        if (heading) heading.focus();
+      }
     };
   }, []);
 
@@ -300,9 +357,11 @@ function CompanyForm({ company, onClose }) {
     setError('');
     try {
       await requireRecentAuth(EDIT_MAX_AGE);
+      // Send only what changed, so an edit in another tab isn't overwritten.
       const body = { companyId: company.companyId };
-      PROFILE_FIELDS.forEach(([k]) => { body[k] = form[k]; });
-      body.notes = form.notes;
+      [...PROFILE_FIELDS.map(([k]) => k), 'notes'].forEach((k) => {
+        if (form[k] !== (company[k] || '')) body[k] = form[k];
+      });
       if (form.ein.trim()) body.ein = form.ein;
       if (form.documentNumber.trim()) body.documentNumber = form.documentNumber;
       const toClear = clear.filter((f) => !form[f].trim());
@@ -561,8 +620,10 @@ export default function Companies() {
   const { requireRecentAuth } = useRecentAuth();
   const [companyId, setCompanyId] = useState('dal');
   const [companies, setCompanies] = useState({});
-  const [banks, setBanks] = useState([]);
-  const [cards, setCards] = useState([]);
+  // Rows are tagged with the company they belong to, so another company's rows
+  // are never shown (or acted on) while the new company's snapshot loads.
+  const [bankState, setBankState] = useState({ companyId: null, rows: [] });
+  const [cardState, setCardState] = useState({ companyId: null, rows: [] });
   const [loadError, setLoadError] = useState('');
   const [modal, setModal] = useState(null); // {type, record?}
 
@@ -580,12 +641,15 @@ export default function Companies() {
 
   useEffect(() => {
     const byNick = (a, b) => String(a.nickname || '').localeCompare(String(b.nickname || ''), undefined, { sensitivity: 'base' });
-    const u1 = onSnapshot(collection(db, 'companies', companyId, 'bankAccounts'), (s) => setBanks(s.docs.map((d) => ({ id: d.id, ...d.data() })).sort(byNick)), (e) => setLoadError(e.message));
-    const u2 = onSnapshot(collection(db, 'companies', companyId, 'creditCards'), (s) => setCards(s.docs.map((d) => ({ id: d.id, ...d.data() })).sort(byNick)), (e) => setLoadError(e.message));
+    const u1 = onSnapshot(collection(db, 'companies', companyId, 'bankAccounts'), (s) => setBankState({ companyId, rows: s.docs.map((d) => ({ id: d.id, ...d.data() })).sort(byNick) }), (e) => setLoadError(e.message));
+    const u2 = onSnapshot(collection(db, 'companies', companyId, 'creditCards'), (s) => setCardState({ companyId, rows: s.docs.map((d) => ({ id: d.id, ...d.data() })).sort(byNick) }), (e) => setLoadError(e.message));
     return () => { u1(); u2(); };
   }, [companyId]);
 
   const company = companies[companyId];
+  const listsReady = bankState.companyId === companyId && cardState.companyId === companyId;
+  const banks = useMemo(() => (bankState.companyId === companyId ? bankState.rows : []), [bankState, companyId]);
+  const cards = useMemo(() => (cardState.companyId === companyId ? cardState.rows : []), [cardState, companyId]);
   const bankById = useMemo(() => Object.fromEntries(banks.map((b) => [b.id, b])), [banks]);
   const close = useCallback(() => setModal(null), []);
 
@@ -599,7 +663,7 @@ export default function Companies() {
     <div className="page vault-page">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Companies</h1>
+          <h1 className="page-title" tabIndex={-1}>Companies</h1>
           <p className="page-subtitle">Company records, bank accounts and cards. Numbers are encrypted; every reveal and copy is logged.</p>
         </div>
       </div>
@@ -620,6 +684,7 @@ export default function Companies() {
       </div>
 
       {loadError && <div className="vault-alert">{loadError}</div>}
+      <ClipboardNotice />
 
       {!company ? (
         <div className="empty-state">
@@ -663,7 +728,9 @@ export default function Companies() {
               <h2 className="section-title">Bank accounts <span className="vault-count">{banks.length}</span></h2>
               <button type="button" className="btn btn-primary btn-sm" onClick={() => setModal({ type: 'bank' })}>+ Add account</button>
             </div>
-            {banks.length === 0 ? (
+            {!listsReady ? (
+              <p className="vault-empty">Loading…</p>
+            ) : banks.length === 0 ? (
               <p className="vault-empty">No bank accounts yet.</p>
             ) : (
               <div className="vault-table-wrap">
@@ -681,12 +748,12 @@ export default function Companies() {
                           <td className="vault-strong">{a.nickname}</td>
                           <td>{a.bankName}</td>
                           <td>{a.accountType}</td>
-                          <td><SecretValue key={`${path}|routingNumber`} path={path} field="routingNumber" label="routing number" masked={a.masked && a.masked.routingNumber} /></td>
-                          <td><SecretValue key={`${path}|accountNumber`} path={path} field="accountNumber" label="account number" masked={a.masked && a.masked.accountNumber} /></td>
+                          <td><SecretValue key={`${path}|routingNumber`} path={path} field="routingNumber" label={`routing number for ${a.nickname}`} masked={a.masked && a.masked.routingNumber} /></td>
+                          <td><SecretValue key={`${path}|accountNumber`} path={path} field="accountNumber" label={`account number for ${a.nickname}`} masked={a.masked && a.masked.accountNumber} /></td>
                           <td className="vault-nowrap">{formatDate(a.openingDate)}</td>
                           <td className="vault-col-actions">
-                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setModal({ type: 'bank', record: a })}>Edit</button>
-                            <button type="button" className="btn btn-ghost btn-sm vault-danger" onClick={() => setModal({ type: 'delete-bank', record: a })}>Delete</button>
+                            <button type="button" className="btn btn-ghost btn-sm" aria-label={`Edit ${a.nickname}`} onClick={() => setModal({ type: 'bank', record: a })}>Edit</button>
+                            <button type="button" className="btn btn-ghost btn-sm vault-danger" aria-label={`Delete ${a.nickname}`} onClick={() => setModal({ type: 'delete-bank', record: a })}>Delete</button>
                           </td>
                         </tr>
                       );
@@ -702,7 +769,9 @@ export default function Companies() {
               <h2 className="section-title">Credit cards <span className="vault-count">{cards.length}</span></h2>
               <button type="button" className="btn btn-primary btn-sm" onClick={() => setModal({ type: 'card' })}>+ Add card</button>
             </div>
-            {cards.length === 0 ? (
+            {!listsReady ? (
+              <p className="vault-empty">Loading…</p>
+            ) : cards.length === 0 ? (
               <p className="vault-empty">No credit cards yet.</p>
             ) : (
               <div className="vault-table-wrap">
@@ -720,12 +789,12 @@ export default function Companies() {
                           <td className="vault-strong">{c.nickname}</td>
                           <td>{c.issuer}</td>
                           <td>{c.cardholder}</td>
-                          <td><SecretValue key={`companies/${companyId}/creditCards/${c.id}|cardNumber`} path={`companies/${companyId}/creditCards/${c.id}`} field="cardNumber" label="card number" masked={c.masked && c.masked.cardNumber} /></td>
+                          <td><SecretValue key={`companies/${companyId}/creditCards/${c.id}|cardNumber`} path={`companies/${companyId}/creditCards/${c.id}`} field="cardNumber" label={`card number for ${c.nickname}`} masked={c.masked && c.masked.cardNumber} /></td>
                           <td className="vault-mono vault-nowrap">{c.expiry}</td>
                           <td>{linked ? `${linked.nickname} (•••• ${linked.last4})` : '—'}</td>
                           <td className="vault-col-actions">
-                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setModal({ type: 'card', record: c })}>Edit</button>
-                            <button type="button" className="btn btn-ghost btn-sm vault-danger" onClick={() => setModal({ type: 'delete-card', record: c })}>Delete</button>
+                            <button type="button" className="btn btn-ghost btn-sm" aria-label={`Edit ${c.nickname}`} onClick={() => setModal({ type: 'card', record: c })}>Edit</button>
+                            <button type="button" className="btn btn-ghost btn-sm vault-danger" aria-label={`Delete ${c.nickname}`} onClick={() => setModal({ type: 'delete-card', record: c })}>Delete</button>
                           </td>
                         </tr>
                       );

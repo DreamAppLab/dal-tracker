@@ -321,3 +321,57 @@ test('ensure-companies racing twice creates each company and audit entry once', 
   assert.equal([...a.body.created, ...b.body.created].sort().join(','), 'dal,zerbiq');
   assert.equal([...db.store.values()].filter((d) => d && d.type === 'sensitive_create').length, 2);
 });
+
+test('a record deleted between an edit\'s read and commit is not resurrected (transaction retry)', async () => {
+  const db = setup();
+  const bank = await call('bank-account', bankBody());
+  const path = `companies/dal/bankAccounts/${bank.body.id}`;
+  const secretPath = `vaultSecrets/${S.secretDocId(path)}`;
+  // Simulate another tab deleting the account while this edit is in flight.
+  db.beforeCommit = () => { db.store.delete(path); db.store.delete(secretPath); };
+  const res = await call('bank-account', { companyId: 'dal', id: bank.body.id, bankName: 'Chase', nickname: 'Op', accountType: 'Checking', accountNumber: '99998888' });
+  assert.equal(res.statusCode, 404);
+  assert.equal(db.store.get(path), undefined);
+  assert.equal(db.store.get(secretPath), undefined);
+});
+
+test('a card cannot be linked to a bank account deleted mid-request', async () => {
+  const db = setup();
+  const bank = await call('bank-account', bankBody());
+  const bankPath = `companies/dal/bankAccounts/${bank.body.id}`;
+  db.beforeCommit = () => { db.store.delete(bankPath); };
+  const res = await call('credit-card', { companyId: 'dal', issuer: 'Chase', nickname: 'Ink', cardholder: 'Eddie', expiry: '01/30', cardNumber: CARD, linkedBankAccountId: bank.body.id });
+  assert.equal(res.statusCode, 400);
+  assert.equal([...db.store.keys()].filter((k) => k.startsWith('companies/dal/creditCards/')).length, 0);
+});
+
+test('a card linked while its bank account is being deleted ends up unlinked', async () => {
+  const db = setup();
+  const bank = await call('bank-account', bankBody());
+  const card = await call('credit-card', { companyId: 'dal', issuer: 'Chase', nickname: 'Ink', cardholder: 'Eddie', expiry: '01/30', cardNumber: CARD });
+  const cardPath = `companies/dal/creditCards/${card.body.id}`;
+  // The delete's card query runs, then the card gets linked before the delete commits.
+  db.beforeCommit = () => { db.store.set(cardPath, { ...db.store.get(cardPath), linkedBankAccountId: bank.body.id }); };
+  assert.equal((await call('delete', { companyId: 'dal', kind: 'bankAccounts', id: bank.body.id })).statusCode, 200);
+  assert.equal(db.store.get(cardPath).linkedBankAccountId, null);
+});
+
+test('company save with nothing changed writes nothing and is not audited', async () => {
+  const db = setup();
+  await call('ensure-companies', {});
+  const before = JSON.stringify(db.store.get('companies/dal'));
+  const audits = () => [...db.store.values()].filter((d) => d && d.type === 'sensitive_update').length;
+  const res = await call('company', { companyId: 'dal', legalName: 'Dream App Lab LLC', phone: '(904) 385-0060' });
+  assert.equal(res.statusCode, 200);
+  assert.equal(JSON.stringify(db.store.get('companies/dal')), before);
+  assert.equal(audits(), 0);
+  await call('company', { companyId: 'dal', legalName: 'Dream App Lab LLC', phone: '(904) 555-0199', notes: '' });
+  const entry = [...db.store.values()].find((d) => d && d.type === 'sensitive_update');
+  assert.deepEqual(entry.meta.fieldsChanged, ['phone']);
+});
+
+test('new company docs carry every profile field', async () => {
+  const db = setup();
+  await call('ensure-companies', {});
+  for (const f of S.COMPANY_PROFILE_FIELDS) assert.equal(typeof db.store.get('companies/zerbiq')[f], 'string', f);
+});

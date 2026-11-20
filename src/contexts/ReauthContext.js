@@ -8,7 +8,7 @@
 // independently by checking the ID token's auth_time; apiFetch() calls back
 // into this provider automatically when a server says recent_auth_required.
 
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   EmailAuthProvider,
   GoogleAuthProvider,
@@ -113,25 +113,54 @@ export function ReauthProvider({ children }) {
     if (r) r.reject(Object.assign(new Error('Sign-in confirmation cancelled'), { code: 'reauth-cancelled' }));
   };
 
-  // Escape cancels this dialog only; capture + stopPropagation keeps it from
-  // also closing a form modal underneath while a save is waiting on us.
+  // Keyboard: while open, this dialog owns Escape and Tab (capture phase +
+  // stopPropagation, so a form modal underneath never sees them). Focus moves
+  // in on open and goes back where it was on close.
+  const cardRef = useRef(null);
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+  const cancelRef = useRef(cancel);
+  cancelRef.current = cancel;
+  const isOpen = !!request;
   useEffect(() => {
-    if (!request) return undefined;
+    if (!isOpen) return undefined;
+    const opener = document.activeElement;
+    const focusables = () =>
+      cardRef.current ? [...cardRef.current.querySelectorAll('button:not([disabled]), input:not([disabled])')] : [];
+    const first = focusables()[0];
+    if (first) first.focus();
     const onKey = (e) => {
-      if (e.key !== 'Escape') return;
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        if (!busyRef.current) cancelRef.current();
+        return;
+      }
+      if (e.key !== 'Tab') return;
       e.stopPropagation();
-      if (!busy) cancel();
+      const items = focusables();
+      if (!items.length) return e.preventDefault();
+      const a = items[0];
+      const z = items[items.length - 1];
+      const inside = cardRef.current.contains(document.activeElement);
+      if (!inside) { e.preventDefault(); a.focus(); }
+      else if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); }
+      else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
     };
     window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  });
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      if (opener && typeof opener.focus === 'function' && document.contains(opener)) opener.focus();
+    };
+  }, [isOpen]);
+
+  const ctxValue = useMemo(() => ({ requireRecentAuth, isConfirming: isOpen }), [requireRecentAuth, isOpen]);
 
   return (
-    <ReauthContext.Provider value={{ requireRecentAuth, isConfirming: !!request }}>
+    <ReauthContext.Provider value={ctxValue}>
       {children}
       {request && (
         <div className="modal-overlay reauth-overlay" role="dialog" aria-modal="true" aria-labelledby="reauth-title">
-          <div className="reauth-card">
+          <div className="reauth-card" ref={cardRef}>
             <h2 id="reauth-title" className="reauth-title">Confirm it’s you</h2>
             <p className="reauth-text">
               This action needs a recent sign-in. Confirm your identity to continue.
@@ -153,8 +182,7 @@ export function ReauthProvider({ children }) {
                   autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  autoFocus={!hasGoogle}
-                  required
+                                    required
                 />
                 <button type="submit" className="btn btn-primary reauth-btn" disabled={busy || !password}>
                   {busy ? 'Confirming…' : 'Confirm'}

@@ -3118,6 +3118,7 @@ option { background: var(--bg-card); }
 .vault-btn { min-width: 64px; justify-content: center; font-variant-numeric: tabular-nums; }
 .vault-btn-reveal { min-width: 84px; } /* fits "Hide · 30s" */
 .vault-note { font-size: 12px; }
+.vault-clip-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .vault-note.ok { color: var(--green); }
 .vault-note.err { color: var(--coral); }
 .vault-muted { color: var(--text-muted, #8A94A6); font-size: 13px; }

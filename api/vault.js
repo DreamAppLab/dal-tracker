@@ -55,12 +55,8 @@ async function ensureCompanies(req, res) {
     try {
       await ref.create({
         companyId: id,
-        stateOfFormation: '',
-        formationDate: '',
-        registeredAgent: '',
-        notes: '',
         masked: { ein: null, documentNumber: null },
-        ...S.COMPANY_DEFAULTS[id],
+        ...S.newCompanyDoc(id),
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       });
@@ -97,37 +93,45 @@ async function upsertCompany(req, res) {
   const db = getMcDb();
   const ref = db.doc(path);
   const secretRef = db.collection('vaultSecrets').doc(S.secretDocId(path));
-  await db.runTransaction(async (tx) => {
+  const changed = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
+    const current = snap.exists ? snap.data() : {};
+    // Only write (and audit) profile fields whose value actually changes.
+    const diff = {};
+    for (const [f, v] of Object.entries(profile)) if ((current[f] || '') !== v) diff[f] = v;
+    const secretsChanged = Object.keys(ciphertexts).length > 0 || clear.length > 0;
+    if (snap.exists && !Object.keys(diff).length && !secretsChanged) return { fields: [], secrets: [] };
     if (snap.exists) {
-      const update = { ...profile, updatedAt: FieldValue.serverTimestamp() };
+      const update = { ...diff, updatedAt: FieldValue.serverTimestamp() };
       for (const [f, m] of Object.entries(masked)) update[`masked.${f}`] = m;
       for (const f of clear) update[`masked.${f}`] = null;
       tx.update(ref, update);
     } else {
-      const m = { ein: null, documentNumber: null, ...masked };
       tx.create(ref, {
         companyId: data.companyId,
-        ...S.COMPANY_DEFAULTS[data.companyId],
+        ...S.newCompanyDoc(data.companyId),
         ...profile,
-        masked: m,
+        masked: { ein: null, documentNumber: null, ...masked },
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       });
     }
-    if (Object.keys(ciphertexts).length || clear.length) tx.set(secretRef, secretWrite(path, ciphertexts, clear), { merge: true });
+    if (secretsChanged) tx.set(secretRef, secretWrite(path, ciphertexts, clear), { merge: true });
+    return { fields: Object.keys(snap.exists ? diff : profile), secrets: [...Object.keys(ciphertexts), ...clear] };
   });
 
-  // Data is committed; a failed audit write is logged, not turned into a 500.
-  await writeAuditSafe(
-    {
-      type: 'sensitive_update',
-      actor: req.auth,
-      target: path,
-      meta: { kind: 'company', fieldsChanged: Object.keys(profile), sensitiveFieldsChanged: [...Object.keys(ciphertexts), ...clear] },
-    },
-    req
-  );
+  if (changed.fields.length || changed.secrets.length) {
+    // Data is committed; a failed audit write is logged, not turned into a 500.
+    await writeAuditSafe(
+      {
+        type: 'sensitive_update',
+        actor: req.auth,
+        target: path,
+        meta: { kind: 'company', fieldsChanged: changed.fields, sensitiveFieldsChanged: changed.secrets },
+      },
+      req
+    );
+  }
   return res.status(200).json({ ok: true });
 }
 
