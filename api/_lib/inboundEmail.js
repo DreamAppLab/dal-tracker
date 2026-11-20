@@ -59,6 +59,13 @@ function headerMap(body) {
 const msgIds = (s) => String(s || '').match(/<[^<>\s]+>/g) || [];
 
 const domainOf = (addr) => (String(addr || '').split('@')[1] || '').toLowerCase();
+// "spf=pass smtp.mailfrom=jo@client.com; dkim=pass header.d=client.com" →
+// "spf=pass dkim=pass header.d=client.com" (addresses' local parts and IPs dropped).
+const authTags = (v) =>
+  (String(v || '').match(/\b(?:spf|dkim|dmarc|arc)=\w+|\bheader\.[di]=[^\s;]+/gi) || [])
+    .map((t) => t.replace(/^(header\.i=)[^@]*@/i, '$1@').toLowerCase())
+    .join(' ')
+    .slice(0, 300);
 // d= tag of a DKIM-Signature header (tags may be folded across lines).
 const dkimDomain = (sig) => ((String(sig || '').match(/(?:^|;)\s*d\s*=\s*([^;\s]+)/i) || [])[1] || '').toLowerCase();
 // Aligned = same domain, or one is a subdomain of the other (mail.client.com ~
@@ -77,7 +84,9 @@ const aligned = (a, b) => {
 function senderVerified(h, fromAddr, envelopeAddr) {
   const spf = h['x-mailgun-spf'] || [];
   const dkim = h['x-mailgun-dkim-check-result'] || [];
-  if (spf.length > 1 || dkim.length > 1) return false;
+  // Mailgun can repeat a header (different case); only conflicting values count.
+  const distinct = (vals) => new Set(vals.map((v) => String(v).trim().toLowerCase())).size;
+  if (distinct(spf) > 1 || distinct(dkim) > 1) return false;
   const fromDomain = domainOf(fromAddr);
   if (!fromDomain) return false;
   if (/^pass/i.test(spf[0] || '') && aligned(domainOf(envelopeAddr), fromDomain)) return true;
@@ -322,7 +331,9 @@ function authSummary(body) {
     spf: (hm['x-mailgun-spf'] || []).slice(0, 3),
     dkim: (hm['x-mailgun-dkim-check-result'] || []).slice(0, 3),
     dkimDomains: dkimD.slice(0, 5),
-    authResults: (hm['authentication-results'] || []).map((v) => v.slice(0, 300)).slice(0, 3),
+    // Result tags and domains only (no addresses or IPs).
+    authResults: (hm['authentication-results'] || []).map(authTags).slice(0, 3),
+    receivedSpf: (hm['received-spf'] || []).map((v) => (String(v).trim().match(/^\w+/) || [''])[0].toLowerCase()).slice(0, 3),
     envelopeDomain: domainOf(emailAddress(field(body, 'sender'))),
     fromDomain: domainOf(emailAddress(field(body, 'from', 'From'))),
     hasMessageHeaders: !!body['message-headers'],
