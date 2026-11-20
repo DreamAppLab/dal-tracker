@@ -172,8 +172,8 @@ test('verification requires the passing domain to match the From domain', () => 
   assert.equal(parseInbound({ from: 'jaclyn@example.com', sender: 'bounce@mail.example.com', 'message-headers': headers([['X-Mailgun-Spf', 'Pass']]) }).verified, true);
   // DKIM passed, but signed by another domain.
   assert.equal(parseInbound({ from: 'jaclyn@example.com', 'message-headers': headers([['X-Mailgun-Dkim-Check-Result', 'Pass'], ['DKIM-Signature', 'v=1; d=evil.test; b=x']]) }).verified, false);
-  // A planted duplicate result header makes it unverified.
-  assert.equal(parseInbound({ from: 'jaclyn@example.com', sender: 'jaclyn@example.com', 'message-headers': headers([['X-Mailgun-Spf', 'Pass'], ['X-Mailgun-Spf', 'Pass']]) }).verified, false);
+  // A planted result header that conflicts with Mailgun's makes it unverified.
+  assert.equal(parseInbound({ from: 'jaclyn@example.com', sender: 'jaclyn@example.com', 'message-headers': headers([['X-Mailgun-Spf', 'Pass'], ['X-Mailgun-Spf', 'Fail']]) }).verified, false);
 });
 
 test('a copy already being sent by a concurrent delivery is not sent twice', async () => {
@@ -293,4 +293,30 @@ test('a token first seen more than 15 minutes after signing is rejected; a bound
   const foreign = { token: 'tok-from-another-webhook', timestamp: String(Math.floor(now / 1000) - 3600), signature: 'x', from: 'j@example.com', subject: 's', 'body-plain': 'b' };
   assert.equal(await bindToken(db, foreign, { now }), false, 'never-seen token older than 15 min');
   assert.equal(await bindToken(db, { ...fresh, 'in-reply-to': '<other@x>' }, { now }), false, 'any extra field changes the fingerprint');
+});
+
+test('authSummary records Mailgun auth results without message content; folded DKIM d= parses', () => {
+  const { authSummary } = require('../../api/_lib/inboundEmail');
+  const h = headers([['X-Mailgun-Spf', 'Pass'], ['X-Mailgun-Dkim-Check-Result', 'Pass'], ['DKIM-Signature', 'v=1; a=rsa-sha256; c=relaxed/relaxed;\r\n        d=gmail.com; s=20230601; b=abc']]);
+  const s = authSummary({ sender: 'a@gmail.com', from: 'A <a@gmail.com>', subject: 'secret subject', 'body-plain': 'secret body', 'message-headers': h, token: 't', signature: 's' });
+  assert.deepEqual(s.dkimDomains, ['gmail.com']);
+  assert.deepEqual(s.spf, ['Pass']);
+  assert.equal(s.fromDomain, 'gmail.com');
+  assert.ok(!JSON.stringify(s).includes('secret body'));
+  assert.ok(!s.fields.includes('token') && !s.fields.includes('signature'));
+  assert.equal(parseInbound({ from: 'a@gmail.com', 'message-headers': h }).verified, true);
+});
+
+test('identical repeated Mailgun result headers still verify; conflicting ones do not; summary keeps tags only', () => {
+  const { authSummary } = require('../../api/_lib/inboundEmail');
+  assert.equal(parseInbound({ from: 'a@gmail.com', sender: 'a@gmail.com', 'message-headers': headers([['X-Mailgun-Spf', 'Pass'], ['X-Mailgun-SPF', 'Pass']]) }).verified, true);
+  assert.equal(parseInbound({ from: 'a@gmail.com', sender: 'a@gmail.com', 'message-headers': headers([['X-Mailgun-Spf', 'Fail'], ['X-Mailgun-Spf', 'Pass']]) }).verified, false);
+  const s = authSummary({ sender: 'jo@client.com', from: 'jo@client.com', 'message-headers': headers([
+    ['Authentication-Results', 'mx.example; spf=pass (domain of jo@client.com designates 203.0.113.9) smtp.mailfrom=jo@client.com; dkim=pass header.i=@client.com header.d=client.com; dmarc=pass'],
+    ['Received-SPF', 'pass (example: domain of jo@client.com designates 203.0.113.9 as permitted sender)'],
+  ]) });
+  assert.equal(s.authResults[0], 'spf=pass dkim=pass header.i=@client.com header.d=client.com dmarc=pass');
+  assert.deepEqual(s.receivedSpf, ['pass']);
+  assert.ok(!JSON.stringify(s).includes('203.0.113.9'));
+  assert.ok(!JSON.stringify(s).includes('jo@'));
 });
