@@ -1,0 +1,19 @@
+# Weekly dependency updates. Security advisories in transitive server deps
+# (firebase-admin, googleapis) are fixed by bumping the parent package, which
+# Dependabot proposes here; CI (tests + bundle secret scan) gates every bump.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      google-firebase:
+        patterns: ["firebase*", "googleapis*", "@google-cloud/*"]
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

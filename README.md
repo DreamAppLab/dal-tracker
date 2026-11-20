@@ -92,3 +92,27 @@ it can be revoked without touching anything else. Use the least access listed.
 
 To rotate one: create the new key at the provider, update the Vercel variable
 (Sensitive), redeploy, check the Tools page, then revoke the old key.
+
+### Security audit log (Nov 20 2026)
+- **Git history** (`gitleaks git --log-opts=--all`, 280 commits): only public
+  Firebase web API keys, allowlist UIDs, and the retired Brevo key inside an old
+  committed `build/` bundle. Brevo is no longer used anywhere; the key must be
+  revoked in Brevo (it cannot be scrubbed from history that GitHub has already
+  served).
+- **Vercel env**: the old `REACT_APP_*` secret copies (RevenueCat, Vercel,
+  GitHub, Mailgun, Sentry, PostHog, Crisp, Expo, Google client secret, FT admin
+  secret) were deleted from every environment, along with unreferenced leftovers
+  (`SETUP_BILLING_TOKEN`, `DAL_MANUAL_QUOTE_SECRET`,
+  `FIREBASE_SERVICE_ACCOUNT_JSON`, `Gemini_API_Key`,
+  `VITE_GOOGLE_MAPS_BROWSER_KEY`, and the lower-case Firebase web config
+  `apiKey`/`appId`/...). Only the names in the table above remain, and
+  `REACT_APP_*` holds public Firebase web config only.
+- **npm audit** (production deps): 8 moderate advisories in transitive
+  `uuid`/`glob`/`minimatch`/`rimraf` under `firebase-admin` and `googleapis`
+  (not reachable: no attacker-controlled globs, no `uuid` `buf` argument) and 1
+  low in `quill` HTML export (not used: the editor reads `root.innerHTML`, admin
+  only). Fixed by parent bumps, which Dependabot (`.github/dependabot.yml`) opens
+  weekly behind CI.
+- **Firestore free-text**: some Black Box / project notes still contain old
+  credentials pasted as text (for example the retired Brevo key). Don't paste
+  keys into notes; see CLAUDE.md rule 13.
