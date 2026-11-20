@@ -1,6 +1,11 @@
 {
   "buildCommand": "npm run check:secrets:src && DISABLE_ESLINT_PLUGIN=true INLINE_RUNTIME_CHUNK=false GENERATE_SOURCEMAP=false npm run build && npm run check:secrets:bundle",
   "installCommand": "npm ci",
+  "git": {
+    "deploymentEnabled": {
+      "dependabot/**": false
+    }
+  },
   "rewrites": [
     {
       "source": "/api/stripe-webhook",

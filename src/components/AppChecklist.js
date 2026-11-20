@@ -10,6 +10,12 @@ const FIREBASE_APPS = [
   'dal-website', 'shady-duck',
 ];
 
+// Family apps run on Firebase whatever suffix their id carries.
+const FIREBASE_APP_ID_PARTS = ['familythread', 'familylens', 'familywatch'];
+// Mission Control itself (id: mission-control-<timestamp>). Anchored so a client
+// project whose slug merely contains "mission-control" doesn't match.
+const MISSION_CONTROL_ID = /^mission-control(-\d+)?$/;
+
 const PUB_PIPELINE_ITEMS = [
   { key: 'expo_doctor', label: 'Run npx expo-doctor', description: 'Must show 0 warnings before every EAS build' },
   { key: 'emulator_flag', label: 'Set emulator flag to false', description: 'EXPO_PUBLIC_USE_FIREBASE_EMULATOR=false in .env before EAS build' },
@@ -48,14 +54,12 @@ const SECURITY_OPS_ITEMS = [
 
 const ACCENT = '#4cc1f3';
 
-function projectHasFirebase(project) {
+export function projectHasFirebase(project) {
   const id = project?.id || '';
-  return FIREBASE_APPS.some(
-    (fid) =>
-      id === fid ||
-      id.includes('familythread') ||
-      id.includes('familylens') ||
-      id.includes('familywatch')
+  return (
+    FIREBASE_APPS.includes(id) ||
+    FIREBASE_APP_ID_PARTS.some((part) => id.includes(part)) ||
+    MISSION_CONTROL_ID.test(id)
   );
 }
 
