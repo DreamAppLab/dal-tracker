@@ -113,25 +113,6 @@ function ExpandedDetails({ tool, data }) {
           ))}
         </>
       );
-    case 'sentry':
-      return (
-        <>
-          <div className="tools-kv"><span>Open issues</span><strong>{data.openIssues}</strong></div>
-          {(data.sample || []).map((issue) => (
-            <div key={issue.id} className="tools-kv tools-kv-sub">
-              <span>{issue.project}</span>
-              <strong>{issue.title}</strong>
-            </div>
-          ))}
-        </>
-      );
-    case 'posthog':
-      return (
-        <>
-          <div className="tools-kv"><span>Active users (7d)</span><strong>{Number(data.activeUsers7d || 0).toLocaleString()}</strong></div>
-          <div className="tools-kv"><span>Project</span><strong>{data.projectName || data.projectId}</strong></div>
-        </>
-      );
     case 'github':
       return (
         <>
@@ -162,30 +143,6 @@ function ExpandedDetails({ tool, data }) {
         <>
           <div className="tools-kv"><span>Accepted (7d)</span><strong>{Number(data.accepted7d || 0).toLocaleString()}</strong></div>
           <div className="tools-kv"><span>Domain</span><strong>{data.domain}</strong></div>
-        </>
-      );
-    case 'expo':
-      return (
-        <>
-          <div className="tools-kv"><span>Latest status</span><strong>{data.latestStatus}</strong></div>
-          {(data.builds || []).map((b) => (
-            <div key={b.id} className="tools-kv tools-kv-sub">
-              <span>{b.project || b.platform || b.id}</span>
-              <strong>{b.status}{b.platform ? ` · ${b.platform}` : ''}</strong>
-            </div>
-          ))}
-        </>
-      );
-    case 'crisp':
-      return (
-        <>
-          <div className="tools-kv"><span>Open conversations</span><strong>{data.openConversations}</strong></div>
-          {(data.workspaces || []).map((w) => (
-            <div key={w.websiteId} className="tools-kv tools-kv-sub">
-              <span>{w.websiteId}</span>
-              <strong>{w.conversations}</strong>
-            </div>
-          ))}
         </>
       );
     default:

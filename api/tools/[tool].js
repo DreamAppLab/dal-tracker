@@ -84,67 +84,6 @@ async function revenuecat() {
   };
 }
 
-async function sentry() {
-  const token = env('SENTRY_AUTH_TOKEN');
-  if (!token) throw new Error('Missing SENTRY_AUTH_TOKEN');
-
-  const url =
-    'https://sentry.io/api/0/organizations/dream-app-lab/issues/?query=is:unresolved&limit=25';
-  const res = await fetch(url, {
-    headers: { Authorization: `Token ${token}`, Accept: 'application/json' },
-  });
-  const data = await res.json().catch(() => []);
-  if (!res.ok) {
-    throw new Error((data && (data.detail || data.error)) || `Sentry ${res.status}`);
-  }
-  const issues = Array.isArray(data) ? data : [];
-  const openCount = issues.length;
-  return {
-    headline: `${openCount}${openCount >= 25 ? '+' : ''} open issues`,
-    openIssues: openCount,
-    sample: issues.slice(0, 8).map((issue) => ({
-      id: issue.id,
-      title: issue.title || issue.culprit || 'Issue',
-      project: issue.project?.slug || issue.project?.name || '',
-      count: issue.count,
-    })),
-    org: 'dream-app-lab',
-  };
-}
-
-async function posthog() {
-  const key = env('POSTHOG_PERSONAL_API_KEY');
-  if (!key) throw new Error('Missing POSTHOG_PERSONAL_API_KEY');
-  const headers = { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' };
-
-  const projectsData = await fetchJson('https://us.posthog.com/api/projects/', { headers });
-  const projects = projectsData.results || projectsData.items || [];
-  const project = projects[0];
-  if (!project?.id) throw new Error('No PostHog project found');
-
-  const query = await fetchJson(`https://us.posthog.com/api/projects/${project.id}/query/`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      query: {
-        kind: 'HogQLQuery',
-        query:
-          'SELECT count(DISTINCT person_id) AS users FROM events WHERE timestamp > now() - INTERVAL 7 DAY',
-      },
-    }),
-  });
-
-  const rows = query.results || query.result || [];
-  const users = Number((Array.isArray(rows[0]) ? rows[0][0] : rows[0]?.users) || 0);
-
-  return {
-    headline: `${users.toLocaleString()} active users (7d)`,
-    activeUsers7d: users,
-    projectId: project.id,
-    projectName: project.name || '',
-  };
-}
-
 async function github() {
   const token = env('GITHUB_TOKEN');
   if (!token) throw new Error('Missing GITHUB_TOKEN');
@@ -243,93 +182,14 @@ async function mailgun() {
   };
 }
 
-async function expo() {
-  const token = env('EXPO_TOKEN');
-  if (!token) throw new Error('Missing EXPO_TOKEN');
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    Accept: 'application/json',
-    'User-Agent': 'dal-mission-control',
-  };
-
-  const data = await fetchJson(
-    'https://api.expo.dev/v2/accounts/dreamapplab/builds?limit=5',
-    { headers }
-  );
-
-  const builds = data.data || data.builds || data.items || [];
-  const latest = builds[0];
-  const status = latest?.status || latest?.buildStatus || 'none';
-
-  return {
-    headline: latest ? `${status} · ${latest.platform || latest.appName || 'build'}` : 'No recent builds',
-    latestStatus: status,
-    builds: builds.slice(0, 5).map((b) => ({
-      id: b.id,
-      status: b.status || b.buildStatus,
-      platform: b.platform,
-      createdAt: b.createdAt || b.created_at,
-      project: b.appName || b.projectName || b.fullName,
-    })),
-    account: 'dreamapplab',
-  };
-}
-
-async function crisp() {
-  const id = env('CRISP_API_IDENTIFIER');
-  const key = env('CRISP_API_KEY');
-  if (!id || !key) throw new Error('Missing CRISP_API_IDENTIFIER / CRISP_API_KEY');
-
-  const auth = Buffer.from(`${id}:${key}`).toString('base64');
-  const headers = {
-    Authorization: `Basic ${auth}`,
-    'X-Crisp-Tier': 'plugin',
-    'Content-Type': 'application/json',
-  };
-
-  const websiteIds = (process.env.CRISP_WEBSITE_IDS || process.env.REACT_APP_CRISP_WEBSITE_ID /* public website IDs, not a secret */ || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  if (!websiteIds.length) {
-    throw new Error('No Crisp website IDs. Set CRISP_WEBSITE_IDS in Vercel.');
-  }
-
-  const workspaces = [];
-  let open = 0;
-  for (const websiteId of websiteIds) {
-    const conv = await fetchJson(
-      `https://api.crisp.chat/v1/website/${encodeURIComponent(websiteId)}/conversations/0`,
-      { headers }
-    );
-    const items = (conv.data || conv).items || conv.data || [];
-    const list = Array.isArray(items) ? items : [];
-    const unresolved = list.filter((c) => {
-      const state = String(c.state || c.status || '').toLowerCase();
-      return state === 'unresolved' || state === 'pending' || state === 'open' || !c.resolved;
-    });
-    const count = unresolved.length || list.length;
-    open += count;
-    workspaces.push({ websiteId, conversations: count });
-  }
-
-  return {
-    headline: `${open} open conversations`,
-    openConversations: open,
-    workspaces,
-  };
-}
-
+// Only tools with a live card in the Tools page (src/pages/ToolsHub.js).
+// Sentry, PostHog, Expo and Crisp are link-only there, so Mission Control
+// holds no keys for them.
 const HANDLERS = {
   revenuecat,
-  sentry,
-  posthog,
   github,
   vercel,
   mailgun,
-  expo,
-  crisp,
 };
 
 const { withSecurity } = require('../_lib/security');
