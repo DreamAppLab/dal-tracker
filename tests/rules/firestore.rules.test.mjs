@@ -126,6 +126,12 @@ test('vaultSecrets ciphertext is unreadable and unwritable by every client', asy
   await assertFails(anon().doc('vaultSecrets/s1').get());
 });
 
+test('inboundMessages are server-only', async () => {
+  await assertFails(admin().doc('inboundMessages/k').get());
+  await assertFails(admin().doc('inboundMessages/k').set({ copied: true }));
+  await assertFails(anon().doc('inboundMessages/k').get());
+});
+
 test('rateLimits are server-only', async () => {
   await assertFails(admin().doc('rateLimits/k').set({ count: 0 }));
   await assertFails(anon().doc('rateLimits/k').get());

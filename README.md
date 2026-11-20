@@ -24,6 +24,25 @@ rules every change must follow.
   on a preview site are unlocked with a 12-hour signed link from
   Web Projects → **Open as admin**.
 
+## Client email
+- **Web Projects → a project → Client emails**: Compose to the project's assigned
+  contact and see the whole conversation with them (also sent from Contacts or a
+  project's Client tab). Sends go through `/api/client-email` with Reply-To
+  `clients@inbound.dreamapplab.com`.
+- **Inbound** (`/api/inbound-client-email`, Mailgun route, signature-checked):
+  each message is filed in its email thread, or, if it isn't a reply, under the
+  contact with that address when Mailgun verified the sender (SPF/DKIM aligned
+  with the From domain) and exactly one contact matches. Every message that
+  reaches the function is **copied to lab@dreamapplab.com** with its attachments
+  (tagged [Unverified], [Spam?] or [Auto-reply] when relevant), except mail from
+  our own domain or lab@ itself. Processing is idempotent, so Mailgun retries
+  never duplicate. New feedback notes are emailed to lab@ too.
+- **Size limit:** Vercel rejects requests over ~4.5 MB, so an email with large
+  attachments never reaches Mission Control. For a guaranteed copy of
+  everything, add a second action `forward("lab@dreamapplab.com")` to the
+  Mailgun route (Mailgun dashboard → Receiving → Routes). lab@ then gets each
+  message twice (the original and Mission Control's labelled copy).
+
 ## Companies vault
 Company profiles (`companies/dal`, `companies/zerbiq`), bank accounts and credit
 cards (`companies/{id}/bankAccounts`, `.../creditCards`).
@@ -68,6 +87,7 @@ scan on every pull request.
 | `DAL_MC_FIREBASE_PROJECT_ID`, `DAL_MC_FIREBASE_CLIENT_EMAIL`, `DAL_MC_FIREBASE_PRIVATE_KEY` | Admin SDK (token verification, Firestore, Storage) |
 | `DAL_MC_INTERNAL_SECRET` | dal-site → `/api/record-quote-payment` |
 | `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`, `MAILGUN_FROM`, `SIGNIN_ALERT_EMAIL` (optional) | email, sign-in alerts, inbound signature check |
+| `LAB_INBOX` (optional, default `lab@dreamapplab.com`) | where every inbound client email and new feedback note is copied |
 | `FEEDBACK_ADMIN_TOKEN_SECRET` | widget "Open as admin" links |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_SERVICE_ACCOUNT_JSON` | Google Calendar |
 | `REVENUECAT_SECRET_<APP>`, `REVENUECAT_SECRET_KEY` | revenue sync, Tools Hub |
