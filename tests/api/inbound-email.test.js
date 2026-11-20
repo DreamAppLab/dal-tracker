@@ -12,7 +12,8 @@ function sender(ok = true) {
 }
 const inbound = (db) => [...db.store.entries()].filter(([p, d]) => p.startsWith('clientEmails/') && d.direction === 'inbound').map(([, d]) => d);
 const headers = (pairs) => JSON.stringify(pairs);
-const VERIFIED = headers([['X-Mailgun-Spf', 'Pass'], ['X-Mailgun-Dkim-Check-Result', 'Pass']]);
+// Mailgun DKIM pass with a signature from the From domain (example.com).
+const VERIFIED = headers([['X-Mailgun-Dkim-Check-Result', 'Pass'], ['DKIM-Signature', 'v=1; a=rsa-sha256; d=example.com; s=s1; b=xyz']]);
 const OUTBOUND = { clientId: 'c1', projectId: 'wright-way', source: 'webProject', threadId: '<abc@inbound.dreamapplab.com>', direction: 'outbound' };
 
 test('emailAddress extracts and lower-cases the address', () => {
@@ -40,7 +41,7 @@ test('a reply is filed in its thread and copied to lab@ with the From address as
   const r = await handleInbound(db, {
     sender: 'bounce+srs=jaclyn@relay.example.net', from: 'Jaclyn <Jaclyn@Example.com>', subject: 'Re: Draft',
     'stripped-text': 'Love it', 'body-plain': 'Love it\n> quoted', 'Message-Id': '<r1@mail>',
-    'message-headers': headers([['In-Reply-To', '<abc@inbound.dreamapplab.com>'], ['X-Mailgun-Dkim-Check-Result', 'Pass']]),
+    'message-headers': headers([['In-Reply-To', '<abc@inbound.dreamapplab.com>'], ['X-Mailgun-Dkim-Check-Result', 'Pass'], ['DKIM-Signature', 'v=1; d=mail.example.com; b=x']]),
   }, { send, attachments });
   assert.deepEqual(r, { filed: 'thread', copied: true });
   const [row] = inbound(db);
@@ -142,7 +143,7 @@ test('two contacts with the same address: not filed', async () => {
 test('spam is labelled and never filed under a contact', async () => {
   const db = setup({ 'clients/c9': { email: 'jaclyn@example.com' } });
   const { sent, send } = sender();
-  await handleInbound(db, { from: 'jaclyn@example.com', subject: 'Win', 'body-plain': 'x', 'Message-Id': '<sp@mail>', 'message-headers': headers([['X-Mailgun-Spf', 'Pass'], ['X-Mailgun-Sflag', 'Yes']]) }, { send });
+  await handleInbound(db, { from: 'jaclyn@example.com', subject: 'Win', 'body-plain': 'x', 'Message-Id': '<sp@mail>', 'message-headers': headers([['X-Mailgun-Spf', 'Pass'], ['X-Mailgun-Sflag', 'Yes']]), sender: 'jaclyn@example.com' }, { send });
   assert.equal(inbound(db).length, 0);
   assert.match(sent[0].subject, /^\[Mission Control\] \[Spam\?\] Win$/);
 });
@@ -156,11 +157,39 @@ test('mail from an unknown sender is not filed but is still copied (escaped)', a
   assert.doesNotMatch(sent[0].html, /<script>/);
 });
 
-test('no copies for our own domain, the lab inbox itself, or auto-replies (no loops)', async () => {
+test('auto-replies are still copied, tagged', async () => {
+  const db = setup({});
+  const { sent, send } = sender();
+  const r = await handleInbound(db, { from: 'j@example.com', subject: 'Out of office', 'body-plain': 'x', 'Message-Id': '<l3@x>', 'message-headers': headers([['Auto-Submitted', 'auto-replied']]) }, { send });
+  assert.equal(r.copied, true);
+  assert.ok(sent[0].subject.includes('[Auto-reply]'), sent[0].subject);
+  assert.ok(sent[0].subject.endsWith('Out of office'), sent[0].subject);
+});
+
+test('verification requires the passing domain to match the From domain', () => {
+  // SPF passed for the attacker's envelope domain, From claims the client.
+  assert.equal(parseInbound({ from: 'jaclyn@example.com', sender: 'x@evil.test', 'message-headers': headers([['X-Mailgun-Spf', 'Pass']]) }).verified, false);
+  assert.equal(parseInbound({ from: 'jaclyn@example.com', sender: 'bounce@mail.example.com', 'message-headers': headers([['X-Mailgun-Spf', 'Pass']]) }).verified, true);
+  // DKIM passed, but signed by another domain.
+  assert.equal(parseInbound({ from: 'jaclyn@example.com', 'message-headers': headers([['X-Mailgun-Dkim-Check-Result', 'Pass'], ['DKIM-Signature', 'v=1; d=evil.test; b=x']]) }).verified, false);
+  // A planted duplicate result header makes it unverified.
+  assert.equal(parseInbound({ from: 'jaclyn@example.com', sender: 'jaclyn@example.com', 'message-headers': headers([['X-Mailgun-Spf', 'Pass'], ['X-Mailgun-Spf', 'Pass']]) }).verified, false);
+});
+
+test('a copy already being sent by a concurrent delivery is not sent twice', async () => {
+  const db = setup({});
+  const msg = { from: 'stranger@example.org', subject: 'Hi', 'body-plain': 'x', 'Message-Id': '<c1@x>' };
+  const key = require('crypto').createHash('sha256').update('<c1@x>').digest('hex');
+  await db.collection('inboundMessages').doc(key + '_copy').create({ claimedAt: Date.now() });
+  const { sent, send } = sender();
+  await assert.rejects(handleInbound(db, msg, { send }), /in progress/);
+  assert.equal(sent.length, 0);
+});
+
+test('no copies for our own domain or the lab inbox itself (no loops)', async () => {
   for (const msg of [
     { sender: 'lab@inbound.dreamapplab.com', from: 'lab@inbound.dreamapplab.com', subject: 'loop', 'body-plain': 'x', 'Message-Id': '<l1@x>' },
     { from: 'Eddie <lab@dreamapplab.com>', subject: 'me', 'body-plain': 'x', 'Message-Id': '<l2@x>' },
-    { from: 'j@example.com', subject: 'Out of office', 'body-plain': 'x', 'Message-Id': '<l3@x>', 'message-headers': headers([['Auto-Submitted', 'auto-replied']]) },
   ]) {
     const db = setup({});
     const { sent, send } = sender();
@@ -176,7 +205,7 @@ test('a Firestore failure still copies to lab@, then throws so Mailgun retries',
   const realCollection = db.collection;
   db.collection = (name) => {
     const c = realCollection(name);
-    if (name === 'clientEmails') return { ...c, add: async () => { throw new Error('unavailable'); } };
+    if (name === 'clientEmails') return { ...c, doc: (id) => ({ ...c.doc(id), set: async () => { throw new Error('unavailable'); } }) };
     return c;
   };
   const { sent, send } = sender();
@@ -213,4 +242,17 @@ test('parses Mailgun multipart posts with attachments', async () => {
   assert.equal(attachments[0].filename, 'shot.png');
   assert.equal(attachments[0].contentType, 'image/png');
   assert.equal(attachments[0].buffer.toString(), 'PNGDATA');
+});
+
+test('the replay token is recorded only after success, so Mailgun retries get through', async () => {
+  const { verifyMailgunRequest, commitMailgunToken, computeSignature } = require('../../api/_lib/mailgunWebhook');
+  const key = 'k-test';
+  const ts = String(Math.floor(Date.now() / 1000) - 2 * 3600); // a retry 2 h later
+  const body = { timestamp: ts, token: 'retry-token-1', signature: computeSignature(key, ts, 'retry-token-1') };
+  const opts = { keyOverride: key, recordToken: false, maxSkewSeconds: 9 * 3600 };
+  assert.equal(await verifyMailgunRequest(body, opts), true);
+  assert.equal(await verifyMailgunRequest(body, opts), true, 'failed first attempt can be retried');
+  commitMailgunToken(body);
+  assert.equal(await verifyMailgunRequest(body, opts), false, 'replay after success is rejected');
+  assert.equal(await verifyMailgunRequest(body, { keyOverride: key }), false, 'default 15-minute window still applies elsewhere');
 });

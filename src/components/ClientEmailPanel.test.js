@@ -144,3 +144,19 @@ test('Escape closes the compose dialog', () => {
   act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
   expect(container.querySelector('[role="dialog"]')).toBeNull();
 });
+
+test('typing in the message keeps focus in the message (no jump back to Subject)', async () => {
+  jest.useFakeTimers();
+  render({ contactId: 'c1', projectId: 'p' });
+  act(() => button('Compose').click());
+  act(() => { jest.runOnlyPendingTimers(); });
+  expect(document.activeElement && document.activeElement.id).toBe('cep-subject');
+  const editor = container.querySelector('textarea[aria-label="Message"]');
+  act(() => editor.focus());
+  for (const v of ['H', 'He', 'Hel']) {
+    act(() => setValue(editor, v));
+    act(() => { jest.runOnlyPendingTimers(); });
+  }
+  expect(document.activeElement).toBe(editor);
+  jest.useRealTimers();
+});

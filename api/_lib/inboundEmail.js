@@ -37,7 +37,7 @@ function emailAddress(raw) {
   return m ? m[1].trim().toLowerCase() : '';
 }
 
-// Mailgun's message-headers: JSON list of [name, value]. Map lower-case name → first value.
+// Mailgun's message-headers: JSON list of [name, value]. Map lower-case name → all values.
 function headerMap(body) {
   const out = {};
   let list = body['message-headers'];
@@ -48,7 +48,7 @@ function headerMap(body) {
     for (const pair of list) {
       if (Array.isArray(pair) && pair.length >= 2) {
         const k = String(pair[0]).toLowerCase();
-        if (!(k in out)) out[k] = String(pair[1]);
+        (out[k] = out[k] || []).push(String(pair[1]));
       }
     }
   }
@@ -57,8 +57,33 @@ function headerMap(body) {
 
 const msgIds = (s) => String(s || '').match(/<[^<>\s]+>/g) || [];
 
+const domainOf = (addr) => (String(addr || '').split('@')[1] || '').toLowerCase();
+// Registrable-ish domain: last two labels (mail.client.com and client.com align).
+const baseDomain = (d) => String(d || '').toLowerCase().split('.').filter(Boolean).slice(-2).join('.');
+const aligned = (a, b) => !!a && !!b && baseDomain(a) === baseDomain(b);
+
+// "Verified" only when Mailgun's check passed for the From domain: SPF pass with
+// the envelope domain aligned to From, or Mailgun DKIM pass with a DKIM-Signature
+// d= aligned to From. Duplicated Mailgun result headers (a sender could plant
+// one) count as unverified.
+function senderVerified(h, fromAddr, envelopeAddr) {
+  const spf = h['x-mailgun-spf'] || [];
+  const dkim = h['x-mailgun-dkim-check-result'] || [];
+  if (spf.length > 1 || dkim.length > 1) return false;
+  const fromDomain = domainOf(fromAddr);
+  if (!fromDomain) return false;
+  if (/^pass/i.test(spf[0] || '') && aligned(domainOf(envelopeAddr), fromDomain)) return true;
+  if (/^pass/i.test(dkim[0] || '')) {
+    const dValues = (h['dkim-signature'] || []).map((v) => ((v.match(/(?:^|;)\s*d=([^;\s]+)/i) || [])[1] || '').toLowerCase());
+    if (dValues.some((d) => aligned(d, fromDomain))) return true;
+  }
+  return false;
+}
+
 function parseInbound(body) {
-  const h = headerMap(body);
+  const hm = headerMap(body);
+  const h = {};
+  Object.keys(hm).forEach((k) => { h[k] = hm[k][0]; });
   const hdr = (name, ...fields) => field(body, ...fields) || h[name] || '';
   const fullText = field(body, 'body-plain', 'stripped-text');
   return {
@@ -71,7 +96,7 @@ function parseInbound(body) {
     inReplyTo: hdr('in-reply-to', 'In-Reply-To', 'in-reply-to').trim(),
     references: hdr('references', 'References', 'references'),
     messageId: hdr('message-id', 'Message-Id', 'message-id', 'Message-ID').trim(),
-    verified: /^pass/i.test(h['x-mailgun-spf'] || '') || /^pass/i.test(h['x-mailgun-dkim-check-result'] || ''),
+    verified: senderVerified(hm, emailAddress(hdr('from', 'from', 'From')) || emailAddress(field(body, 'sender')), emailAddress(field(body, 'sender'))),
     spam: /^yes/i.test(h['x-mailgun-sflag'] || ''),
     autoReply:
       (!!h['auto-submitted'] && !/^no\b/i.test(h['auto-submitted'])) ||
@@ -136,7 +161,9 @@ function messageKey(body, msg) {
 async function handleInbound(db, body, { send = sendMail, attachments = [] } = {}) {
   const msg = parseInbound(body);
   const fromAddr = emailAddress(msg.from) || emailAddress(msg.sender);
-  const markerRef = db.collection('inboundMessages').doc(messageKey(body, msg));
+  const key = messageKey(body, msg);
+  const markerRef = db.collection('inboundMessages').doc(key);
+  const claimRef = db.collection('inboundMessages').doc(`${key}_copy`);
   const markerSnap = await markerRef.get();
   const marker = markerSnap.exists ? markerSnap.data() || {} : {};
 
@@ -170,7 +197,8 @@ async function handleInbound(db, body, { send = sendMail, attachments = [] } = {
         }
       }
       if (record) {
-        await db.collection('clientEmails').add({
+        // Deterministic id: a duplicate delivery overwrites instead of filing twice.
+        await db.collection('clientEmails').doc(`in_${key}`).set({
           ...record,
           threadId: clip(msg.messageId, 500),
           subject: clip(msg.subject, 500),
@@ -189,15 +217,33 @@ async function handleInbound(db, body, { send = sendMail, attachments = [] } = {
     }
   }
 
-  // No copies of our own mail or of auto-replies (mail loops).
+  // No copies of our own mail (mail loops). Auto-replies are copied, tagged.
   let skippedCopy = null;
   if (/@inbound\.dreamapplab\.com$/i.test(fromAddr) || /@inbound\.dreamapplab\.com$/i.test(emailAddress(msg.sender))) skippedCopy = 'own-domain';
   else if (fromAddr && fromAddr === labInbox().toLowerCase()) skippedCopy = 'from-lab-inbox';
-  else if (msg.autoReply) skippedCopy = 'auto-reply';
 
   let copied = !!marker.copied;
+  let claimed = false;
   if (!copied && !skippedCopy) {
-    const tag = msg.spam ? '[Spam?] ' : !msg.verified ? '[Unverified] ' : '';
+    // Claim the copy so two simultaneous deliveries send it once. A stale claim
+    // (the sender crashed) is taken over after 5 minutes.
+    try {
+      await claimRef.create({ claimedAt: Date.now() });
+      claimed = true;
+    } catch (_) {
+      const c = await claimRef.get();
+      const data = c.exists ? c.data() || {} : {};
+      if (data.sent) copied = true;
+      else if (!data.claimedAt || Date.now() - data.claimedAt > 5 * 60 * 1000) {
+        await claimRef.set({ claimedAt: Date.now() });
+        claimed = true;
+      } else {
+        throw new Error('Copy already in progress');
+      }
+    }
+  }
+  if (claimed) {
+    const tag = (msg.spam ? '[Spam?] ' : '') + (msg.autoReply ? '[Auto-reply] ' : '') + (!msg.spam && !msg.verified ? '[Unverified] ' : '');
     const r = await send({
       to: labInbox(),
       subject: `[Mission Control] ${tag}${msg.subject || '(no subject)'}`,
@@ -207,7 +253,10 @@ async function handleInbound(db, body, { send = sendMail, attachments = [] } = {
     });
     copied = !!(r && r.ok);
     if (copied) {
+      try { await claimRef.set({ sent: true, claimedAt: Date.now() }); } catch (_) { /* best effort */ }
       try { await markerRef.set({ copied: true }, { merge: true }); } catch (_) { /* best effort */ }
+    } else {
+      try { await claimRef.delete(); } catch (_) { /* let it go stale */ }
     }
   }
 

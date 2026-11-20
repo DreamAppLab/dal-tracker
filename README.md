@@ -30,9 +30,17 @@ rules every change must follow.
   project's Client tab). Sends go through `/api/client-email` with Reply-To
   `clients@inbound.dreamapplab.com`.
 - **Inbound** (`/api/inbound-client-email`, Mailgun route, signature-checked):
-  each message is filed in its thread, or under the sender's contact if it isn't
-  a reply, and is **always copied to lab@dreamapplab.com**, even when it can't be
-  filed. New feedback notes are emailed there too.
+  each message is filed in its email thread, or, if it isn't a reply, under the
+  contact with that address when Mailgun verified the sender (SPF/DKIM aligned
+  with the From domain) and exactly one contact matches. Every message that
+  reaches the function is **copied to lab@dreamapplab.com** with its attachments
+  (tagged [Unverified], [Spam?] or [Auto-reply] when relevant), except mail from
+  our own domain or lab@ itself. Processing is idempotent, so Mailgun retries
+  never duplicate. New feedback notes are emailed to lab@ too.
+- **Size limit:** Vercel rejects requests over ~4.5 MB, so an email with large
+  attachments never reaches Mission Control. For a guaranteed copy of
+  everything, add a second action `forward("lab@dreamapplab.com")` to the
+  Mailgun route (Mailgun dashboard → Receiving → Routes).
 
 ## Companies vault
 Company profiles (`companies/dal`, `companies/zerbiq`), bank accounts and credit

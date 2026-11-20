@@ -121,13 +121,22 @@ export default function ClientEmailPanel({ contactId, projectId, onEditProject }
     setAttachment(null);
   };
 
+  // Focus Subject once, when the dialog opens (not on every keystroke).
   useEffect(() => {
     if (!composing) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') closeCompose(); };
-    document.addEventListener('keydown', onKey);
     const t = setTimeout(() => { const el = document.getElementById('cep-subject'); if (el) el.focus(); }, 0);
-    return () => { document.removeEventListener('keydown', onKey); clearTimeout(t); };
-  });
+    return () => clearTimeout(t);
+  }, [composing]);
+
+  // Escape closes the dialog, except while a send is in flight.
+  useEffect(() => {
+    if (!composing) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape' && !sending) { setComposing(false); setAttachment(null); }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [composing, sending]);
 
   async function send() {
     if (!canEmail) { setError('This contact has no email address.'); return; }
