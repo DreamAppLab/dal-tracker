@@ -1,7 +1,8 @@
 // src/components/TodoDashboard.js
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../firebase';
-import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { auditedDeleteDoc } from '../lib/audit';
 
 function formatAddedDate(value) {
   if (!value) return '';
@@ -75,7 +76,7 @@ async function upsertTodoCalendarEvent(todoId, description, dueDate, existingEve
 async function removeTodoCalendarEvent(eventId) {
   if (!eventId) return;
   try {
-    await deleteDoc(doc(db, 'calendarEvents', eventId));
+    await auditedDeleteDoc(doc(db, 'calendarEvents', eventId));
   } catch (err) {
     console.error('Failed to remove todo calendar event:', err);
   }
@@ -198,7 +199,7 @@ export default function TodoDashboard() {
     if (!window.confirm('Delete this task?')) return;
     try {
       await removeTodoCalendarEvent(todo.calendarEventId);
-      await deleteDoc(doc(db, 'todos', todo.id));
+      await auditedDeleteDoc(doc(db, 'todos', todo.id));
     } catch (err) {
       console.error('Failed to delete todo:', err);
       alert('Failed to delete task. Please try again.');

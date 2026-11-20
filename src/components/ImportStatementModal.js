@@ -3,6 +3,7 @@ import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where
 import { db } from '../firebase';
 import { EXPENSE_APPS, EXPENSE_CATEGORIES, formatMoney, taxYearFromDate } from '../data/expensesData';
 import { parseStatementPdf } from '../utils/parseExpenseStatement';
+import { recordAuditEvent } from '../lib/audit';
 
 const FIVERR_CATEGORIES = ['Design', 'Development', 'Office', 'Uncategorized', 'Professional Services'];
 const IMPORT_CATEGORIES = Array.from(new Set([...EXPENSE_CATEGORIES, ...FIVERR_CATEGORIES]));
@@ -90,7 +91,7 @@ function loadScriptOnce(src) {
 
 async function loadSheetJs() {
   if (window.XLSX) return window.XLSX;
-  await loadScriptOnce('https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js');
+  await loadScriptOnce('https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js');
   if (!window.XLSX) throw new Error('Could not load Excel parser.');
   return window.XLSX;
 }
@@ -370,6 +371,11 @@ export default function ImportStatementModal({ onClose, onImported, onManualEntr
           { merge: true }
         );
       }
+
+      await recordAuditEvent('import', statementId ? `importedStatements/${statementId}` : 'expenses', {
+        count: selected.length,
+        fileType: file && file.name ? String(file.name.split('.').pop() || '').toLowerCase().slice(0, 10) : 'unknown',
+      });
 
       setDoneCount(selected.length);
       setStep('done');

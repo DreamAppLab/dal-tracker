@@ -1,7 +1,7 @@
 // src/components/SubscriptionsDashboard.js
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../firebase';
-import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import {
   SUBSCRIPTION_APPS,
   SUBSCRIPTIONS,
@@ -13,6 +13,7 @@ import {
   isSubscriptionSuspended,
 } from '../data/subscriptionsData';
 import AddSubscriptionModal from './AddSubscriptionModal';
+import { auditedDeleteDoc } from '../lib/audit';
 
 const REQUIRED_NEW_SUBSCRIPTIONS = [
   { name: 'Twilio' },
@@ -181,7 +182,7 @@ export default function SubscriptionsDashboard({ projects = [] }) {
 
   const handleDeleteSubscription = async (sub) => {
     if (!window.confirm(`Delete ${sub.name}? This cannot be undone.`)) return;
-    await deleteDoc(doc(db, 'subscriptions', sub.id));
+    await auditedDeleteDoc(doc(db, 'subscriptions', sub.id));
   };
 
   if (loading) {

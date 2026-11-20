@@ -180,6 +180,19 @@ body.login-page-active {
   font-size: 13px;
   line-height: 1.4;
 }
+.login-btn-google {
+  width: 100%;
+  margin-top: 12px !important;
+}
+.login-notice {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--amber-dim);
+  color: var(--amber);
+  font-size: 13px;
+  line-height: 1.4;
+}
 .login-screen .login-btn,
 .auth-status-screen .login-btn {
   margin-top: 4px;
@@ -247,7 +260,8 @@ body.login-page-active {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
 }
-.access-check-actions {
+.access-check-actions,
+.access-check-verify {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -3000,3 +3014,24 @@ option { background: var(--bg-card); }
   color: var(--text-secondary);
   font-size: 13px;
 }
+
+/* ── RE-AUTH ("Confirm it's you") ── */
+.reauth-overlay { z-index: 3000; }
+.reauth-card {
+  width: 100%;
+  max-width: 400px;
+  padding: 28px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-active);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.reauth-title { margin: 0; font-family: var(--font-display); font-size: 20px; }
+.reauth-text { margin: 0; color: var(--text-secondary); font-size: 14px; line-height: 1.5; }
+.reauth-form { display: flex; flex-direction: column; gap: 8px; }
+.reauth-label { font-size: 13px; color: var(--text-secondary); }
+.reauth-btn { width: 100%; justify-content: center; }
+.reauth-error { margin: 0; color: var(--coral); font-size: 13px; }

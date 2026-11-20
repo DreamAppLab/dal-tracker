@@ -1,12 +1,12 @@
 const REVENUECAT_API_BASE = 'https://api.revenuecat.com/v2';
 
 const REVENUE_APP_CONFIG = [
-  { appId: 'logabode', envKey: 'REACT_APP_REVENUECAT_SECRET_LOGABODE' },
-  { appId: 'flarepad', envKey: 'REACT_APP_REVENUECAT_SECRET_FLAREPAD' },
-  { appId: 'familywatch', envKey: 'REACT_APP_REVENUECAT_SECRET_FAMILYWATCH' },
-  { appId: 'myclasslog', envKey: 'REACT_APP_REVENUECAT_SECRET_MYCLASSLOG' },
-  { appId: 'tenmilesahead', envKey: 'REACT_APP_REVENUECAT_SECRET_TENMILESAHEAD' },
-  { appId: 'rvvault', envKey: 'REACT_APP_REVENUECAT_SECRET_RVVAULT' },
+  { appId: 'logabode', envKey: 'REVENUECAT_SECRET_LOGABODE' },
+  { appId: 'flarepad', envKey: 'REVENUECAT_SECRET_FLAREPAD' },
+  { appId: 'familywatch', envKey: 'REVENUECAT_SECRET_FAMILYWATCH' },
+  { appId: 'myclasslog', envKey: 'REVENUECAT_SECRET_MYCLASSLOG' },
+  { appId: 'tenmilesahead', envKey: 'REVENUECAT_SECRET_TENMILESAHEAD' },
+  { appId: 'rvvault', envKey: 'REVENUECAT_SECRET_RVVAULT' },
 ];
 
 function getSecretForApp(appId) {
@@ -223,31 +223,32 @@ async function fetchRevenueCatAppById(appId) {
   return { appId, success: true, ...metrics };
 }
 
-module.exports = async function handler(req, res) {
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
+const { withSecurity } = require('../_lib/security');
+
+module.exports = withSecurity({ name: 'revenuecat-sync', methods: ['GET'], auth: 'admin' }, async function handler(req, res) {
+  const appId = typeof req.query.appId === 'string' ? req.query.appId : '';
+  if (appId && !REVENUE_APP_CONFIG.some((a) => a.appId === appId)) {
+    return res.status(400).json({ error: 'Unknown appId' });
   }
 
-  const appId = req.query.appId;
-
-  try {
-    if (appId) {
+  if (appId) {
+    try {
       const result = await fetchRevenueCatAppById(appId);
       return res.status(200).json({ apps: [result] });
+    } catch (error) {
+      return res.status(200).json({ apps: [{ appId, success: false, error: String(error.message || error).slice(0, 200) }] });
     }
-
-    const apps = await Promise.all(
-      REVENUE_APP_CONFIG.map(async ({ appId: id }) => {
-        try {
-          return await fetchRevenueCatAppById(id);
-        } catch (error) {
-          return { appId: id, success: false, error: error.message };
-        }
-      })
-    );
-
-    return res.status(200).json({ apps });
-  } catch (error) {
-    return res.status(500).json({ error: error.message });
   }
-};
+
+  const apps = await Promise.all(
+    REVENUE_APP_CONFIG.map(async ({ appId: id }) => {
+      try {
+        return await fetchRevenueCatAppById(id);
+      } catch (error) {
+        return { appId: id, success: false, error: String(error.message || error).slice(0, 200) };
+      }
+    })
+  );
+
+  return res.status(200).json({ apps });
+});

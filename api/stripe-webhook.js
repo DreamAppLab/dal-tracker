@@ -103,9 +103,6 @@ async function handlePaidEvent(stripe, object) {
 }
 
 async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
 
   const sig = req.headers['stripe-signature'];
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -120,7 +117,7 @@ async function handler(req, res) {
     const stripe = getStripe();
     event = stripe.webhooks.constructEvent(rawBody, sig, process.env.STRIPE_WEBHOOK_SECRET);
   } catch (err) {
-    console.error('stripe webhook signature verification failed', err);
+    console.error('stripe webhook signature verification failed', err && err.message);
     return res.status(400).json({ error: 'Invalid signature' });
   }
 
@@ -133,12 +130,15 @@ async function handler(req, res) {
     return res.status(200).json({ ok: true, ...result });
   } catch (err) {
     console.error('stripe webhook error', err);
-    return res.status(400).json({
-      error: 'Webhook handler failed',
-      detail: String((err && err.message) || err),
-    });
+    return res.status(400).json({ error: 'Webhook handler failed' });
   }
 }
 
-module.exports = handler;
+const { withSecurity } = require('./_lib/security');
+
+// Server-to-server (Stripe): authenticity = Stripe signature. No CORS.
+module.exports = withSecurity(
+  { name: 'stripe-webhook', methods: ['POST'], auth: 'public', cors: 'none', rateLimit: { limit: 300, windowMs: 60_000 } },
+  handler
+);
 module.exports.config = { api: { bodyParser: false } };

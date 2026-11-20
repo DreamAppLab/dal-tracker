@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc } from 'firebase/firestore';
 import { PIPELINE_APPS } from '../data/initialData';
 import Dashboard from './Dashboard';
 import ProjectDetail from './ProjectDetail';
 import Sidebar from './Sidebar';
 import AddProjectModal from './AddProjectModal';
 import '../App.css';
+import { auditedDeleteDoc } from '../lib/audit';
 
 function App() {
   const [projects, setProjects] = useState([]);
@@ -42,7 +43,7 @@ function App() {
   };
 
   const handleDeleteProject = async (projectId) => {
-    await deleteDoc(doc(db, 'projects', projectId));
+    await auditedDeleteDoc(doc(db, 'projects', projectId));
     setActiveView('dashboard');
     setSelectedProject(null);
   };

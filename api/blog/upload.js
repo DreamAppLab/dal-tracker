@@ -53,17 +53,9 @@ function extFor(filename, contentType) {
   return '.jpg';
 }
 
-module.exports.config = {
-  api: { bodyParser: { sizeLimit: '4mb' } },
-};
+const { withSecurity } = require('../_lib/security');
 
-module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-
+module.exports = withSecurity({ name: 'blog-upload', methods: ['POST'], auth: 'admin' }, async (req, res) => {
   try {
     const body = parseBody(req);
     const contentType = String(body.contentType || 'image/jpeg').toLowerCase();
@@ -97,7 +89,10 @@ module.exports = async (req, res) => {
     console.error('blog upload api error', e);
     return res.status(500).json({
       error: 'Blog image upload failed',
-      detail: String((e && e.message) || e),
     });
   }
+});
+
+module.exports.config = {
+  api: { bodyParser: { sizeLimit: '4mb' } },
 };

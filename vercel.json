@@ -1,8 +1,79 @@
 {
-  "buildCommand": "npm ci && DISABLE_ESLINT_PLUGIN=true npm run build",
+  "buildCommand": "npm run check:secrets:src && DISABLE_ESLINT_PLUGIN=true INLINE_RUNTIME_CHUNK=false GENERATE_SOURCEMAP=false npm run build && npm run check:secrets:bundle",
   "installCommand": "npm ci",
   "rewrites": [
-    { "source": "/api/stripe-webhook", "destination": "/api/stripe-webhook.js" },
-    { "source": "/api/feedback/:path*", "destination": "/api/feedback.js" }
+    {
+      "source": "/api/stripe-webhook",
+      "destination": "/api/stripe-webhook.js"
+    },
+    {
+      "source": "/api/feedback/:path*",
+      "destination": "/api/feedback.js"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=63072000; includeSubDomains"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=(), browsing-topics=(), interest-cohort=()"
+        },
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin-allow-popups"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://apis.google.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.sheetjs.com; worker-src 'self' blob: https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: https://firebasestorage.googleapis.com; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com https://apis.google.com https://www.dreamapplab.com https://dreamapplab.com https://cdnjs.cloudflare.com; frame-src https://*.firebaseapp.com https://accounts.google.com https://apis.google.com; manifest-src 'self'; upgrade-insecure-requests"
+        }
+      ]
+    },
+    {
+      "source": "/widget/(.*)",
+      "headers": [
+        {
+          "key": "Cross-Origin-Resource-Policy",
+          "value": "cross-origin"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=300, must-revalidate"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'none'; frame-ancestors 'none'"
+        }
+      ]
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'none'; frame-ancestors 'none'"
+        }
+      ]
+    }
   ]
 }

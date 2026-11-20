@@ -4,6 +4,7 @@ import { addDoc, collection, doc, getDocs, onSnapshot, query, setDoc, updateDoc,
 import { getDownloadURL, listAll, ref as storageRef } from 'firebase/storage';
 import { db } from '../firebase';
 import { zerbiqDb, zerbiqStorage } from '../firebaseZerbiq';
+import { apiFetch } from '../lib/apiClient';
 
 const FORTY_EIGHT_HOURS = 48 * 60 * 60 * 1000;
 
@@ -368,7 +369,7 @@ export function QuotesUnreadListener({ onUnreadCount, intervalMs = 20000 }) {
 
     async function loadCount() {
       try {
-        const res = await fetch('/api/quotes');
+        const res = await apiFetch('/api/quotes');
         const data = await res.json().catch(() => ({}));
         if (cancelled || !data.ok) return;
         // Build a set of IDs that currently exist so deleted docs are never counted.
@@ -628,7 +629,7 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
     if (!isUnread(quote)) return undefined;
     const readAt = new Date().toISOString();
     if (onQuotePatched) onQuotePatched(quote.id, { readAt });
-    fetch('/api/quotes?id=' + encodeURIComponent(quote.id), {
+    apiFetch('/api/quotes?id=' + encodeURIComponent(quote.id), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ readAt }),
@@ -641,7 +642,7 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
     async function loadMessages() {
       setMessagesLoading(true);
       try {
-        const res = await fetch('/api/quotes/messages?id=' + encodeURIComponent(quote.id));
+        const res = await apiFetch('/api/quotes/messages?id=' + encodeURIComponent(quote.id));
         const data = await res.json().catch(() => ({}));
         if (cancelled) return;
         if (!res.ok || !data.ok) {
@@ -747,7 +748,7 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
   ].filter((step) => toDate(step.at));
 
   async function patchQuote(fields) {
-    const res = await fetch('/api/quotes?id=' + encodeURIComponent(quote.id), {
+    const res = await apiFetch('/api/quotes?id=' + encodeURIComponent(quote.id), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(fields),
@@ -788,7 +789,7 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
       quoteId: quote.id,
     };
     if (paymentUrl) payload.paymentUrl = paymentUrl;
-    const res = await fetch('/api/quote-payment-link', {
+    const res = await apiFetch('/api/quote-payment-link', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -1126,7 +1127,7 @@ export function QuoteDetail({ quote, onBack, onQuotePatched, onQuoteMoved, onOpe
 
   const handleResendEstimate = () =>
     runAction('resend', async () => {
-      const res = await fetch('/api/quotes/resend', {
+      const res = await apiFetch('/api/quotes/resend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: quote.id }),
@@ -2252,7 +2253,7 @@ export default function QuotesTab({ onOpenProject, onToast, onUnreadCount, onboa
     async function loadQuotes() {
       setLoading(true);
       try {
-        const res = await fetch('/api/quotes');
+        const res = await apiFetch('/api/quotes');
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.ok) {
           throw new Error(data.error || data.detail || 'Failed to load quotes');
@@ -2306,7 +2307,7 @@ export default function QuotesTab({ onOpenProject, onToast, onUnreadCount, onboa
     if (isUnread(quote)) {
       const readAt = new Date().toISOString();
       setQuotes((prev) => prev.map((q) => (q.id === quote.id ? { ...q, readAt } : q)));
-      fetch('/api/quotes?id=' + encodeURIComponent(quote.id), {
+      apiFetch('/api/quotes?id=' + encodeURIComponent(quote.id), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ readAt }),
@@ -2320,7 +2321,7 @@ export default function QuotesTab({ onOpenProject, onToast, onUnreadCount, onboa
     setDeleting(true);
     setError('');
     try {
-      const res = await fetch('/api/quotes?id=' + encodeURIComponent(pendingDelete.id), {
+      const res = await apiFetch('/api/quotes?id=' + encodeURIComponent(pendingDelete.id), {
         method: 'DELETE',
       });
       const data = await res.json().catch(() => ({}));

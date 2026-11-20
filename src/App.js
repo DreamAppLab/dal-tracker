@@ -31,6 +31,7 @@ import AccessCheckGate from './components/AccessCheckGate';
 import { useAuth } from './contexts/AuthContext';
 import { GoogleCalendarProvider } from './contexts/GoogleCalendarContext';
 import './App.css';
+import { apiFetch } from './lib/apiClient';
 
 function App() {
   const { user, authLoading } = useAuth();
@@ -122,7 +123,7 @@ function DashboardApp() {
     let cancelled = false;
     async function loadActiveClientIds() {
       try {
-        const res = await fetch('/api/quotes');
+        const res = await apiFetch('/api/quotes');
         const data = await res.json().catch(() => ({}));
         if (cancelled || !data.ok) return;
         const ids = new Set(

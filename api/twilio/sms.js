@@ -1,13 +1,13 @@
-module.exports = async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+const { z } = require('zod');
+const { withSecurity, parseJsonBody, validate } = require('../_lib/security');
 
-  const { to, body } = req.body || {};
+const SmsSchema = z.object({
+  to: z.string().trim().regex(/^\+[1-9]\d{7,14}$/, 'E.164 phone number required'),
+  body: z.string().trim().min(1).max(1600),
+});
 
-  if (!to || !body) {
-    return res.status(400).json({ error: 'Missing required fields: to, body' });
-  }
+module.exports = withSecurity({ name: 'twilio-sms', methods: ['POST'], auth: 'admin', rateLimit: { limit: 20, windowMs: 60_000 } }, async function handler(req, res) {
+  const { to, body } = validate(SmsSchema, parseJsonBody(req));
 
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -39,6 +39,7 @@ module.exports = async function handler(req, res) {
 
     return res.status(200).json({ success: true, sid: data.sid });
   } catch (error) {
-    return res.status(500).json({ error: error.message, success: false });
+    console.error('twilio send failed:', error && error.message);
+    return res.status(502).json({ error: 'SMS send failed', success: false });
   }
-};
+});

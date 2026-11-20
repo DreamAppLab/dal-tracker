@@ -4,13 +4,13 @@
 // Dedupes on Stripe payment intent ID, posts revenue, and for deposits
 // creates a Build Board entry and marks the quote In Build.
 
+const shared = require('./_lib/firebaseAdmin');
 const { initializeApp, getApp, cert } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 
 const DEFAULT_APP_ID = 'dal-website';
 
 let _siteDb = null;
-let _mcApp = null;
 
 function getSiteDb() {
   if (_siteDb) return _siteDb;
@@ -43,32 +43,7 @@ function getSiteDb() {
 }
 
 function getMcApp() {
-  if (_mcApp) return _mcApp;
-
-  const projectId = process.env.DAL_MC_FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.DAL_MC_FIREBASE_CLIENT_EMAIL;
-  const privateKey = (process.env.DAL_MC_FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
-  const storageBucket =
-    process.env.DAL_MC_FIREBASE_STORAGE_BUCKET ||
-    (projectId ? projectId + '.firebasestorage.app' : '');
-
-  if (!projectId || !clientEmail || !privateKey) {
-    throw new Error('Missing DAL_MC Firebase env vars');
-  }
-
-  const appName = 'dalMcAdmin';
-  let app;
-  try {
-    app = getApp(appName);
-  } catch (_) {
-    app = initializeApp(
-      { credential: cert({ projectId, clientEmail, privateKey }), projectId, storageBucket },
-      appName
-    );
-  }
-
-  _mcApp = app;
-  return _mcApp;
+  return shared.getMcApp();
 }
 
 function getMcDb() {
@@ -418,33 +393,29 @@ async function processQuotePayment({
   };
 }
 
-module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+const { withSecurity, internalSecretMatches } = require('./_lib/security');
 
-  const auth = String(req.headers.authorization || '');
-  const secret = process.env.DAL_MC_INTERNAL_SECRET || '';
-  if (!secret || auth !== 'Bearer ' + secret) {
-    return res.status(401).json({ error: 'Unauthorized' });
+// Server-to-server only: dal-site's Stripe webhook posts here with
+// "Authorization: Bearer <DAL_MC_INTERNAL_SECRET>". No browser CORS.
+const securedHandler = withSecurity(
+  { name: 'record-quote-payment', methods: ['POST'], auth: 'public', cors: 'none', rateLimit: { limit: 120, windowMs: 60_000 } },
+  async (req, res) => {
+    if (!internalSecretMatches(req)) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
+      const result = await processQuotePayment(body);
+      return res.status(200).json({ ok: true, ...result });
+    } catch (e) {
+      const status = e && e.status ? e.status : 500;
+      console.error('record-quote-payment error', e && e.message);
+      return res.status(status).json({
+        error: status === 400 ? e.message : 'Failed to record quote payment',
+      });
+    }
   }
+);
 
-  try {
-    const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
-    const result = await processQuotePayment(body);
-    return res.status(200).json({ ok: true, ...result });
-  } catch (e) {
-    const status = e && e.status ? e.status : 500;
-    console.error('record-quote-payment error', e);
-    return res.status(status).json({
-      error: status === 400 ? e.message : 'Failed to record quote payment',
-      detail: String((e && e.message) || e),
-    });
-  }
-};
-
+module.exports = securedHandler;
 module.exports.processQuotePayment = processQuotePayment;
 module.exports.extractPaymentIntentId = extractPaymentIntentId;
 module.exports.paymentLinkIdFrom = paymentLinkIdFrom;

@@ -8,7 +8,6 @@ import EmailMessageBody from './EmailMessageBody';
 import {
   addDoc,
   collection,
-  deleteDoc,
   doc,
   onSnapshot,
   query,
@@ -16,6 +15,8 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
+import { auditedDeleteDoc } from '../lib/audit';
+import { apiFetch } from '../lib/apiClient';
 
 const EMPTY_FORM = {
   name: '',
@@ -399,7 +400,7 @@ export default function Contacts({ onUnreadCount }) {
     setDeleteMessageError('');
     setContactEmails((prev) => prev.filter((e) => e.id !== id));
     try {
-      await deleteDoc(doc(db, 'clientEmails', id));
+      await auditedDeleteDoc(doc(db, 'clientEmails', id));
       setPendingDeleteEmail(null);
     } catch (err) {
       setDeleteMessageError(err.message || 'Could not delete message.');
@@ -413,7 +414,7 @@ export default function Contacts({ onUnreadCount }) {
     const ok = window.confirm(`Delete ${client.name}? This cannot be undone.`);
     if (!ok) return;
     try {
-      await deleteDoc(doc(db, 'clients', client.id));
+      await auditedDeleteDoc(doc(db, 'clients', client.id));
       setEditing(null);
     } catch (err) {
       window.alert(err.message || 'Could not delete contact.');
@@ -753,7 +754,7 @@ export default function Contacts({ onUnreadCount }) {
                     fd.append('source', 'contact');
                     fd.append('projectId', '');
                     if (attachment) fd.append('attachment', attachment);
-                    const res = await fetch('/api/client-email', {
+                    const res = await apiFetch('/api/client-email', {
                       method: 'POST',
                       body: fd,
                     });

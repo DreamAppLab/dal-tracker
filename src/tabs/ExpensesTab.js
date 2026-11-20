@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { format, parseISO } from 'date-fns';
-import { collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import ImportStatementModal from '../components/ImportStatementModal';
 import {
@@ -16,6 +16,8 @@ import {
   todayISO,
   fileToBase64,
 } from '../data/expensesData';
+import { auditedDeleteDoc } from '../lib/audit';
+import { apiFetch } from '../lib/apiClient';
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -310,7 +312,6 @@ function buildPrintHtml(type, rows, report, generated) {
       <div class="meta">Generated ${escapeHtml(generated)}</div>
     </div>
     ${body}
-    <script>window.onload=function(){window.focus();window.print();};</script>
     </body></html>`;
 }
 
@@ -322,6 +323,10 @@ function openPrintReport(type, rows, report) {
   tab.document.open();
   tab.document.write(html);
   tab.document.close();
+  // Print from the opener: inline scripts in the popup are blocked by the CSP.
+  const doPrint = () => { tab.focus(); tab.print(); };
+  if (tab.document.readyState === 'complete') setTimeout(doPrint, 300);
+  else tab.onload = doPrint;
 }
 
 function buildReportCsv(type, rows, report) {
@@ -567,7 +572,7 @@ async function downloadWordReport(type, rows, report) {
 }
 
 async function apiJson(url, options) {
-  const res = await fetch(url, options);
+  const res = await apiFetch(url, options);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || data.detail || 'Request failed');
   return data;
@@ -1086,7 +1091,7 @@ export default function ExpensesTab() {
     setDeleting(true);
     setDeleteError('');
     try {
-      await deleteDoc(doc(db, 'expenses', row.id));
+      await auditedDeleteDoc(doc(db, 'expenses', row.id));
       setPendingDelete(null);
     } catch (err) {
       setDeleteError(err.message || 'Could not delete expense.');

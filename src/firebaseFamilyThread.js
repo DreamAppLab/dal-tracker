@@ -23,7 +23,7 @@ function getFamilyThreadApp() {
   if (missing.length > 0) {
     throw new Error(
       `Missing FamilyThread Firebase config: ${missing.join(', ')}. ` +
-        'Set REACT_APP_FT_* environment variables and restart the dev server.'
+        'Set the FamilyThread public Firebase web config env vars and restart the dev server.'
     );
   }
 
@@ -36,7 +36,7 @@ const missingKeys = getMissingConfigKeys();
 
 export const familyThreadConfigError =
   missingKeys.length > 0
-    ? `FamilyThread Firebase is not configured (missing ${missingKeys.join(', ')}). Add REACT_APP_FT_* env vars and restart.`
+    ? `FamilyThread Firebase is not configured (missing ${missingKeys.join(', ')}). Add the FamilyThread Firebase web config env vars and restart.`
     : null;
 
 export const familyThreadDb = familyThreadConfigError

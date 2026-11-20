@@ -2,43 +2,13 @@
 // POST /api/delete-project  { id }
 // Uses the dal-mission-control service account (DAL_MC_FIREBASE_* env vars).
 
-const { initializeApp, getApp, cert } = require('firebase-admin/app');
+const shared = require('./_lib/firebaseAdmin');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
 
-let _mcApp = null;
 
 function getMcApp() {
-  if (_mcApp) return _mcApp;
-
-  const projectId = process.env.DAL_MC_FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.DAL_MC_FIREBASE_CLIENT_EMAIL;
-  const privateKey = (process.env.DAL_MC_FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
-  const storageBucket =
-    process.env.DAL_MC_FIREBASE_STORAGE_BUCKET ||
-    (projectId ? projectId + '.firebasestorage.app' : '');
-
-  if (!projectId || !clientEmail || !privateKey) {
-    throw new Error('Missing DAL_MC Firebase env vars');
-  }
-
-  const appName = 'dalMcAdmin';
-  let app;
-  try {
-    app = getApp(appName);
-  } catch (_) {
-    app = initializeApp(
-      {
-        credential: cert({ projectId, clientEmail, privateKey }),
-        projectId,
-        storageBucket,
-      },
-      appName
-    );
-  }
-
-  _mcApp = app;
-  return _mcApp;
+  return shared.getMcApp();
 }
 
 async function deleteDocumentTree(docRef) {
@@ -64,18 +34,15 @@ async function deleteStoragePrefix(bucket, prefix) {
   }
 }
 
-module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+const { withSecurity } = require('./_lib/security');
+const { writeAuditSafe: writeAudit } = require('./_lib/audit');
 
+module.exports = withSecurity({ name: 'delete-project', methods: ['POST'], auth: 'admin', recentAuthSeconds: 15 * 60 }, async (req, res) => {
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
     const id = String((req.query && req.query.id) || body.id || '').trim();
     if (!id) return res.status(400).json({ error: 'Project id is required' });
-    if (id.includes('/') || id.includes('..')) {
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) {
       return res.status(400).json({ error: 'Invalid project id' });
     }
 
@@ -96,13 +63,13 @@ module.exports = async (req, res) => {
     }
 
     await deleteDocumentTree(projectRef);
+    await writeAudit({ type: 'delete', actor: req.auth, target: `projects/${id}`, meta: { storageDeleted } }, req);
 
     return res.status(200).json({ ok: true, id, storageDeleted });
   } catch (e) {
     console.error('delete-project error', e);
     return res.status(500).json({
       error: 'Failed to delete project',
-      detail: String((e && e.message) || e),
     });
   }
-};
+});

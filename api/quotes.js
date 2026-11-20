@@ -90,7 +90,23 @@ function createdAtMs(quote) {
   return Number.isNaN(d.getTime()) ? 0 : d.getTime();
 }
 
+// Quotes carry many UI-managed fields, so validation is structural: plain
+// top-level field names only (no dotted paths / sentinels), bounded size.
+function assertSafePatch(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw Object.assign(new Error('JSON object body required'), { status: 400, expose: true });
+  }
+  const keys = Object.keys(body);
+  if (keys.length > 120) throw Object.assign(new Error('Too many fields'), { status: 400, expose: true });
+  const bad = keys.filter((k) => !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(k));
+  if (bad.length) throw Object.assign(new Error(`Invalid field name: ${bad[0].slice(0, 40)}`), { status: 400, expose: true });
+  if (Buffer.byteLength(JSON.stringify(body)) > 300 * 1024) {
+    throw Object.assign(new Error('Update too large'), { status: 413, expose: true });
+  }
+}
+
 function prepareUpdate(body) {
+  assertSafePatch(body);
   const update = { ...(body || {}) };
   delete update.id;
   Object.keys(update).forEach((key) => {
@@ -161,7 +177,7 @@ async function seedMessagesFromQuote(db, quoteId, quote) {
 
 async function handleMessages(req, res, db) {
   const id = String((req.query && req.query.id) || '').trim();
-  if (!id) return res.status(400).json({ error: 'Quote id is required' });
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) return res.status(400).json({ error: 'Quote id is required' });
 
   const quoteRef = db.collection('quotes').doc(id);
   const quoteSnap = await quoteRef.get();
@@ -190,19 +206,18 @@ async function handleMessages(req, res, db) {
   return res.status(405).json({ error: 'Method not allowed' });
 }
 
-module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(204).end();
+const { withSecurity } = require('./_lib/security');
+const { writeAuditSafe: writeAudit } = require('./_lib/audit');
 
+module.exports = withSecurity({ name: 'quotes', methods: ['GET',  'POST',  'DELETE'], auth: 'admin' }, async (req, res) => {
   try {
     const db = getSiteDb();
     if (isMessagesRoute(req)) {
-      return handleMessages(req, res, db);
+      return await handleMessages(req, res, db);
     }
 
     const id = String((req.query && req.query.id) || '').trim();
+    if (id && !/^[A-Za-z0-9_-]{1,128}$/.test(id)) return res.status(400).json({ error: 'Invalid quote id' });
 
     if (req.method === 'GET') {
       if (id) {
@@ -239,15 +254,16 @@ module.exports = async (req, res) => {
       const existing = await ref.get();
       if (!existing.exists) return res.status(404).json({ error: 'Quote not found' });
       await ref.delete();
+      await writeAudit({ type: 'delete', actor: req.auth, target: `dal-site/quotes/${id}` }, req);
       return res.status(200).json({ ok: true, id });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (e) {
-    console.error('quotes api error', e);
+    if (e && e.expose && e.status) return res.status(e.status).json({ error: e.message });
+    console.error('quotes api error', e && e.message);
     return res.status(500).json({
       error: 'Quotes request failed',
-      detail: String((e && e.message) || e),
     });
   }
-};
+});

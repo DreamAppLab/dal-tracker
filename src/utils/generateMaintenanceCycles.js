@@ -1,5 +1,6 @@
 import { collection, doc, getDocs, query, setDoc, Timestamp, updateDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
+import { apiFetch } from '../lib/apiClient';
 
 export const CYCLE_START = '2026-09-01';
 const HORIZON_DAYS = 90;
@@ -181,7 +182,7 @@ export async function generateCyclesForApp(appId, schedule) {
       created += 1;
 
       try {
-        const res = await fetch('/api/calendar', {
+        const res = await apiFetch('/api/calendar', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

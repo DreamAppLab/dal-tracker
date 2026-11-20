@@ -128,15 +128,13 @@ function prepareUpdate(body) {
   return update;
 }
 
-module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'PATCH, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(204).end();
+const { withSecurity } = require('../../_lib/security');
+const { writeAuditSafe: writeAudit } = require('../../_lib/audit');
 
+module.exports = withSecurity({ name: 'blog-post', methods: ['PATCH',  'DELETE'], auth: 'admin' }, async (req, res) => {
   try {
     const id = String((req.query && req.query.id) || '').trim();
-    if (!id) return res.status(400).json({ error: 'Post id is required' });
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) return res.status(400).json({ error: 'Valid post id is required' });
 
     const db = getSiteDb();
     const ref = db.collection('posts').doc(id);
@@ -159,6 +157,7 @@ module.exports = async (req, res) => {
       const existing = await ref.get();
       if (!existing.exists) return res.status(404).json({ error: 'Post not found' });
       await ref.delete();
+      await writeAudit({ type: 'delete', actor: req.auth, target: `dal-site/posts/${id}` }, req);
       return res.status(200).json({ ok: true, id });
     }
 
@@ -167,7 +166,6 @@ module.exports = async (req, res) => {
     console.error('blog post api error', e);
     return res.status(500).json({
       error: 'Blog post request failed',
-      detail: String((e && e.message) || e),
     });
   }
-};
+});

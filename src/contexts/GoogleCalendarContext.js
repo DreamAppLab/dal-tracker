@@ -15,6 +15,7 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { assignAccountColor } from '../data/calendarColors';
+import { apiFetch } from '../lib/apiClient';
 
 const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar';
 
@@ -105,7 +106,7 @@ export function GoogleCalendarProvider({ children }) {
   const refreshAccessToken = useCallback(async (account) => {
     if (!account?.refreshToken || !user?.uid) return null;
     try {
-      const response = await fetch('/api/refresh-calendar-token', {
+      const response = await apiFetch('/api/refresh-calendar-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken: account.refreshToken }),

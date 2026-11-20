@@ -15,44 +15,26 @@
  * Required environment variables (Vercel):
  *   GOOGLE_CLIENT_ID              – OAuth 2.0 client ID (from Google Cloud Console)
  *   GOOGLE_CLIENT_SECRET          – OAuth 2.0 client secret
- *   FIREBASE_SERVICE_ACCOUNT_JSON – Full service-account JSON as a single string
+ *   DAL_MC_FIREBASE_* – shared Admin SDK credentials (api/_lib/firebaseAdmin.js)
  */
 
-const admin = require('firebase-admin');
+const shared = require('./_lib/firebaseAdmin');
 
 // ── Firebase Admin singleton ──────────────────────────────────────────────────
 
-let adminApp = null;
-
 function getDb() {
-  if (!adminApp) {
-    if (admin.apps.length > 0) {
-      adminApp = admin.apps[0];
-    } else {
-      if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-        throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON environment variable is not set.');
-      }
-      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-      adminApp = admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-      });
-    }
-  }
-  return admin.firestore(adminApp);
+  return shared.getMcDb();
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
 
-module.exports = async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+const { z } = require('zod');
+const { withSecurity, parseJsonBody, validate } = require('./_lib/security');
 
-  const { email } = req.body || {};
+const Schema = z.object({ email: z.string().trim().email().max(254) });
 
-  if (!email || typeof email !== 'string' || !email.includes('@')) {
-    return res.status(400).json({ error: 'A valid email is required.' });
-  }
+module.exports = withSecurity({ name: 'refresh-google-token', methods: ['POST'], auth: 'admin' }, async function handler(req, res) {
+  const { email } = validate(Schema, parseJsonBody(req));
 
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
     console.error('[refresh-google-token] Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET');
@@ -151,4 +133,4 @@ module.exports = async function handler(req, res) {
     accessToken: tokenData.access_token,
     tokenExpiry: newExpiry,
   });
-};
+});

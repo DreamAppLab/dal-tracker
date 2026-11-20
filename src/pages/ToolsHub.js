@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { format } from 'date-fns';
+import { apiFetch } from '../lib/apiClient';
 
 const TOOLS = [
   {
@@ -203,7 +204,7 @@ function ToolCard({ tool }) {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/tools/' + encodeURIComponent(tool.id));
+      const res = await apiFetch('/api/tools/' + encodeURIComponent(tool.id));
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.detail || json.error || 'Request failed');
       setData(json);

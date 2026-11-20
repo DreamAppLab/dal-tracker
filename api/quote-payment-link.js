@@ -144,13 +144,9 @@ async function sendEmail(to, subject, html) {
   if (!r.ok) throw new Error('Mailgun ' + r.status + ': ' + (await r.text()));
 }
 
-module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+const { withSecurity } = require('./_lib/security');
 
+module.exports = withSecurity({ name: 'quote-payment-link', methods: ['POST'], auth: 'admin', rateLimit: { limit: 20, windowMs: 60_000 } }, async (req, res) => {
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
     const kind = String(body.kind || '').trim();
@@ -165,8 +161,12 @@ module.exports = async (req, res) => {
     if (kind !== 'deposit' && kind !== 'balance') {
       return res.status(400).json({ error: 'kind must be deposit or balance' });
     }
-    if (!email) return res.status(400).json({ error: 'email is required' });
-    if (!Number.isFinite(amount) || amount <= 0) {
+    if (!/^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/.test(email)) return res.status(400).json({ error: 'A valid email is required' });
+    if ((quoteId && !/^[A-Za-z0-9_-]{1,128}$/.test(quoteId)) || (buildId && !/^[A-Za-z0-9_-]{1,128}$/.test(buildId))) {
+      return res.status(400).json({ error: 'Invalid quoteId or buildId' });
+    }
+    if (firstName.length > 100 || businessName.length > 200) return res.status(400).json({ error: 'Name too long' });
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 1000000) {
       return res.status(400).json({ error: 'A valid amount is required' });
     }
     if (body.paymentUrl != null && String(body.paymentUrl).trim() && !paymentUrl) {
@@ -201,7 +201,6 @@ module.exports = async (req, res) => {
     console.error('quote-payment-link error', e);
     return res.status(500).json({
       error: 'Failed to send payment link',
-      detail: String((e && e.message) || e),
     });
   }
-};
+});

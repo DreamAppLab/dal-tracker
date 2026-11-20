@@ -191,13 +191,13 @@ export const INITIAL_PROJECTS = [
       { layer: "Font", tech: "Inter" },
       { layer: "Palette", tech: "Black + Electric Blue #58c6f4" },
       { layer: "Forms", tech: "Jotform (ID: 261383968266168)" },
-      { layer: "Email", tech: "Brevo" },
+      { layer: "Email", tech: "Mailgun" },
       { layer: "Payments", tech: "Stripe" }
     ],
     milestones: [
       { id: "m1", title: "Cursor Prompt Drafted", description: "Full Cursor prompt with brand specs", amount: 0, dueDate: "2025-03-01", completed: true },
       { id: "m2", title: "Homepage Build", description: "Hero, services, portfolio sections", amount: 0, dueDate: "2025-06-01", completed: false },
-      { id: "m3", title: "Quote Pipeline Live", description: "Jotform → GAS → Brevo → Stripe", amount: 0, dueDate: "2025-05-01", completed: true },
+      { id: "m3", title: "Quote Pipeline Live", description: "Jotform → GAS → Mailgun → Stripe", amount: 0, dueDate: "2025-05-01", completed: true },
       { id: "m4", title: "Go Live", description: "Deploy to Netlify, DNS pointed", amount: 0, dueDate: "2025-07-01", completed: false }
     ],
     edits: [

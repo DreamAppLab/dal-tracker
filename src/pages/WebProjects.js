@@ -4,8 +4,25 @@ import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc,
   query, where, orderBy, serverTimestamp,
 } from 'firebase/firestore';
+import { apiFetch } from '../lib/apiClient';
 
 const BRAND = '#4CC1F3';
+
+// Full https URL (keeps path) for the preview link; null if invalid.
+function normalizeSiteUrl(raw) {
+  try {
+    const u = new URL(String(raw).trim());
+    return u.protocol === 'https:' ? u.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+// Origin only (scheme + host) for the widget allowlist; null if invalid.
+function normalizeSiteOrigin(raw) {
+  const url = normalizeSiteUrl(raw);
+  return url ? new URL(url).origin : null;
+}
 
 // ── Slug generator ───────────────────────────────────────────────────────────
 function generateProjectId(name) {
@@ -171,6 +188,7 @@ function ProjectModal({ project, onClose, onSaved }) {
   const isEdit = Boolean(project);
   const [name, setName] = useState(project?.project_name || '');
   const [previewUrl, setPreviewUrl] = useState(project?.preview_url || '');
+  const [extraOrigins, setExtraOrigins] = useState((project?.allowed_origins || []).join('\n'));
   const [selectedContact, setSelectedContact] = useState(
     project?.contact_id
       ? { id: project.contact_id, name: project.contact_name || '', company: project.contact_company || '' }
@@ -181,23 +199,31 @@ function ProjectModal({ project, onClose, onSaved }) {
 
   const handleSave = async () => {
     if (!name.trim()) { setError('Project name is required'); return; }
+    // The feedback widget only works on sites registered here (no wildcard CORS),
+    // so addresses must be full https:// URLs.
+    const cleanPreview = previewUrl.trim() ? normalizeSiteUrl(previewUrl) : null;
+    if (previewUrl.trim() && !cleanPreview) { setError('Preview URL must be a full https:// address'); return; }
+    const originLines = extraOrigins.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
+    const cleanOrigins = originLines.map(normalizeSiteOrigin);
+    if (cleanOrigins.some((o) => !o)) { setError('Each extra site address must be a full https:// address'); return; }
     setSaving(true);
     setError('');
     const contactFields = {
       contact_id: selectedContact?.id || null,
       contact_name: selectedContact?.name || null,
+      allowed_origins: [...new Set(cleanOrigins)],
     };
     try {
       if (isEdit) {
         await updateDoc(doc(db, 'webProjects', project.project_id), {
           project_name: name.trim(),
-          preview_url: previewUrl.trim() || null,
+          preview_url: cleanPreview,
           ...contactFields,
         });
         onSaved({
           ...project,
           project_name: name.trim(),
-          preview_url: previewUrl.trim() || null,
+          preview_url: cleanPreview,
           ...contactFields,
         });
       } else {
@@ -205,7 +231,7 @@ function ProjectModal({ project, onClose, onSaved }) {
         const payload = {
           project_id,
           project_name: name.trim(),
-          preview_url: previewUrl.trim() || null,
+          preview_url: cleanPreview,
           status: 'active',
           created_at: serverTimestamp(),
           ...contactFields,
@@ -236,6 +262,11 @@ function ProjectModal({ project, onClose, onSaved }) {
 
         <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4, marginTop: 12 }}>Preview URL</label>
         <input value={previewUrl} onChange={(e) => setPreviewUrl(e.target.value)} placeholder="https://preview.example.com" style={inputStyle} />
+
+        <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 4, marginTop: 12 }}>Other sites where the widget is embedded (optional)</label>
+        <textarea value={extraOrigins} onChange={(e) => setExtraOrigins(e.target.value)} rows={2}
+          placeholder="https://www.clientsite.com (one per line)" style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }} />
+        <p style={{ fontSize: 11, color: '#64748b', margin: '4px 0 0' }}>The widget only accepts notes from the preview URL and these addresses.</p>
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
           <button type="button" onClick={onClose} style={{ background: '#1e293b', border: 'none', color: '#94a3b8', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>Cancel</button>
@@ -337,7 +368,9 @@ function AllProjectsView({ onSelectProject }) {
                 </td>
                 <td style={{ padding: '12px 12px', fontSize: 13, color: '#cbd5e1' }}>{p.contact_name || '—'}</td>
                 <td style={{ padding: '12px 12px', fontSize: 13 }}>
-                  {p.preview_url ? <a href={p.preview_url} target="_blank" rel="noreferrer" style={{ color: '#94a3b8' }}>{p.preview_url}</a> : '—'}
+                  {p.preview_url && normalizeSiteUrl(p.preview_url)
+                    ? <a href={p.preview_url} target="_blank" rel="noreferrer" style={{ color: '#94a3b8' }}>{p.preview_url}</a>
+                    : <span title="The feedback widget is blocked until a full https:// preview URL is set" style={{ color: '#f59e0b' }}>⚠ {p.preview_url ? 'Fix preview URL' : 'Add preview URL'}</span>}
                 </td>
                 <td style={{ padding: '12px 12px' }}>
                   {pinCounts[p.project_id] > 0
@@ -420,9 +453,31 @@ function ProjectDetailView({ project, onBack }) {
     setArchiving(false);
   };
 
+  const [openingAdmin, setOpeningAdmin] = useState(false);
+  const openAsAdmin = async () => {
+    // Open the tab synchronously (popup blockers), then point it at the signed link.
+    const win = window.open('about:blank', '_blank');
+    setOpeningAdmin(true);
+    try {
+      const r = await apiFetch('/api/feedback/admin-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: currentProject.project_id }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.url) throw new Error(data.error || 'Could not create admin link');
+      if (win) { win.opener = null; win.location.href = data.url; } else window.location.href = data.url;
+    } catch (e) {
+      if (win) win.close();
+      window.alert(e.message || 'Could not create admin link');
+    } finally {
+      setOpeningAdmin(false);
+    }
+  };
+
   const handleResolve = async (pin, resolved) => {
     try {
-      await fetch('/api/feedback/resolve', {
+      await apiFetch('/api/feedback/resolve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin_id: pin.id, resolved }),
@@ -470,10 +525,19 @@ function ProjectDetailView({ project, onBack }) {
             </span>
           </div>
         </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        {currentProject.preview_url && (
+          <button onClick={openAsAdmin} disabled={openingAdmin}
+            title="Opens the preview with resolve / hide controls unlocked for 12 hours"
+            style={{ background: 'rgba(76,193,243,0.12)', border: `1px solid ${BRAND}`, color: BRAND, padding: '7px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+            {openingAdmin ? 'Opening…' : 'Open as admin ↗'}
+          </button>
+        )}
         <button onClick={toggleStatus} disabled={archiving}
           style={{ background: '#1e293b', border: '1px solid #334155', color: '#94a3b8', padding: '7px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 12 }}>
           {archiving ? '…' : currentProject.status === 'active' ? '📦 Archive' : '✅ Activate'}
         </button>
+        </div>
       </div>
 
       {/* Script Tag */}
@@ -537,7 +601,7 @@ function PinCard({ pin, index, previewUrl, onResolve }) {
     if (!replyText.trim()) return;
     setSending(true);
     try {
-      const r = await fetch('https://dal-tracker.vercel.app/api/feedback/reply', {
+      const r = await apiFetch('/api/feedback/reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin_id: pin.id, reply_text: replyText.trim() }),

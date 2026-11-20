@@ -1,10 +1,12 @@
 // src/components/Dashboard.js
 import React, { useState, useEffect, useCallback } from 'react';
 import { db } from '../firebase';
-import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { STATUS_CONFIG } from '../data/initialData';
 import AddPipelineModal from './AddPipelineModal';
 import { sumClientProjectRevenue } from '../utils/revenueTotals';
+import { auditedDeleteDoc } from '../lib/audit';
+import { apiFetch } from '../lib/apiClient';
 
 function getProgress(project) {
   const allTasks = [
@@ -182,7 +184,7 @@ const Dashboard = React.memo(function Dashboard({ projects, pipelineItems, onSel
     const { from, to } = currentMonthRange();
     const params = new URLSearchParams({ from, to });
     let cancelled = false;
-    fetch(`/api/revenue-entries?${params.toString()}`)
+    apiFetch(`/api/revenue-entries?${params.toString()}`)
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || 'Failed to load revenue entries');
@@ -252,7 +254,7 @@ const Dashboard = React.memo(function Dashboard({ projects, pipelineItems, onSel
         edits: [],
       };
       await setDoc(doc(db, 'projects', item.id), newProject, { merge: true });
-      await deleteDoc(doc(db, 'pipeline', item.id));
+      await auditedDeleteDoc(doc(db, 'pipeline', item.id));
     } finally {
       setMovingPipelineId(null);
     }

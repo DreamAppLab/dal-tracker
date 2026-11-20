@@ -4,7 +4,7 @@ import { getFirestore } from 'firebase/firestore';
 const DAL_SITE_APP_NAME = 'dalSiteApp';
 
 // Public web config (same values already in dal-site admin pages).
-// Vercel REACT_APP_DAL_SITE_FIREBASE_* env vars override these when set.
+// Vercel env vars (public Firebase web config) override these when set.
 const dalSiteConfig = {
   apiKey:
     process.env.REACT_APP_DAL_SITE_FIREBASE_API_KEY ||

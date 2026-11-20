@@ -3,6 +3,7 @@ import { collection, getDocs, onSnapshot, doc, updateDoc, Timestamp, query, wher
 import { db } from '../firebase';
 import { seedAllApps } from '../utils/seedMaintenanceTasks';
 import { generateCyclesForApp } from '../utils/generateMaintenanceCycles';
+import { apiFetch } from '../lib/apiClient';
 
 const SUBVIEWS = [
   { key: 'this-month', label: 'This Month' },
@@ -357,7 +358,7 @@ const MaintenanceTab = React.memo(function MaintenanceTab() {
         const cycle = { id: d.id, ...d.data() };
         const cycleId = cycle.cycleId || d.id;
         try {
-          const res = await fetch('/api/calendar', {
+          const res = await apiFetch('/api/calendar', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -427,7 +428,7 @@ const MaintenanceTab = React.memo(function MaintenanceTab() {
       });
       if (allDone && cycle.calendarEventId) {
         try {
-          const res = await fetch('/api/calendar', {
+          const res = await apiFetch('/api/calendar', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

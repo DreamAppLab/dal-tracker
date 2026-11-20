@@ -77,12 +77,9 @@ function toTimestamp(value) {
   return Number.isNaN(d.getTime()) ? null : Timestamp.fromDate(d);
 }
 
-module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(204).end();
+const { withSecurity } = require('../_lib/security');
 
+module.exports = withSecurity({ name: 'blog-posts', methods: ['GET',  'POST'], auth: 'admin' }, async (req, res) => {
   try {
     const db = getSiteDb();
     const col = db.collection('posts');
@@ -133,7 +130,6 @@ module.exports = async (req, res) => {
     console.error('blog posts api error', e);
     return res.status(500).json({
       error: 'Blog posts request failed',
-      detail: String((e && e.message) || e),
     });
   }
-};
+});

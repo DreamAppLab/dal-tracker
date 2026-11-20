@@ -22,8 +22,21 @@
 // For inbound replies, `body` is the reply only (Mailgun stripped-text when available)
 // and `bodyFull` keeps the complete raw email text for reference.
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).end();
+import { FieldValue } from 'firebase-admin/firestore';
+import security from './_lib/security';
+import firebaseAdmin from './_lib/firebaseAdmin';
+import mailgunWebhook from './_lib/mailgunWebhook';
+
+const { withSecurity } = security;
+const { getMcDb } = firebaseAdmin;
+const { verifyMailgunRequest } = mailgunWebhook;
+
+const clip = (v, n) => String(v || '').slice(0, n);
+
+async function handler(req, res) {
+  if (!req.body || typeof req.body !== 'object' || !(await verifyMailgunRequest(req.body))) {
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
 
   try {
     // Mailgun sends multipart/form-data for inbound emails
@@ -43,21 +56,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, note: 'No thread ID found, ignored' });
     }
 
-    // Initialize Firebase Admin
-    const { initializeApp, getApps, cert } = await import('firebase-admin/app');
-    const { getFirestore, FieldValue } = await import('firebase-admin/firestore');
-
-    if (!getApps().length) {
-      initializeApp({
-        credential: cert({
-          projectId: process.env.FIREBASE_PROJECT_ID,
-          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-          privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-        }),
-      });
-    }
-
-    const adminDb = getFirestore();
+    const adminDb = getMcDb();
 
     // Find the original email by threadId matching inReplyTo
     const threadIdToMatch = inReplyTo.trim();
@@ -90,21 +89,27 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ ok: true });
   } catch (err) {
-    console.error('inbound-client-email error:', err);
-    return res.status(500).json({ error: err.message });
+    console.error('inbound-client-email error:', err && err.message);
+    return res.status(500).json({ error: 'Inbound processing failed' });
   }
 }
+
+// Server-to-server (Mailgun route): no CORS; authenticity = Mailgun signature.
+export default withSecurity(
+  { name: 'inbound-client-email', methods: ['POST'], auth: 'public', cors: 'none', rateLimit: { limit: 60, windowMs: 60_000 } },
+  handler
+);
 
 async function saveReply(adminDb, FieldValue, original, parentId, sender, subject, bodyText, fullText, messageId) {
   await adminDb.collection('clientEmails').add({
     clientId: original.clientId,
     projectId: original.projectId || null,
     source: original.source,
-    threadId: messageId,
-    subject: subject,
-    body: bodyText,
-    bodyFull: fullText,
-    to: sender,
+    threadId: clip(messageId, 500),
+    subject: clip(subject, 500),
+    body: clip(bodyText, 100_000),
+    bodyFull: clip(fullText, 300_000),
+    to: clip(sender, 320),
     sentAt: FieldValue.serverTimestamp(),
     direction: 'inbound',
     read: false,

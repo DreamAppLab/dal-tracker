@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
-import { db, auth } from '../firebase';
+import { useAuth, markActivity } from '../contexts/AuthContext';
+import { auth } from '../firebase';
 import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 
 export default function LoginScreen() {
-  const { login } = useAuth();
+  const { login, signOutReason, setSignOutReason } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -19,20 +19,10 @@ export default function LoginScreen() {
     setError('');
     setSubmitting(true);
     try {
-      const userCredential = await login(email.trim(), password);
-
-      const { doc, setDoc } = await import('firebase/firestore');
-      setDoc(doc(db, 'loginEvents', Date.now().toString()), {
-        email: userCredential.user.email,
-        timestamp: new Date().toISOString(),
-        userAgent: navigator.userAgent,
-      }).catch(e => console.warn('Login event failed:', e));
-
-      fetch('/api/send-notification', { method: 'POST' }).catch((e) =>
-        console.warn('Login notification failed:', e)
-      );
+      // Sign-in is recorded server-side (auditLog + alert email) by AuthContext.
+      await login(email.trim(), password);
     } catch (err) {
-      setError(err.message || 'Login failed. Check your email and password.');
+      setError('Sign-in failed. Check your email and password.');
     } finally {
       setSubmitting(false);
     }
@@ -52,6 +42,11 @@ export default function LoginScreen() {
 
         <div className="login-card">
           <p className="login-subtitle">Sign in to access the dashboard</p>
+          {signOutReason === 'idle' && (
+            <p className="login-notice" role="status">
+              You were signed out after 30 minutes of inactivity.
+            </p>
+          )}
           <form className="login-form" onSubmit={handleSubmit}>
             <label className="login-label">
               Email
@@ -81,10 +76,20 @@ export default function LoginScreen() {
             </button>
           </form>
           <button
-            className="login-btn"
-            onClick={() => {
-              const provider = new GoogleAuthProvider();
-              signInWithPopup(auth, provider).then(() => window.location.reload());
+            className="login-btn login-btn-google"
+            type="button"
+            onClick={async () => {
+              setError('');
+              setSignOutReason(null);
+              markActivity();
+              try {
+                await signInWithPopup(auth, new GoogleAuthProvider());
+              } catch (err) {
+                const code = err && err.code;
+                if (code === 'auth/popup-blocked') setError('The sign-in window was blocked. Allow pop-ups for this site and try again.');
+                else if (code === 'auth/admin-restricted-operation') setError('This Google account is not allowed. Sign in with lab@dreamapplab.com.');
+                else if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') setError('Google sign-in failed. Try again.');
+              }
             }}
           >
             Sign in with Google

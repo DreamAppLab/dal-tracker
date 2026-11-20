@@ -23,6 +23,7 @@ import ClientTab from './ClientTab';
 import { hasPipelineTab, pipelineKindForProjectType, PROJECT_TYPE_BADGE } from '../data/projectTypes';
 import { openProjectHandoffPrint } from '../utils/projectHandoffPrint';
 import BlogAdmin from '../pages/BlogAdmin';
+import { apiFetch } from '../lib/apiClient';
 
 function getProgress(project) {
   const allTasks = [...(project.milestones || []), ...(project.edits || [])];
@@ -148,10 +149,9 @@ function generateEditsPDF(project, filter) {
   if (!printWindow) return;
   printWindow.document.write(html);
   printWindow.document.close();
-  printWindow.onload = () => {
-    printWindow.focus();
-    printWindow.print();
-  };
+  const doPrint = () => { printWindow.focus(); printWindow.print(); };
+  if (printWindow.document.readyState === 'complete') setTimeout(doPrint, 300);
+  else printWindow.onload = doPrint;
 }
 
 function getFilteredEdits(edits, filter) {
@@ -1119,7 +1119,7 @@ export default function ProjectDetail({ project, revenueLogos = {}, onUpdate, on
                   setDeletingProject(true);
                   setDeleteError('');
                   try {
-                    const res = await fetch('/api/delete-project', {
+                    const res = await apiFetch('/api/delete-project', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ id: project.id }),

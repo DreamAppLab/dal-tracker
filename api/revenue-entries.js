@@ -7,45 +7,15 @@
 // Client project payments live on the revenue collection: typed documents at the
 // top level, plus revenue/{appId}/manualSales entries written by Quotes / Build Board.
 
-const { initializeApp, getApp, cert } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 
 const ENTRY_TYPES = ['deposit', 'balance', 'reversal'];
 const DEFAULT_APP_ID = 'dal-website';
 
-let _mcApp = null;
+const shared = require('./_lib/firebaseAdmin');
 
 function getMcApp() {
-  if (_mcApp) return _mcApp;
-
-  const projectId = process.env.DAL_MC_FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.DAL_MC_FIREBASE_CLIENT_EMAIL;
-  const privateKey = (process.env.DAL_MC_FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
-  const storageBucket =
-    process.env.DAL_MC_FIREBASE_STORAGE_BUCKET ||
-    (projectId ? projectId + '.firebasestorage.app' : '');
-
-  if (!projectId || !clientEmail || !privateKey) {
-    throw new Error('Missing DAL_MC Firebase env vars');
-  }
-
-  const appName = 'dalMcAdmin';
-  let app;
-  try {
-    app = getApp(appName);
-  } catch (_) {
-    app = initializeApp(
-      {
-        credential: cert({ projectId, clientEmail, privateKey }),
-        projectId,
-        storageBucket,
-      },
-      appName
-    );
-  }
-
-  _mcApp = app;
-  return _mcApp;
+  return shared.getMcApp();
 }
 
 function getDb() {
@@ -190,23 +160,14 @@ async function findEntryRef(db, id) {
   return null;
 }
 
-module.exports = async (req, res) => {
-  if (req.method === 'POST' || req.method === 'DELETE' || req.method === 'PATCH') {
-    const auth = String(req.headers['authorization'] || '');
-    const secret = process.env.DAL_MC_INTERNAL_SECRET || '';
-    if (!secret || auth !== `Bearer ${secret}`) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-  }
+const { withSecurity } = require('./_lib/security');
 
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(204).end();
-
+// Mission Control (admin token) or server-to-server (DAL_MC_INTERNAL_SECRET).
+module.exports = withSecurity({ name: 'revenue-entries', methods: ['GET', 'POST', 'PATCH', 'DELETE'], auth: 'admin-or-internal' }, async (req, res) => {
   try {
     const db = getDb();
     const id = String((req.query && req.query.id) || '').trim();
+    if (id && !/^[A-Za-z0-9_-]{1,200}$/.test(id)) return res.status(400).json({ error: 'Invalid id' });
 
     if (req.method === 'GET') {
       const type = normalizeType(req.query && req.query.type);
@@ -309,7 +270,6 @@ module.exports = async (req, res) => {
     console.error('revenue-entries api error', e);
     return res.status(status).json({
       error: status === 400 ? e.message : 'Revenue entries request failed',
-      detail: String((e && e.message) || e),
     });
   }
-};
+});
