@@ -101,9 +101,9 @@ To rotate one: create the new key at the provider, update the Vercel variable
 ### Security audit log (Nov 20 2026)
 - **Git history** (`gitleaks git --log-opts=--all`, all refs): only public
   Firebase web API keys, allowlist UIDs, and the retired Brevo key inside an old
-  committed `build/` bundle. Brevo is no longer used anywhere; the key must be
-  revoked in Brevo (it cannot be scrubbed from history that GitHub has already
-  served).
+  committed `build/` bundle. Brevo is no longer used anywhere and that key is
+  retired at the provider; history that GitHub has already served can't be
+  scrubbed, so retirement, not rewriting, is the fix.
 - **Vercel env**: the old `REACT_APP_*` secret copies (RevenueCat, Vercel,
   GitHub, Mailgun, Sentry, PostHog, Crisp, Expo, Google client secret, FT admin
   secret) were deleted from every environment, along with unreferenced leftovers
@@ -120,11 +120,6 @@ To rotate one: create the new key at the provider, update the Vercel variable
   script. `npm audit fix` can't apply them inside the parents' version ranges;
   they clear when firebase-admin / googleapis / quill ship fixed releases, which
   Dependabot (`.github/dependabot.yml`) proposes weekly behind CI.
-- **Firestore free-text** (admin-only, but plaintext and in every backup):
-  credential-shaped text in `blackbox/dal_wide` (Brevo, GitHub, Mailgun and
-  RevenueCat keys, a private key, passwords), `blackbox/dal_hq_services`
-  (Mailgun), `projects/familythread-…` (Brevo) and the `projects/` docs for
-  FamilyWatch, FlarePad, MyClassLog, RV Vault and Ten Miles Ahead (RevenueCat
-  secret keys). Left in place on purpose: some may be the only copy (e.g.
-  keystore passwords). Move each to the password manager, revoke any key that
-  is no longer used, then delete it from the note. New rule: CLAUDE.md 13.
+- **Firestore free-text**: some legacy notes contain pasted credentials. They are
+  being migrated to the password manager (CLAUDE.md rule 13); the inventory is
+  kept privately, not in this public repo.
