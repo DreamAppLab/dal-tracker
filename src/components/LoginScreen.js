@@ -52,6 +52,7 @@ export default function LoginScreen() {
           <button
             className="login-btn login-btn-google"
             type="button"
+            aria-describedby="login-google-hint"
             onClick={async () => {
               setError('');
               setSignOutReason(null);
@@ -68,8 +69,8 @@ export default function LoginScreen() {
           >
             Sign in with Google
           </button>
-          <p className="login-hint">Use your {ADMIN_GOOGLE_ACCOUNT} Google account.</p>
-          <div className="login-divider" role="separator"><span>or sign in with email</span></div>
+          <p className="login-hint" id="login-google-hint">Use your {ADMIN_GOOGLE_ACCOUNT} Google account.</p>
+          <p className="login-divider">or sign in with email</p>
           <form className="login-form" onSubmit={handleSubmit}>
             <label className="login-label">
               Email
