@@ -53,11 +53,12 @@ security change. These rules are enforced by tests and by the Vercel build.
     it to `SENSITIVE` in `api/_lib/vaultSchema.js` and to the tests.
 12. **Never commit** `.env*`, service-account JSON, or `build/`. Source maps are not
     published (`GENERATE_SOURCEMAP=false`).
-13. **No credentials in free-text fields.** Black Box, project notes, todos and
+13. **No credentials in free-text fields** (policy; not machine-checked). Black Box, project notes, todos and
     other Firestore text are stored in plaintext. API keys and passwords belong in
     Vercel (server keys) or the password manager; company numbers belong in the
     encrypted Companies vault.
-14. **Retired env vars get deleted from Vercel**, not just unreferenced. After a
+14. **Retired env vars get deleted from Vercel**, not just unreferenced (policy;
+    not machine-checked). After a
     rename or provider removal, delete the old variable in every environment and
     revoke the old key at the provider.
 

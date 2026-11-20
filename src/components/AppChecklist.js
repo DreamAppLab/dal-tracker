@@ -10,9 +10,11 @@ const FIREBASE_APPS = [
   'dal-website', 'shady-duck',
 ];
 
-// Projects whose id contains one of these run on Firebase even though their
-// ids carry a timestamp suffix (e.g. mission-control-1786094986533).
-const FIREBASE_APP_ID_PARTS = ['familythread', 'familylens', 'familywatch', 'mission-control'];
+// Family apps run on Firebase whatever suffix their id carries.
+const FIREBASE_APP_ID_PARTS = ['familythread', 'familylens', 'familywatch'];
+// Mission Control itself (id: mission-control-<timestamp>). Anchored so a client
+// project whose slug merely contains "mission-control" doesn't match.
+const MISSION_CONTROL_ID = /^mission-control(-\d+)?$/;
 
 const PUB_PIPELINE_ITEMS = [
   { key: 'expo_doctor', label: 'Run npx expo-doctor', description: 'Must show 0 warnings before every EAS build' },
@@ -54,7 +56,11 @@ const ACCENT = '#4cc1f3';
 
 export function projectHasFirebase(project) {
   const id = project?.id || '';
-  return FIREBASE_APPS.includes(id) || FIREBASE_APP_ID_PARTS.some((part) => id.includes(part));
+  return (
+    FIREBASE_APPS.includes(id) ||
+    FIREBASE_APP_ID_PARTS.some((part) => id.includes(part)) ||
+    MISSION_CONTROL_ID.test(id)
+  );
 }
 
 function formatCompletedAt(ts) {

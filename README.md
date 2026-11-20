@@ -73,10 +73,15 @@ scan on every pull request.
 | `REVENUECAT_SECRET_<APP>`, `REVENUECAT_SECRET_KEY` | revenue sync, Tools Hub |
 | `GITHUB_TOKEN`, `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `UPTIMEROBOT_API_KEY` | Tools page live cards (GitHub, Vercel) / Website Analytics. Sentry, PostHog, Expo and Crisp are link-only: Mission Control holds no keys for them. |
 | `FT_ADMIN_SECRET` | FamilyThread admin proxy |
-| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` | SMS |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` | SMS — **not set** (feature inactive until added) |
 | `STRIPE_SECRET_KEY` | payment links |
+| `STRIPE_WEBHOOK_SECRET` | `/api/stripe-webhook` signature check — **not set**; the webhook rejects every call (no Stripe deliveries seen) |
+| `DAL_SITE_FIREBASE_PROJECT_ID`, `DAL_SITE_FIREBASE_CLIENT_EMAIL`, `DAL_SITE_FIREBASE_PRIVATE_KEY`, `DAL_SITE_FIREBASE_STORAGE_BUCKET` (optional) | dal-website Firestore: blog, quotes, submit, record-quote-payment |
+| `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` | older name for the dal-website service account, read first by `record-quote-payment` |
+| `ZERBIQ_FIREBASE_CLIENT_EMAIL`, `ZERBIQ_FIREBASE_PRIVATE_KEY` (+ optional `ZERBIQ_FIREBASE_PROJECT_ID`, `_STORAGE_BUCKET`) | Zerbiq blog admin — **not set** (feature inactive until added) |
+| `MAILGUN_WEBHOOK_SIGNING_KEY`, `DAL_MC_FIREBASE_STORAGE_BUCKET`, `DAL_SITE_URL`, `NDA_URL` (all optional) | inbound signature key (else fetched with `MAILGUN_API_KEY`), Storage bucket override, quote links, NDA attachment |
 | `VAULT_ENCRYPTION_KEY` (Sensitive, production only) | Companies vault encryption — base64 of 32 random bytes |
-| `REACT_APP_FT_*`, `REACT_APP_ZERBIQ_FIREBASE_*` (public) | Firebase **web** config only — never secrets |
+| `REACT_APP_FT_*`, `REACT_APP_ZERBIQ_FIREBASE_*`, `REACT_APP_DAL_SITE_FIREBASE_*`, `REACT_APP_DAL_SITE_URL` (public) | Firebase **web** config and URLs only — never secrets |
 
 ### Provider keys (rotated Nov 20 2026)
 Each key is dedicated to Mission Control and named after it at the provider, so
@@ -94,7 +99,7 @@ To rotate one: create the new key at the provider, update the Vercel variable
 (Sensitive), redeploy, check the Tools page, then revoke the old key.
 
 ### Security audit log (Nov 20 2026)
-- **Git history** (`gitleaks git --log-opts=--all`, 280 commits): only public
+- **Git history** (`gitleaks git --log-opts=--all`, all refs): only public
   Firebase web API keys, allowlist UIDs, and the retired Brevo key inside an old
   committed `build/` bundle. Brevo is no longer used anywhere; the key must be
   revoked in Brevo (it cannot be scrubbed from history that GitHub has already
@@ -105,14 +110,21 @@ To rotate one: create the new key at the provider, update the Vercel variable
   (`SETUP_BILLING_TOKEN`, `DAL_MANUAL_QUOTE_SECRET`,
   `FIREBASE_SERVICE_ACCOUNT_JSON`, `Gemini_API_Key`,
   `VITE_GOOGLE_MAPS_BROWSER_KEY`, and the lower-case Firebase web config
-  `apiKey`/`appId`/...). Only the names in the table above remain, and
-  `REACT_APP_*` holds public Firebase web config only.
+  `apiKey`/`appId`/...). Every remaining variable is listed in the table above,
+  and `REACT_APP_*` holds public Firebase web config and URLs only.
 - **npm audit** (production deps): 8 moderate advisories in transitive
   `uuid`/`glob`/`minimatch`/`rimraf` under `firebase-admin` and `googleapis`
   (not reachable: no attacker-controlled globs, no `uuid` `buf` argument) and 1
-  low in `quill` HTML export (not used: the editor reads `root.innerHTML`, admin
-  only). Fixed by parent bumps, which Dependabot (`.github/dependabot.yml`) opens
-  weekly behind CI.
-- **Firestore free-text**: some Black Box / project notes still contain old
-  credentials pasted as text (for example the retired Brevo key). Don't paste
-  keys into notes; see CLAUDE.md rule 13.
+  low in `quill` HTML export (`getSemanticHTML`), reachable only through Quill's
+  copy handler on admin-written blog content; Mission Control's CSP blocks inline
+  script. `npm audit fix` can't apply them inside the parents' version ranges;
+  they clear when firebase-admin / googleapis / quill ship fixed releases, which
+  Dependabot (`.github/dependabot.yml`) proposes weekly behind CI.
+- **Firestore free-text** (admin-only, but plaintext and in every backup):
+  credential-shaped text in `blackbox/dal_wide` (Brevo, GitHub, Mailgun and
+  RevenueCat keys, a private key, passwords), `blackbox/dal_hq_services`
+  (Mailgun), `projects/familythread-…` (Brevo) and the `projects/` docs for
+  FamilyWatch, FlarePad, MyClassLog, RV Vault and Ten Miles Ahead (RevenueCat
+  secret keys). Left in place on purpose: some may be the only copy (e.g.
+  keystore passwords). Move each to the password manager, revoke any key that
+  is no longer used, then delete it from the note. New rule: CLAUDE.md 13.

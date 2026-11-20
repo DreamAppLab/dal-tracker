@@ -1,6 +1,9 @@
-# Weekly dependency updates. Security advisories in transitive server deps
-# (firebase-admin, googleapis) are fixed by bumping the parent package, which
-# Dependabot proposes here; CI (tests + bundle secret scan) gates every bump.
+# Weekly version updates for direct dependencies; CI (tests + bundle secret
+# scan) must pass before any bump is merged. Advisories in transitive server
+# deps (uuid/glob/minimatch under firebase-admin and googleapis) need new
+# releases of those parents, which these PRs pick up. Dependabot branches get
+# no Vercel preview build (vercel.json git.deploymentEnabled), so unreviewed
+# install scripts never run with Preview env vars.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -11,6 +14,7 @@ updates:
     groups:
       google-firebase:
         patterns: ["firebase*", "googleapis*", "@google-cloud/*"]
+        update-types: ["minor", "patch"]
       minor-and-patch:
         update-types: ["minor", "patch"]
   - package-ecosystem: github-actions
