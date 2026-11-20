@@ -58,9 +58,14 @@ function headerMap(body) {
 const msgIds = (s) => String(s || '').match(/<[^<>\s]+>/g) || [];
 
 const domainOf = (addr) => (String(addr || '').split('@')[1] || '').toLowerCase();
-// Registrable-ish domain: last two labels (mail.client.com and client.com align).
-const baseDomain = (d) => String(d || '').toLowerCase().split('.').filter(Boolean).slice(-2).join('.');
-const aligned = (a, b) => !!a && !!b && baseDomain(a) === baseDomain(b);
+// Aligned = same domain, or one is a subdomain of the other (mail.client.com ~
+// client.com). Never "same last two labels": evil.co.uk must not match client.co.uk.
+const normDomain = (d) => String(d || '').toLowerCase().replace(/\.+$/, '');
+const aligned = (a, b) => {
+  const x = normDomain(a);
+  const y = normDomain(b);
+  return !!x && !!y && (x === y || x.endsWith(`.${y}`) || y.endsWith(`.${x}`));
+};
 
 // "Verified" only when Mailgun's check passed for the From domain: SPF pass with
 // the envelope domain aligned to From, or Mailgun DKIM pass with a DKIM-Signature
@@ -74,8 +79,13 @@ function senderVerified(h, fromAddr, envelopeAddr) {
   if (!fromDomain) return false;
   if (/^pass/i.test(spf[0] || '') && aligned(domainOf(envelopeAddr), fromDomain)) return true;
   if (/^pass/i.test(dkim[0] || '')) {
-    const dValues = (h['dkim-signature'] || []).map((v) => ((v.match(/(?:^|;)\s*d=([^;\s]+)/i) || [])[1] || '').toLowerCase());
-    if (dValues.some((d) => aligned(d, fromDomain))) return true;
+    // Mailgun reports one DKIM result for the whole message, so only trust it
+    // when there is exactly one signature and it is the From domain's.
+    const sigs = h['dkim-signature'] || [];
+    if (sigs.length === 1) {
+      const d = ((sigs[0].match(/(?:^|;)\s*d=([^;\s]+)/i) || [])[1] || '').toLowerCase();
+      if (aligned(d, fromDomain)) return true;
+    }
   }
   return false;
 }
@@ -265,4 +275,30 @@ async function handleInbound(db, body, { send = sendMail, attachments = [] } = {
   return skippedCopy ? { filed, copied, skippedCopy } : { filed, copied };
 }
 
-module.exports = { handleInbound, parseInbound, emailAddress, headerMap };
+/**
+ * Mailgun's signature covers only timestamp+token, not the body. Bind each token
+ * to the first message it arrived with, durably, so a leaked signature can only
+ * re-deliver that same message (a genuine retry) — never different content.
+ * Returns true if this body may be processed.
+ */
+async function bindToken(db, body) {
+  const token = field(body, 'token');
+  if (!token) return false;
+  // Fingerprint of everything that matters; a genuine Mailgun retry resends it unchanged.
+  const key = crypto
+    .createHash('sha256')
+    .update(JSON.stringify(['sender', 'from', 'recipient', 'subject', 'body-plain', 'stripped-text', 'body-html', 'message-headers', 'Message-Id', 'In-Reply-To', 'References', 'attachment-count']
+      .map((n) => field(body, n))))
+    .digest('hex');
+  const ref = db.collection('inboundMessages').doc(`tok_${crypto.createHash('sha256').update(token).digest('hex')}`);
+  try {
+    await ref.create({ key, at: FieldValue.serverTimestamp() });
+    return true;
+  } catch (e) {
+    const snap = await ref.get();
+    if (!snap.exists) throw e;
+    return (snap.data() || {}).key === key;
+  }
+}
+
+module.exports = { handleInbound, parseInbound, emailAddress, headerMap, bindToken };

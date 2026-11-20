@@ -256,3 +256,29 @@ test('the replay token is recorded only after success, so Mailgun retries get th
   assert.equal(await verifyMailgunRequest(body, opts), false, 'replay after success is rejected');
   assert.equal(await verifyMailgunRequest(body, { keyOverride: key }), false, 'default 15-minute window still applies elsewhere');
 });
+
+test('a Mailgun token can only ever carry the message it first arrived with', async () => {
+  const { bindToken } = require('../../api/_lib/inboundEmail');
+  const db = setup({});
+  const genuine = { token: 'tok-1', timestamp: '1', signature: 'x', from: 'jaclyn@example.com', subject: 'Re: Draft', 'body-plain': 'Love it', 'Message-Id': '<g1@mail>' };
+  assert.equal(await bindToken(db, genuine), true);
+  assert.equal(await bindToken(db, { ...genuine }), true, 'an identical retry is allowed');
+  assert.equal(await bindToken(db, { ...genuine, 'body-plain': 'Please wire the deposit to…', 'Message-Id': '<evil@x>' }), false);
+  assert.equal(await bindToken(db, { ...genuine, 'Message-Id': undefined, subject: 'other' }), false);
+  assert.equal(await bindToken(db, { from: 'a@b.c' }), false, 'no token');
+});
+
+test('alignment is exact or subdomain only (no public-suffix lookalikes) and needs a single DKIM signature', () => {
+  const spf = headers([['X-Mailgun-Spf', 'Pass']]);
+  assert.equal(parseInbound({ from: 'jo@client.co.uk', sender: 'x@evil.co.uk', 'message-headers': spf }).verified, false);
+  assert.equal(parseInbound({ from: 'jo@client.co.uk', sender: 'bounce@mail.client.co.uk', 'message-headers': spf }).verified, true);
+  const twoSigs = headers([['X-Mailgun-Dkim-Check-Result', 'Pass'], ['DKIM-Signature', 'v=1; d=evil.com; b=ok'], ['DKIM-Signature', 'v=1; d=example.com; b=bogus']]);
+  assert.equal(parseInbound({ from: 'jaclyn@example.com', 'message-headers': twoSigs }).verified, false);
+});
+
+test('future-dated Mailgun timestamps are rejected even with the wide retry window', async () => {
+  const { verifyMailgunRequest, computeSignature } = require('../../api/_lib/mailgunWebhook');
+  const ts = String(Math.floor(Date.now() / 1000) + 3600);
+  const body = { timestamp: ts, token: 'future-1', signature: computeSignature('k', ts, 'future-1') };
+  assert.equal(await verifyMailgunRequest(body, { keyOverride: 'k', recordToken: false, maxSkewSeconds: 9 * 3600 }), false);
+});

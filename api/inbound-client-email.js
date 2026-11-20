@@ -29,7 +29,7 @@ const { verifyMailgunRequest, commitMailgunToken } = mailgunWebhook;
 // Mailgun retries a failed forward for up to ~8 h with the original signature.
 // Processing is idempotent per message, so accept retries for that long.
 const RETRY_WINDOW_SECONDS = 9 * 60 * 60;
-const { handleInbound } = inboundEmail;
+const { handleInbound, bindToken } = inboundEmail;
 const { parseInboundForm } = inboundForm;
 
 async function handler(req, res) {
@@ -45,7 +45,14 @@ async function handler(req, res) {
     return res.status(401).json({ error: 'Invalid signature' });
   }
   try {
-    const result = await handleInbound(getMcDb(), parsed.body, { attachments: parsed.attachments });
+    const db = getMcDb();
+    // The signature doesn't cover the body: a token may only ever carry the
+    // message it first arrived with (so the 9 h retry window can't be abused).
+    if (!(await bindToken(db, parsed.body))) {
+      console.error('inbound-client-email: rejected (token reused with different content)');
+      return res.status(401).json({ error: 'Invalid signature' });
+    }
+    const result = await handleInbound(db, parsed.body, { attachments: parsed.attachments });
     commitMailgunToken(parsed.body); // only after success, so failures can be retried
     return res.status(200).json({ ok: true, ...result });
   } catch (err) {

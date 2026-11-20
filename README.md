@@ -40,7 +40,8 @@ rules every change must follow.
 - **Size limit:** Vercel rejects requests over ~4.5 MB, so an email with large
   attachments never reaches Mission Control. For a guaranteed copy of
   everything, add a second action `forward("lab@dreamapplab.com")` to the
-  Mailgun route (Mailgun dashboard → Receiving → Routes).
+  Mailgun route (Mailgun dashboard → Receiving → Routes). lab@ then gets each
+  message twice (the original and Mission Control's labelled copy).
 
 ## Companies vault
 Company profiles (`companies/dal`, `companies/zerbiq`), bank accounts and credit

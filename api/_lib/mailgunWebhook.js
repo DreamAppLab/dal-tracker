@@ -55,7 +55,8 @@ async function verifyMailgunRequest(body, { now = Date.now(), keyOverride, recor
   const signature = pick(body, 'signature');
   if (!timestamp || !token || !/^[a-f0-9]{64}$/i.test(signature)) return false;
   const ts = Number(timestamp);
-  if (!Number.isFinite(ts) || Math.abs(now / 1000 - ts) > maxSkewSeconds) return false;
+  // Past: up to maxSkewSeconds (Mailgun retries). Future: only normal clock skew.
+  if (!Number.isFinite(ts) || now / 1000 - ts > maxSkewSeconds || ts - now / 1000 > MAX_SKEW_SECONDS) return false;
   const key = keyOverride || (await getSigningKey());
   if (!key) return false;
   const expected = computeSignature(key, timestamp, token);
