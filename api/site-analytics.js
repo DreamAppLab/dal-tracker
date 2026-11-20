@@ -10,8 +10,6 @@
 // Caches combined result in Firestore siteAnalyticsCache/{siteId} for 5 min.
 
 const shared = require('./_lib/firebaseAdmin');
-const { initializeApp, getApp } = require('firebase-admin/app');
-const { cert } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 
 // ── Firebase Admin (dal-mission-control) ────────────────────────────────────

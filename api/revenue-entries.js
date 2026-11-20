@@ -7,7 +7,6 @@
 // Client project payments live on the revenue collection: typed documents at the
 // top level, plus revenue/{appId}/manualSales entries written by Quotes / Build Board.
 
-const { initializeApp, getApp, cert } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 
 const ENTRY_TYPES = ['deposit', 'balance', 'reversal'];

@@ -258,13 +258,13 @@ async function handlePostPin(req, res) {
   if (!rl.allowed) throw new HttpError(429, 'Too many notes — please wait a few minutes');
 
   const body = validate(PinSchema, parseJsonBody(req, { maxBytes: 4 * 1024 * 1024 }));
-  const daily = await checkRateLimit({ key: `feedback-pin-project:${body.project_id}`, limit: 500, windowMs: 24 * 60 * 60 * 1000, durable: true });
-  if (!daily.allowed) throw new HttpError(429, 'This project has reached today’s feedback limit');
   const db = getMcDb();
   const projectDoc = await db.collection('webProjects').doc(body.project_id).get();
   if (!projectDoc.exists) throw new HttpError(404, 'Project not found');
   const project = projectDoc.data() || {};
   if (project.status === 'archived') throw new HttpError(403, 'Feedback is closed for this project');
+  const daily = await checkRateLimit({ key: `feedback-pin-project:${body.project_id}`, limit: 500, windowMs: 24 * 60 * 60 * 1000, durable: true });
+  if (!daily.allowed) throw new HttpError(429, 'This project has reached today’s feedback limit');
 
   const pinData = {
     project_id: body.project_id,

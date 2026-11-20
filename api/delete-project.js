@@ -3,7 +3,6 @@
 // Uses the dal-mission-control service account (DAL_MC_FIREBASE_* env vars).
 
 const shared = require('./_lib/firebaseAdmin');
-const { initializeApp, getApp, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
 
