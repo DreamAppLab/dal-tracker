@@ -112,14 +112,14 @@ function taxYearFromDate(dateStr) {
 
 function pickAllowed(body, { isCreate }) {
   const out = {};
-  if (body.vendor != null) out.vendor = String(body.vendor).trim();
+  if (body.vendor != null) out.vendor = String(body.vendor).trim().slice(0, 200);
   if (body.amount != null) out.amount = Number(body.amount);
   if (body.date != null) out.date = String(body.date).trim();
   if (body.category != null) out.category = String(body.category).trim();
   if (body.appId != null) out.appId = String(body.appId).trim();
-  if (body.description != null) out.description = String(body.description).trim();
+  if (body.description != null) out.description = String(body.description).trim().slice(0, 5000);
   if (body.source != null && SOURCES.includes(body.source)) out.source = body.source;
-  if (body.rawText != null) out.rawText = String(body.rawText);
+  if (body.rawText != null) out.rawText = String(body.rawText).slice(0, 100000);
   if (body.attachmentUrl != null) out.attachmentUrl = String(body.attachmentUrl).trim();
   if (typeof body.parsedByAI === 'boolean') out.parsedByAI = body.parsedByAI;
   if (typeof body.needsReview === 'boolean') out.needsReview = body.needsReview;
@@ -209,10 +209,15 @@ function attachmentFromBody(body) {
   if (buf.length > 4 * 1024 * 1024) {
     throw Object.assign(new Error('Receipt must be 4MB or smaller'), { status: 400 });
   }
+  const contentType = String(body.attachmentType || '').toLowerCase();
+  const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/gif'];
+  if (!ALLOWED_TYPES.includes(contentType)) {
+    throw Object.assign(new Error('Receipt must be a PDF or image'), { status: 400 });
+  }
   return {
     buffer: buf,
     filename: String(body.attachmentName || 'receipt'),
-    contentType: String(body.attachmentType || 'application/octet-stream'),
+    contentType,
   };
 }
 
@@ -229,15 +234,14 @@ async function deleteStoragePrefix(prefix) {
   }
 }
 
-module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(204).end();
+const { withSecurity } = require('./_lib/security');
+const { writeAudit } = require('./_lib/audit');
 
+module.exports = withSecurity({ name: 'expenses', methods: ['GET',  'POST',  'PUT',  'DELETE'], auth: 'admin' }, async (req, res) => {
   try {
     const db = getDb();
     const id = String((req.query && req.query.id) || '').trim();
+    if (id && !/^[A-Za-z0-9_-]{1,128}$/.test(id)) return res.status(400).json({ error: 'Invalid expense id' });
     const col = db.collection('expenses');
 
     if (req.method === 'GET') {
@@ -290,7 +294,7 @@ module.exports = async (req, res) => {
 
     if (req.method === 'DELETE') {
       if (!id) return res.status(400).json({ error: 'Expense id is required' });
-      if (id.includes('/') || id.includes('..')) {
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) {
         return res.status(400).json({ error: 'Invalid expense id' });
       }
       const ref = col.doc(id);
@@ -298,6 +302,7 @@ module.exports = async (req, res) => {
       if (!existing.exists) return res.status(404).json({ error: 'Expense not found' });
       await deleteStoragePrefix(`expenses/${id}/`);
       await ref.delete();
+      await writeAudit({ type: 'delete', actor: req.auth, target: `expenses/${id}` }, req);
       return res.status(200).json({ ok: true, id });
     }
 
@@ -307,7 +312,6 @@ module.exports = async (req, res) => {
     console.error('expenses api error', e);
     return res.status(status).json({
       error: status === 400 ? e.message : 'Expenses request failed',
-      detail: String((e && e.message) || e),
     });
   }
-};
+});

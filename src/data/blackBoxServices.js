@@ -123,17 +123,6 @@ const BLACK_BOX_SERVICES = [
 
   // ── EMAIL & MESSAGING ─────────────────────────────────────
   {
-    key: 'brevo',
-    label: 'Brevo',
-    category: 'Email & Messaging',
-    fields: [
-      { fieldName: 'API Key Env Var', fieldDescription: 'Name of env var — migrating to Mailgun' },
-      { fieldName: 'Sender Email', fieldDescription: 'From address used in sends' },
-      { fieldName: 'Sender Name', fieldDescription: 'From name used in sends' },
-      { fieldName: 'Migration Status', fieldDescription: 'in progress — moving to Mailgun' },
-    ]
-  },
-  {
     key: 'mailgun',
     label: 'Mailgun',
     category: 'Email & Messaging',

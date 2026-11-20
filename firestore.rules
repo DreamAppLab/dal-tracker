@@ -1,36 +1,51 @@
 rules_version = '2';
+
+// DAL Mission Control — Firestore security rules.
+//
+// Deny by default. Only Eddie's allowlisted account, with a VERIFIED email,
+// can read or write anything. Server-only collections (auditLog, rateLimits,
+// vault ciphertext) are never writable from a browser — the Vercel API
+// functions write them with the Admin SDK, which bypasses these rules.
+//
+// The public feedback widget never talks to Firestore directly: it calls
+// /api/feedback/*, which validates, size-limits and rate-limits every pin.
+// So anonymous clients get no Firestore access at all.
+//
+// KEEP THE ALLOWLIST IN SYNC with api/_lib/allowlist.js and storage.rules
+// (tests/security/allowlist-sync.test.js enforces this).
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Mission Control is a single-owner app. Access is granted to Eddie's
-    // original Firebase account, or to any sign-in (email/password or Google)
-    // whose VERIFIED email is one of his. Matching on verified email means a
-    // second sign-in method that creates a new Firebase user ID still works,
-    // while nobody else can get in by typing his address into a sign-up form.
-    // Keep this list identical in firestore.rules and storage.rules.
-    function isAuthorizedUser() {
-      return request.auth != null && (
-        request.auth.uid == 'aEbUJSYaP7aXnYtnSk3A5I4iLp72' ||
-        (
-          request.auth.token.email_verified == true &&
-          request.auth.token.email.lower() in ['eddieskehan@gmail.com', 'lab@dreamapplab.com']
-        )
-      );
+
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && (
+          request.auth.token.email.lower() in ['lab@dreamapplab.com']
+          || request.auth.uid in []
+        );
     }
 
-    match /maintenanceSchedules/{appId} {
-      allow read, write: if isAuthorizedUser();
+    // Collections that only server functions may write.
+    function serverOnlyWrite(collection) {
+      return collection in ['auditLog', 'rateLimits'];
     }
 
-    match /maintenanceCycles/{cycleId} {
-      allow read, write: if isAuthorizedUser();
+    // Audit trail: readable by the admin, never writable by any client.
+    match /auditLog/{entryId} {
+      allow read: if isAdmin();
+      allow write: if false;
     }
 
-    match /calendarTokens/{userId} {
-      allow read, write: if isAuthorizedUser();
+    // Rate-limit counters: server only.
+    match /rateLimits/{key} {
+      allow read, write: if false;
     }
 
-    match /{document=**} {
-      allow read, write: if isAuthorizedUser();
+    // Everything else in Mission Control: admin only.
+    match /{collection}/{document=**} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && !serverOnlyWrite(collection);
     }
   }
 }

@@ -1,4 +1,4 @@
-/* DAL Feedback Widget — v1.0
+/* DAL Feedback Widget — v1.1
  * Usage: <script src="https://dal-tracker.vercel.app/widget/feedback-widget.js"
  *               data-project-id="my-project" data-project-name="My Project"></script>
  */
@@ -113,8 +113,43 @@
   ].join('\n');
   shadow.appendChild(style);
 
-  // ── Admin mode: ?dal_admin=true unlocks resolve button in popups ─────────────
-  var IS_ADMIN = (new URLSearchParams(window.location.search)).get('dal_admin') === 'true';
+  // ── Admin mode ──────────────────────────────────────────────────────────────
+  // Unlocked only by a short-lived signed token that Mission Control puts in the
+  // URL fragment (#dal_admin_token=...) via "Open as admin". The token is kept
+  // in sessionStorage for this tab, removed from the address bar, and checked
+  // by the server on every admin action. (?dal_admin=true no longer does anything.)
+  var ADMIN_TOKEN = null;
+  try {
+    var hashMatch = /(?:^|[#&])dal_admin_token=([^&]+)/.exec(window.location.hash || '');
+    if (hashMatch) {
+      ADMIN_TOKEN = decodeURIComponent(hashMatch[1]);
+      sessionStorage.setItem('dal_admin_token:' + PROJECT_ID, ADMIN_TOKEN);
+      var cleanHash = (window.location.hash || '').replace(/(^#|&)dal_admin_token=[^&]+/, '').replace(/^#&/, '#');
+      history.replaceState(null, '', window.location.pathname + window.location.search + (cleanHash === '#' ? '' : cleanHash));
+    } else {
+      ADMIN_TOKEN = sessionStorage.getItem('dal_admin_token:' + PROJECT_ID);
+    }
+  } catch (e) {}
+  var IS_ADMIN = !!ADMIN_TOKEN;
+
+  function adminHeaders() {
+    return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + ADMIN_TOKEN };
+  }
+
+  function handleAdminFailure(r) {
+    if (r.status === 401 || r.status === 403) {
+      try { sessionStorage.removeItem('dal_admin_token:' + PROJECT_ID); } catch (e) {}
+      alertAdminExpired();
+    }
+  }
+
+  function alertAdminExpired() {
+    var note = document.createElement('div');
+    note.textContent = 'Admin link expired — open the page again from Mission Control.';
+    note.style.cssText = 'position:fixed;bottom:90px;right:24px;z-index:2147483647;background:#0f172a;color:#fff;padding:10px 14px;border-radius:8px;font:13px -apple-system,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.3);';
+    document.body.appendChild(note);
+    setTimeout(function () { note.remove(); }, 6000);
+  }
 
   // ── State ────────────────────────────────────────────────────────────────────
   var session = loadSession();
@@ -277,10 +312,10 @@
           resolveBtn.style.opacity = '0.5';
           fetch(API_BASE + '/resolve', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: adminHeaders(),
             body: JSON.stringify({ pin_id: pin.id, resolved: newResolved }),
           })
-            .then(function (r) { return r.json(); })
+            .then(function (r) { if (!r.ok) handleAdminFailure(r); return r.json(); })
             .then(function (data) {
               if (!data.ok) return;
               pin.resolved = newResolved;
@@ -308,10 +343,10 @@
           hideBtn.style.opacity = '0.5';
           fetch(API_BASE + '/hide', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: adminHeaders(),
             body: JSON.stringify({ pin_id: pin.id, hidden: true }),
           })
-            .then(function (r) { return r.json(); })
+            .then(function (r) { if (!r.ok) handleAdminFailure(r); return r.json(); })
             .then(function (data) {
               if (!data.ok) return;
               // Remove pin from DOM immediately

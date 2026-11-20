@@ -3,7 +3,6 @@ import { format } from 'date-fns';
 import {
   addDoc,
   collection,
-  deleteDoc,
   doc,
   onSnapshot,
   query,
@@ -11,6 +10,8 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { auditedDeleteDoc } from '../lib/audit';
+import { apiFetch } from '../lib/apiClient';
 
 const FORM_TYPE_LABELS = {
   'instant-quote': 'Website',
@@ -143,7 +144,7 @@ async function sendBalancePaymentLink(build, amountOverride) {
   if (!email) {
     throw new Error('This build is missing the client email address.');
   }
-  const res = await fetch('/api/quote-payment-link', {
+  const res = await apiFetch('/api/quote-payment-link', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -215,7 +216,7 @@ async function deleteBuildRecord(build) {
       buildId: build.id,
     });
   }
-  await deleteDoc(doc(db, 'builds', build.id));
+  await auditedDeleteDoc(doc(db, 'builds', build.id));
 }
 
 function InfoRow({ label, children }) {
@@ -312,7 +313,7 @@ function BuildBlackBox({ buildId }) {
     setBusy('delete');
     setError('');
     try {
-      await deleteDoc(doc(db, 'builds', buildId, 'blackbox', pendingDelete.id));
+      await auditedDeleteDoc(doc(db, 'builds', buildId, 'blackbox', pendingDelete.id));
       setPendingDelete(null);
     } catch (err) {
       console.error(err);
@@ -727,11 +728,11 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack, onDeleted }) {
     async function loadActualDeposit() {
       let quote = null;
       if (build.quoteId) {
-        const quoteRes = await fetch('/api/quotes?id=' + encodeURIComponent(build.quoteId));
+        const quoteRes = await apiFetch('/api/quotes?id=' + encodeURIComponent(build.quoteId));
         const quoteData = await quoteRes.json().catch(() => ({}));
         quote = quoteData.quote || null;
       }
-      const revenueRes = await fetch('/api/revenue-entries?type=deposit');
+      const revenueRes = await apiFetch('/api/revenue-entries?type=deposit');
       const revenueData = await revenueRes.json().catch(() => ({}));
       const amount = depositAmountFromRevenue(revenueData.entries || [], build, quote);
       if (cancelled || amount == null) return;
@@ -858,7 +859,7 @@ function BuildDetail({ build, onBack, onPatched, onMovedBack, onDeleted }) {
     setBusy('move_back');
     setError('');
     try {
-      const res = await fetch('/api/quotes?id=' + encodeURIComponent(build.quoteId), {
+      const res = await apiFetch('/api/quotes?id=' + encodeURIComponent(build.quoteId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'accepted' }),

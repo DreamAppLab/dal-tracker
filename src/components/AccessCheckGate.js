@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { sendEmailVerification } from 'firebase/auth';
 import { useAuth } from '../contexts/AuthContext';
 
 // Verifies, once per sign-in, that the signed-in account can actually read
@@ -17,11 +18,17 @@ export default function AccessCheckGate({ children }) {
   const { user, logout } = useAuth();
   const [status, setStatus] = useState('checking'); // checking | ok | denied | error
   const [errorMessage, setErrorMessage] = useState('');
+  const [verifyState, setVerifyState] = useState('idle'); // idle | sending | sent | error
 
   const runCheck = useCallback(async () => {
     setStatus('checking');
     setErrorMessage('');
     try {
+      // Pick up a just-completed email verification before asking the rules.
+      if (user && !user.emailVerified) {
+        await user.reload().catch(() => {});
+        await user.getIdToken(true).catch(() => {});
+      }
       await getDoc(doc(db, ...PROBE_DOC));
       setStatus('ok');
     } catch (err) {
@@ -32,7 +39,18 @@ export default function AccessCheckGate({ children }) {
         setErrorMessage(err?.message || 'Unknown error');
       }
     }
-  }, []);
+  }, [user]);
+
+  const sendVerification = useCallback(async () => {
+    if (!user) return;
+    setVerifyState('sending');
+    try {
+      await sendEmailVerification(user);
+      setVerifyState('sent');
+    } catch {
+      setVerifyState('error');
+    }
+  }, [user]);
 
   useEffect(() => {
     runCheck();
@@ -66,14 +84,28 @@ export default function AccessCheckGate({ children }) {
         </h2>
         <p className="auth-status-message">
           {status === 'denied'
-            ? 'You are signed in, but the database security rules do not recognise this account, so no data can load.'
+            ? 'You are signed in, but this account is not on Mission Control’s allowlist, or its email address is not verified, so no data can load.'
             : `Mission Control couldn’t confirm access: ${errorMessage}`}
         </p>
+        {status === 'denied' && user && !user.emailVerified && (
+          <div className="access-check-verify">
+            <p className="auth-status-message">
+              This sign-in’s email address ({user.email}) has not been verified. Verify it, then press “Try again”.
+              Signing in with Google verifies it automatically.
+            </p>
+            <button type="button" className="login-btn" onClick={sendVerification} disabled={verifyState === 'sending' || verifyState === 'sent'}>
+              {verifyState === 'sent' ? 'Verification email sent — check your inbox' : verifyState === 'sending' ? 'Sending…' : 'Send verification email'}
+            </button>
+            {verifyState === 'error' && <p className="login-error">Could not send the email. Try again in a minute.</p>}
+          </div>
+        )}
         <dl className="access-check-details">
           <dt>Signed in as</dt>
           <dd>{user?.email || '(no email)'}</dd>
           <dt>Sign-in method</dt>
           <dd>{providers}</dd>
+          <dt>Email verified</dt>
+          <dd>{user?.emailVerified ? 'Yes' : 'No'}</dd>
           <dt>Account ID</dt>
           <dd className="access-check-uid">{user?.uid}</dd>
         </dl>

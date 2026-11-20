@@ -9,11 +9,6 @@ function env(...keys) {
   return '';
 }
 
-function cors(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-}
 
 async function fetchJson(url, options = {}) {
   const res = await fetch(url, options);
@@ -51,8 +46,8 @@ function metricValue(metrics, ...ids) {
 }
 
 async function revenuecat() {
-  const key = env('REACT_APP_REVENUECAT_SECRET_KEY', 'REVENUECAT_SECRET_KEY');
-  if (!key) throw new Error('Missing REACT_APP_REVENUECAT_SECRET_KEY');
+  const key = env('REVENUECAT_SECRET_KEY');
+  if (!key) throw new Error('Missing REVENUECAT_SECRET_KEY');
 
   const projectsData = await fetchJson('https://api.revenuecat.com/v2/projects?limit=50', {
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
@@ -90,8 +85,8 @@ async function revenuecat() {
 }
 
 async function sentry() {
-  const token = env('REACT_APP_SENTRY_AUTH_TOKEN', 'SENTRY_AUTH_TOKEN');
-  if (!token) throw new Error('Missing REACT_APP_SENTRY_AUTH_TOKEN');
+  const token = env('SENTRY_AUTH_TOKEN');
+  if (!token) throw new Error('Missing SENTRY_AUTH_TOKEN');
 
   const url =
     'https://sentry.io/api/0/organizations/dream-app-lab/issues/?query=is:unresolved&limit=25';
@@ -118,13 +113,8 @@ async function sentry() {
 }
 
 async function posthog() {
-  const key = env(
-    'REACT_APP_POSTHOG_PERSONAL_API_KEY',
-    'REACT_APP_POSTHOG_API_KEY',
-    'POSTHOG_PERSONAL_API_KEY',
-    'POSTHOG_API_KEY'
-  );
-  if (!key) throw new Error('Missing REACT_APP_POSTHOG_PERSONAL_API_KEY');
+  const key = env('POSTHOG_PERSONAL_API_KEY');
+  if (!key) throw new Error('Missing POSTHOG_PERSONAL_API_KEY');
   const headers = { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' };
 
   const projectsData = await fetchJson('https://us.posthog.com/api/projects/', { headers });
@@ -156,8 +146,8 @@ async function posthog() {
 }
 
 async function github() {
-  const token = env('REACT_APP_GITHUB_TOKEN', 'GITHUB_TOKEN');
-  if (!token) throw new Error('Missing REACT_APP_GITHUB_TOKEN');
+  const token = env('GITHUB_TOKEN');
+  if (!token) throw new Error('Missing GITHUB_TOKEN');
   const org = 'DreamAppLab';
   const headers = {
     Authorization: `Bearer ${token}`,
@@ -200,9 +190,9 @@ async function github() {
 }
 
 async function vercel() {
-  const token = env('REACT_APP_VERCEL_TOKEN', 'VERCEL_TOKEN');
-  if (!token) throw new Error('Missing REACT_APP_VERCEL_TOKEN');
-  const teamId = env('REACT_APP_VERCEL_TEAM_ID', 'VERCEL_TEAM_ID');
+  const token = env('VERCEL_TOKEN');
+  if (!token) throw new Error('Missing VERCEL_TOKEN');
+  const teamId = env('VERCEL_TEAM_ID');
   const qs = new URLSearchParams({ limit: '5' });
   if (teamId) qs.set('teamId', teamId);
 
@@ -227,8 +217,8 @@ async function vercel() {
 }
 
 async function mailgun() {
-  const key = env('REACT_APP_MAILGUN_API_KEY', 'MAILGUN_API_KEY');
-  if (!key) throw new Error('Missing REACT_APP_MAILGUN_API_KEY');
+  const key = env('MAILGUN_API_KEY');
+  if (!key) throw new Error('Missing MAILGUN_API_KEY');
   const domain = env('MAILGUN_DOMAIN') || 'inbound.dreamapplab.com';
   const auth = Buffer.from(`api:${key}`).toString('base64');
   const data = await fetchJson(
@@ -254,8 +244,8 @@ async function mailgun() {
 }
 
 async function expo() {
-  const token = env('REACT_APP_EXPO_TOKEN', 'EXPO_TOKEN', 'EXPO_ACCESS_TOKEN');
-  if (!token) throw new Error('Missing REACT_APP_EXPO_TOKEN');
+  const token = env('EXPO_TOKEN');
+  if (!token) throw new Error('Missing EXPO_TOKEN');
   const headers = {
     Authorization: `Bearer ${token}`,
     Accept: 'application/json',
@@ -286,9 +276,9 @@ async function expo() {
 }
 
 async function crisp() {
-  const id = env('REACT_APP_CRISP_API_ID', 'CRISP_API_IDENTIFIER', 'CRISP_TOKEN_IDENTIFIER');
-  const key = env('REACT_APP_CRISP_API_KEY', 'CRISP_API_KEY', 'CRISP_TOKEN_KEY');
-  if (!id || !key) throw new Error('Missing REACT_APP_CRISP_API_ID / REACT_APP_CRISP_API_KEY');
+  const id = env('CRISP_API_IDENTIFIER');
+  const key = env('CRISP_API_KEY');
+  if (!id || !key) throw new Error('Missing CRISP_API_IDENTIFIER / CRISP_API_KEY');
 
   const auth = Buffer.from(`${id}:${key}`).toString('base64');
   const headers = {
@@ -297,13 +287,13 @@ async function crisp() {
     'Content-Type': 'application/json',
   };
 
-  const websiteIds = (process.env.REACT_APP_CRISP_WEBSITE_ID || '')
+  const websiteIds = (process.env.CRISP_WEBSITE_IDS || process.env.REACT_APP_CRISP_WEBSITE_ID /* public website IDs, not a secret */ || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
 
   if (!websiteIds.length) {
-    throw new Error('No Crisp website IDs. Set REACT_APP_CRISP_WEBSITE_ID.');
+    throw new Error('No Crisp website IDs. Set CRISP_WEBSITE_IDS in Vercel.');
   }
 
   const workspaces = [];
@@ -342,23 +332,24 @@ const HANDLERS = {
   crisp,
 };
 
-module.exports = async (req, res) => {
-  cors(res);
-  if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+const { withSecurity } = require('../_lib/security');
 
+module.exports = withSecurity({ name: 'tools', methods: ['GET'], auth: 'admin' }, async (req, res) => {
   const tool = String((req.query && req.query.tool) || '').toLowerCase();
+  if (!Object.prototype.hasOwnProperty.call(HANDLERS, tool)) {
+    return res.status(404).json({ error: 'Unknown tool' });
+  }
   const handler = HANDLERS[tool];
-  if (!handler) return res.status(404).json({ error: `Unknown tool: ${tool}` });
 
   try {
     const data = await handler();
     return res.status(200).json({ ok: true, fetchedAt: new Date().toISOString(), ...data });
   } catch (e) {
-    console.error(`tools ${tool} error`, e);
-    return res.status(500).json({
+    console.error(`tools ${tool} error`, e && e.message);
+    // Message is ours (e.g. "Missing GITHUB_TOKEN") or the provider status — never a secret.
+    return res.status(502).json({
       error: `${tool} request failed`,
-      detail: String((e && e.message) || e),
+      detail: String((e && e.message) || e).slice(0, 300),
     });
   }
-};
+});

@@ -3,6 +3,7 @@ import { db } from '../firebase';
 import {
   collection, doc, getDocs, setDoc, updateDoc, query, where,
 } from 'firebase/firestore';
+import { apiFetch } from '../lib/apiClient';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const BRAND = '#4CC1F3';
@@ -331,7 +332,7 @@ export default function WebsiteAnalytics() {
     setApiLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/site-analytics');
+      const res = await apiFetch('/api/site-analytics');
       if (!res.ok) throw new Error(`API ${res.status}`);
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'API error');
@@ -381,7 +382,7 @@ export default function WebsiteAnalytics() {
   const handleRefresh = () => {
     // Bust cache for all active sites then re-fetch
     const bust = sites.filter((s) => s.active !== false).map((s) =>
-      fetch(`/api/site-analytics?siteId=${s.id}&refresh=true`).catch(() => null)
+      apiFetch(`/api/site-analytics?siteId=${s.id}&refresh=true`).catch(() => null)
     );
     Promise.all(bust).finally(() => fetchAnalytics());
   };

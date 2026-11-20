@@ -161,7 +161,7 @@ async function seedMessagesFromQuote(db, quoteId, quote) {
 
 async function handleMessages(req, res, db) {
   const id = String((req.query && req.query.id) || '').trim();
-  if (!id) return res.status(400).json({ error: 'Quote id is required' });
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) return res.status(400).json({ error: 'Quote id is required' });
 
   const quoteRef = db.collection('quotes').doc(id);
   const quoteSnap = await quoteRef.get();
@@ -190,12 +190,10 @@ async function handleMessages(req, res, db) {
   return res.status(405).json({ error: 'Method not allowed' });
 }
 
-module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(204).end();
+const { withSecurity } = require('./_lib/security');
+const { writeAudit } = require('./_lib/audit');
 
+module.exports = withSecurity({ name: 'quotes', methods: ['GET',  'POST',  'DELETE'], auth: 'admin' }, async (req, res) => {
   try {
     const db = getSiteDb();
     if (isMessagesRoute(req)) {
@@ -203,6 +201,7 @@ module.exports = async (req, res) => {
     }
 
     const id = String((req.query && req.query.id) || '').trim();
+    if (id && !/^[A-Za-z0-9_-]{1,128}$/.test(id)) return res.status(400).json({ error: 'Invalid quote id' });
 
     if (req.method === 'GET') {
       if (id) {
@@ -239,6 +238,7 @@ module.exports = async (req, res) => {
       const existing = await ref.get();
       if (!existing.exists) return res.status(404).json({ error: 'Quote not found' });
       await ref.delete();
+      await writeAudit({ type: 'delete', actor: req.auth, target: `dal-site/quotes/${id}` }, req);
       return res.status(200).json({ ok: true, id });
     }
 
@@ -247,7 +247,6 @@ module.exports = async (req, res) => {
     console.error('quotes api error', e);
     return res.status(500).json({
       error: 'Quotes request failed',
-      detail: String((e && e.message) || e),
     });
   }
-};
+});

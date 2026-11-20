@@ -63,7 +63,7 @@ const SEED = {
   familythread: {
     enabledServices: [
       'app_store_connect', 'expo_eas', 'firebase', 'google_oauth',
-      'revenuecat', 'mailgun', 'brevo', 'twilio', 'github', 'legal', 'google_cloud_ai',
+      'revenuecat', 'mailgun', 'twilio', 'github', 'legal', 'google_cloud_ai',
     ],
     services: {
       app_store_connect: {
@@ -96,7 +96,7 @@ const SEED = {
       },
       revenuecat: {
         'iOS API Key': 'appl_FVBzJZnrqoDNuKatMuwnAstjjGB',
-        'V2 Secret API Key': 'stored as REACT_APP_REVENUECAT_SECRET_FAMILYTHREAD in Vercel',
+        'V2 Secret API Key': 'stored server-side as REVENUECAT_SECRET_FAMILYTHREAD in Vercel',
         'Entitlement IDs': 'thread_access, tapestry_access',
       },
       mailgun: {
@@ -105,10 +105,6 @@ const SEED = {
         'Region': 'US',
         'MX Records Verified': 'yes',
         'DKIM Verified': 'yes',
-      },
-      brevo: {
-        'Migration Status': 'in progress — migrating outbound to Mailgun',
-        'Sender Email': 'lab@dreamapplab.com',
       },
       twilio: {
         'Toll-Free Number': '+18447136818',
@@ -139,7 +135,7 @@ const SEED = {
   ed1785710747979: {
     enabledServices: [
       'app_store_connect', 'expo_eas', 'firebase', 'google_oauth',
-      'revenuecat', 'mailgun', 'brevo', 'twilio', 'github', 'legal', 'google_cloud_ai',
+      'revenuecat', 'mailgun', 'twilio', 'github', 'legal', 'google_cloud_ai',
     ],
     services: {
       app_store_connect: {
@@ -172,7 +168,7 @@ const SEED = {
       },
       revenuecat: {
         'iOS API Key': 'appl_FVBzJZnrqoDNuKatMuwnAstjjGB',
-        'V2 Secret API Key': 'stored as REACT_APP_REVENUECAT_SECRET_FAMILYTHREAD in Vercel',
+        'V2 Secret API Key': 'stored server-side as REVENUECAT_SECRET_FAMILYTHREAD in Vercel',
         'Entitlement IDs': 'thread_access, tapestry_access',
       },
       mailgun: {
@@ -181,10 +177,6 @@ const SEED = {
         'Region': 'US',
         'MX Records Verified': 'yes',
         'DKIM Verified': 'yes',
-      },
-      brevo: {
-        'Migration Status': 'in progress — migrating outbound to Mailgun',
-        'Sender Email': 'lab@dreamapplab.com',
       },
       twilio: {
         'Toll-Free Number': '+18447136818',
@@ -245,7 +237,7 @@ const SEED = {
         'iOS Client ID': 'PENDING — required for native iOS Google Sign-In',
       },
       revenuecat: {
-        'V2 Secret API Key': 'stored as REACT_APP_REVENUECAT_SECRET_FAMILYWATCH in Vercel',
+        'V2 Secret API Key': 'stored server-side as REVENUECAT_SECRET_FAMILYWATCH in Vercel',
         'Entitlement IDs': 'standard_access, family_access',
       },
       github: {
@@ -288,7 +280,7 @@ const SEED = {
       revenuecat: {
         'iOS API Key': 'appl_hqrITWHNSUZFVabiFXYSainMADe',
         'Android API Key': 'goog_VnERWdjWQMYTUWBuDrUPbiOKQSK',
-        'V2 Secret API Key': 'stored as REACT_APP_REVENUECAT_SECRET_FLAREPAD in Vercel',
+        'V2 Secret API Key': 'stored server-side as REVENUECAT_SECRET_FLAREPAD in Vercel',
         'Entitlement IDs': 'flarepad_standard, flarepad_pro',
       },
       apple_iap: {
@@ -336,7 +328,7 @@ const SEED = {
         'Issuer ID': '3f3aa3d0-e7ed-4371-b543-678581b04b14',
       },
       revenuecat: {
-        'V2 Secret API Key': 'stored as REACT_APP_REVENUECAT_SECRET_LOGABODE in Vercel',
+        'V2 Secret API Key': 'stored server-side as REVENUECAT_SECRET_LOGABODE in Vercel',
         'Entitlement IDs': 'pro_access',
       },
       github: {
@@ -421,7 +413,6 @@ const DAL_WIDE_FIELDS = {
   'Mailgun Sending Domain': 'dreamapplab.com',
   'Mailgun Inbound Domain': 'inbound.dreamapplab.com',
   'Twilio Toll-Free': '+18447136818 — pending A2P carrier approval',
-  'Brevo Status': 'migrating to Mailgun — in progress',
   'ASO Tool': 'ASO.dev — Indie plan active',
   'Google Workspace': 'lab@dreamapplab.com',
 };

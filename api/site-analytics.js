@@ -31,9 +31,7 @@ function getDb() {
 }
 
 const UPTIMEROBOT_KEY = process.env.UPTIMEROBOT_API_KEY;
-const VERCEL_TOKEN = process.env.VERCEL_TOKEN || process.env.REACT_APP_VERCEL_TOKEN;
-console.log('[site-analytics] VERCEL_TOKEN present:', !!VERCEL_TOKEN);
-console.log('[site-analytics] UPTIMEROBOT_KEY present:', !!UPTIMEROBOT_KEY);
+const VERCEL_TOKEN = process.env.VERCEL_TOKEN;
 const VERCEL_TEAM_ID = process.env.VERCEL_TEAM_ID || 'team_DTdKthT6vqeddH5ND7XmMWHO';
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -249,16 +247,15 @@ async function buildSiteData(site) {
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
-module.exports = async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+const { withSecurity } = require('./_lib/security');
+
+module.exports = withSecurity({ name: 'site-analytics', methods: ['GET'], auth: 'admin' }, async function handler(req, res) {
 
   try {
     const db = getDb();
-    const { siteId, refresh } = req.query;
+    const siteId = typeof req.query.siteId === 'string' ? req.query.siteId : '';
+    const refresh = req.query.refresh;
+    if (siteId && !/^[A-Za-z0-9_-]{1,128}$/.test(siteId)) return res.status(400).json({ error: 'Invalid siteId' });
 
     let sites;
     if (siteId) {
@@ -279,7 +276,7 @@ module.exports = async function handler(req, res) {
     const results = await Promise.all(sites.map(buildSiteData));
     return res.status(200).json({ ok: true, sites: results });
   } catch (e) {
-    console.error('site-analytics error:', e);
-    return res.status(500).json({ error: e.message });
+    console.error('site-analytics error:', e && e.message);
+    return res.status(500).json({ error: 'Site analytics failed' });
   }
-};
+});

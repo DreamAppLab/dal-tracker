@@ -1,4 +1,5 @@
 import { compressBlogImage } from './compressBlogImage';
+import { apiFetch } from '../lib/apiClient';
 
 const MAX_BYTES = 2.5 * 1024 * 1024;
 const ALLOWED = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
@@ -29,7 +30,7 @@ export async function uploadBlogImage(file, uploadEndpoint = '/api/blog/upload')
   }
 
   const data = await fileToBase64(compressed);
-  const res = await fetch(uploadEndpoint, {
+  const res = await apiFetch(uploadEndpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

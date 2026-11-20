@@ -1,28 +1,13 @@
-function setCors(req, res) {
-  const origin = String(req.headers.origin || '');
-  const allowed =
-    origin === 'https://dal-tracker.vercel.app' ||
-    /^https:\/\/dal-tracker[a-z0-9-]*\.vercel\.app$/i.test(origin) ||
-    /^http:\/\/localhost:\d+$/i.test(origin);
-  res.setHeader('Access-Control-Allow-Origin', allowed ? origin : 'https://dal-tracker.vercel.app');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-}
+const { z } = require('zod');
+const { withSecurity, parseJsonBody, validate } = require('./_lib/security');
 
-module.exports = async function handler(req, res) {
-  setCors(req, res);
-  if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+const Schema = z.object({ refreshToken: z.string().min(10).max(2048) });
 
-  const refreshToken = req.body?.refreshToken;
-  if (!refreshToken) {
-    return res.status(400).json({ error: 'refreshToken is required' });
-  }
+module.exports = withSecurity({ name: 'refresh-calendar-token', methods: ['POST'], auth: 'admin' }, async function handler(req, res) {
+  const { refreshToken } = validate(Schema, parseJsonBody(req));
 
-  const clientId = process.env.GOOGLE_CLIENT_ID || process.env.REACT_APP_GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET || process.env.REACT_APP_GOOGLE_CLIENT_SECRET;
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
     return res.status(500).json({ error: 'Google OAuth client is not configured' });
   }
@@ -41,7 +26,7 @@ module.exports = async function handler(req, res) {
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.access_token) {
       return res.status(response.ok ? 500 : response.status).json({
-        error: data.error_description || data.error || 'Failed to refresh access token',
+        error: data.error || 'Failed to refresh access token',
       });
     }
     return res.status(200).json({
@@ -49,6 +34,7 @@ module.exports = async function handler(req, res) {
       expires_in: data.expires_in,
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message || 'Failed to refresh access token' });
+    console.error('refresh-calendar-token failed:', err && err.message);
+    return res.status(502).json({ error: 'Failed to refresh access token' });
   }
-};
+});

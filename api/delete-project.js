@@ -64,18 +64,15 @@ async function deleteStoragePrefix(bucket, prefix) {
   }
 }
 
-module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+const { withSecurity } = require('./_lib/security');
+const { writeAudit } = require('./_lib/audit');
 
+module.exports = withSecurity({ name: 'delete-project', methods: ['POST'], auth: 'admin', recentAuthSeconds: 15 * 60 }, async (req, res) => {
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
     const id = String((req.query && req.query.id) || body.id || '').trim();
     if (!id) return res.status(400).json({ error: 'Project id is required' });
-    if (id.includes('/') || id.includes('..')) {
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) {
       return res.status(400).json({ error: 'Invalid project id' });
     }
 
@@ -96,13 +93,13 @@ module.exports = async (req, res) => {
     }
 
     await deleteDocumentTree(projectRef);
+    await writeAudit({ type: 'delete', actor: req.auth, target: `projects/${id}`, meta: { storageDeleted } }, req);
 
     return res.status(200).json({ ok: true, id, storageDeleted });
   } catch (e) {
     console.error('delete-project error', e);
     return res.status(500).json({
       error: 'Failed to delete project',
-      detail: String((e && e.message) || e),
     });
   }
-};
+});

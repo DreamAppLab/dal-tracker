@@ -23,7 +23,6 @@ const COLLECTION = 'blackbox';
 const DOCUMENT = 'dal_wide';
 
 const DAL_OPS_ITEMS = [
-  { key: 'brevo_mailgun', label: 'Migrate Brevo → Mailgun', description: 'dal-site (3 intake forms), Mission Control login notification, Shady Duck Cloud Functions' },
   { key: 'google_consolidation', label: 'Consolidate Google/Firebase accounts', description: 'Move all projects from eddieskehan@gmail.com to lab@dreamapplab.com. Order: FamilyThread → Shady Duck → dal-mission-control → dal-website → FamilyLens → Flarepad → Logabode' },
   { key: 'budget_alerts', label: 'Set $10 budget alerts on all Google Cloud projects', description: 'familywatch-8b302, the-shady-duck, dal-mission-control, dal-website-c9dd8 — follow same steps as FamilyThread' },
   { key: 'twilio_approval', label: 'Twilio toll-free approval', description: 'Toll-free +18447136818 pending A2P carrier approval. Once approved: update TWILIO_PHONE_NUMBER secret in Shady Duck and FamilyThread Cloud Functions, redeploy, test SMS.' },

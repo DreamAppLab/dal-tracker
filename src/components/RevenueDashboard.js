@@ -36,6 +36,7 @@ import {
 import { uploadAppLogo } from '../utils/uploadAppLogo';
 import AppLogo from './AppLogo';
 import ClientProjectRevenueSection from '../tabs/RevenueTab';
+import { apiFetch } from '../lib/apiClient';
 
 const LAYOUT_DOC_ID = 'layout';
 const DEFAULT_CARD_WIDTH = 300;
@@ -516,7 +517,7 @@ const RevenueDashboard = React.memo(function RevenueDashboard({ projects = [], o
     const qs = params.toString();
     setClientLoading(true);
     setClientError('');
-    fetch(`/api/revenue-entries${qs ? `?${qs}` : ''}`)
+    apiFetch(`/api/revenue-entries${qs ? `?${qs}` : ''}`)
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || data.detail || 'Failed to load revenue entries');

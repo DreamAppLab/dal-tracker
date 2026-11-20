@@ -20,7 +20,6 @@ import {
   onSnapshot,
   doc,
   setDoc,
-  deleteDoc,
 } from 'firebase/firestore';
 import { useGoogleCalendar } from '../contexts/GoogleCalendarContext';
 import {
@@ -29,6 +28,8 @@ import {
   colorNameToGoogleColorId,
   googleColorIdToName,
 } from '../data/calendarColors';
+import { auditedDeleteDoc } from '../lib/audit';
+import { apiFetch } from '../lib/apiClient';
 
 const WEEKDAY_HEADERS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 const DAL_CALENDAR = 'dal';
@@ -319,7 +320,7 @@ function isTokenExpiredOrExpiring(account) {
  * { message, needsReconnect } so the caller can surface the right UI.
  */
 async function refreshAccessToken(account) {
-  const res = await fetch('/api/refresh-google-token', {
+  const res = await apiFetch('/api/refresh-google-token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: account.email }),
@@ -573,7 +574,7 @@ export default function CalendarDashboard() {
 
   const deleteFromSource = async (event) => {
     if (event.source === 'dal') {
-      await deleteDoc(doc(db, 'calendarEvents', event.id));
+      await auditedDeleteDoc(doc(db, 'calendarEvents', event.id));
       return;
     }
     const account = connectedAccounts.find(a => a.email === event.accountEmail);

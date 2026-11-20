@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-const ADMIN_DATA_URL =
-  'https://us-central1-familythread-prod.cloudfunctions.net/getAdminData';
+import { apiFetch } from '../lib/apiClient';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -634,35 +633,12 @@ function AttritionTab({ users, families }) {
 }
 
 async function fetchAdminData() {
-  const secret = process.env.REACT_APP_FT_ADMIN_SECRET;
-  if (!secret) {
-    throw new Error(
-      'Missing REACT_APP_FT_ADMIN_SECRET. Add it to your env and restart the dev server.'
-    );
-  }
-
-  const response = await fetch(ADMIN_DATA_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-admin-secret': secret,
-    },
-  });
-
+  // Proxied server-side: the FamilyThread admin secret never reaches the browser.
+  const response = await apiFetch('/api/familythread-admin');
   if (!response.ok) {
-    let detail = '';
-    try {
-      detail = await response.text();
-    } catch {
-      detail = '';
-    }
-    throw new Error(
-      detail
-        ? `Admin data request failed (${response.status}): ${detail}`
-        : `Admin data request failed (${response.status})`
-    );
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || `Admin data request failed (${response.status})`);
   }
-
   return response.json();
 }
 

@@ -98,22 +98,20 @@ function buildQuoteData(body) {
   return data;
 }
 
-module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(204).end();
+const { withSecurity } = require('./_lib/security');
 
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+// Server-to-server or Mission Control only (admin token or DAL_MC_INTERNAL_SECRET).
+module.exports = withSecurity({ name: 'submit', methods: ['POST'], auth: 'admin-or-internal', rateLimit: { limit: 30, windowMs: 60_000 } }, async (req, res) => {
 
   try {
     const db = getSiteDb();
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
 
-    if (!body.email) {
-      return res.status(400).json({ error: 'email is required' });
+    if (typeof body.email !== 'string' || !/^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/.test(body.email.trim())) {
+      return res.status(400).json({ error: 'A valid email is required' });
+    }
+    if (Buffer.byteLength(JSON.stringify(body)) > 200_000) {
+      return res.status(413).json({ error: 'Quote too large' });
     }
 
     const data = buildQuoteData(body);
@@ -125,7 +123,6 @@ module.exports = async (req, res) => {
     console.error('submit api error', e);
     return res.status(500).json({
       error: 'Quote submission failed',
-      detail: String((e && e.message) || e),
     });
   }
-};
+});

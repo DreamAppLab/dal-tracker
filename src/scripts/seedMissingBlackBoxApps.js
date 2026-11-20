@@ -54,7 +54,7 @@ async function seedProject(projectId, payload) {
 const FAMILYTHREAD = {
   enabledServices: [
     'app_store_connect', 'expo_eas', 'firebase', 'google_oauth',
-    'revenuecat', 'mailgun', 'brevo', 'twilio', 'github', 'legal', 'google_cloud_ai',
+    'revenuecat', 'mailgun', 'twilio', 'github', 'legal', 'google_cloud_ai',
   ],
   services: {
     app_store_connect: {
@@ -87,7 +87,7 @@ const FAMILYTHREAD = {
     },
     revenuecat: {
       'iOS API Key': 'appl_FVBzJZnrqoDNuKatMuwnAstjjGB',
-      'V2 Secret API Key': 'stored as REACT_APP_REVENUECAT_SECRET_FAMILYTHREAD in Vercel',
+      'V2 Secret API Key': 'stored server-side as REVENUECAT_SECRET_FAMILYTHREAD in Vercel',
       'Entitlement IDs': 'thread_access, tapestry_access',
     },
     mailgun: {
@@ -96,10 +96,6 @@ const FAMILYTHREAD = {
       'Region': 'US',
       'MX Records Verified': 'yes',
       'DKIM Verified': 'yes',
-    },
-    brevo: {
-      'Migration Status': 'in progress — migrating outbound to Mailgun',
-      'Sender Email': 'lab@dreamapplab.com',
     },
     twilio: {
       'Toll-Free Number': '+18447136818',

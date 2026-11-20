@@ -4,6 +4,7 @@ import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc,
   query, where, orderBy, serverTimestamp,
 } from 'firebase/firestore';
+import { apiFetch } from '../lib/apiClient';
 
 const BRAND = '#4CC1F3';
 
@@ -420,9 +421,31 @@ function ProjectDetailView({ project, onBack }) {
     setArchiving(false);
   };
 
+  const [openingAdmin, setOpeningAdmin] = useState(false);
+  const openAsAdmin = async () => {
+    // Open the tab synchronously (popup blockers), then point it at the signed link.
+    const win = window.open('about:blank', '_blank');
+    setOpeningAdmin(true);
+    try {
+      const r = await apiFetch('/api/feedback/admin-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: currentProject.project_id }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.url) throw new Error(data.error || 'Could not create admin link');
+      if (win) { win.opener = null; win.location.href = data.url; } else window.location.href = data.url;
+    } catch (e) {
+      if (win) win.close();
+      window.alert(e.message || 'Could not create admin link');
+    } finally {
+      setOpeningAdmin(false);
+    }
+  };
+
   const handleResolve = async (pin, resolved) => {
     try {
-      await fetch('/api/feedback/resolve', {
+      await apiFetch('/api/feedback/resolve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin_id: pin.id, resolved }),
@@ -470,10 +493,19 @@ function ProjectDetailView({ project, onBack }) {
             </span>
           </div>
         </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        {currentProject.preview_url && (
+          <button onClick={openAsAdmin} disabled={openingAdmin}
+            title="Opens the preview with resolve / hide controls unlocked for 12 hours"
+            style={{ background: 'rgba(76,193,243,0.12)', border: `1px solid ${BRAND}`, color: BRAND, padding: '7px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+            {openingAdmin ? 'Opening…' : 'Open as admin ↗'}
+          </button>
+        )}
         <button onClick={toggleStatus} disabled={archiving}
           style={{ background: '#1e293b', border: '1px solid #334155', color: '#94a3b8', padding: '7px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 12 }}>
           {archiving ? '…' : currentProject.status === 'active' ? '📦 Archive' : '✅ Activate'}
         </button>
+        </div>
       </div>
 
       {/* Script Tag */}
@@ -537,7 +569,7 @@ function PinCard({ pin, index, previewUrl, onResolve }) {
     if (!replyText.trim()) return;
     setSending(true);
     try {
-      const r = await fetch('https://dal-tracker.vercel.app/api/feedback/reply', {
+      const r = await apiFetch('/api/feedback/reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin_id: pin.id, reply_text: replyText.trim() }),

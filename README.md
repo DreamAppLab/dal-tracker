@@ -1,59 +1,57 @@
 # DAL Mission Control
 
-Dream App Lab internal dashboard for tracking all apps, websites, milestones, edits, tech stacks, and financials.
+Dream App Lab's internal operations hub: apps, websites, client projects, quotes,
+revenue, expenses, maintenance, and (from Part B) the company vault for
+Dream App Lab LLC and Zerbiq.
 
-## Tech Stack
-- React 18
-- Recharts (analytics)
-- localStorage (no backend needed)
-- Vercel (free hosting)
+**Read [CLAUDE.md](./CLAUDE.md) before changing anything** — it holds the security
+rules every change must follow.
 
-## Local Development
+## Stack
+- React 18 (Create React App), hosted on Vercel (`dal-tracker.vercel.app`)
+- Vercel serverless functions in `api/` (all wrapped by `api/_lib/security.js`)
+- Firebase project `dal-mission-control`: Auth, Firestore, Storage
+- Mailgun (email), Twilio (SMS), Stripe (payments)
 
-```bash
+## Security model (summary)
+- One admin account, verified email required, enforced in Firestore/Storage rules
+  and in every API function.
+- No secrets in the browser bundle; server-only env vars; build-time secret scan.
+- Deny-by-default rules; server-only `auditLog`; 30-minute idle sign-out;
+  recent sign-in required for sensitive actions; strict security headers.
+- The public client feedback widget (`public/widget/feedback-widget.js`) talks
+  only to the validated, rate-limited `/api/feedback/*` endpoints. Admin controls
+  on a preview site are unlocked with a 12-hour signed link from
+  Web Projects → **Open as admin**.
+
+## Local development (PowerShell)
+```powershell
+cd C:\dev\dal-tracker
 npm install
 npm start
 ```
 
-## Deploy to Vercel (Free)
-
-### Option A — Vercel CLI (fastest)
-```bash
-npm install -g vercel
-npm run build
-vercel --prod
+## Tests
+```powershell
+cd C:\dev\dal-tracker
+npm run test:api
+npx react-scripts test --watchAll=false
+npm run test:rules
 ```
+CI (GitHub Actions) runs all of these plus a production build and bundle secret
+scan on every pull request.
 
-### Option B — GitHub + Vercel Dashboard
-1. Push this folder to a GitHub repo (public or private)
-2. Go to vercel.com → "Add New Project"
-3. Import your GitHub repo
-4. Settings:
-   - Framework: **Create React App**
-   - Build Command: `npm run build`
-   - Output Directory: `build`
-5. Click Deploy — you get a free `.vercel.app` URL instantly
-6. Optional: Add custom domain (e.g. `tracker.dreamapplab.com`) — also free on Vercel
-
-### Notes
-- All data is stored in your browser's `localStorage` — no backend, no database costs
-- Works on mobile too (responsive layout)
-- The free Vercel Hobby plan is more than enough for this internal tool
-- Data persists between sessions on the same browser/device
-
-## Features
-- Dashboard with all projects, stats, revenue vs cost
-- Per-project detail with 5 tabs: Overview, Milestones, Edits Needed, Tech Stack, Financials
-- Add/edit/delete milestones with title, description, budget, due date
-- Log edits needed by Page → Location → Item → Notes → Priority
-- Full tech stack table per project
-- Track MRR, total revenue, operating expenses (monthly/yearly), net P&L
-- Progress bars (milestones + edits combined)
-- App pipeline / ideation tracker
-- Add new projects with custom emoji + color
-
-## Adding a Client Project
-Click "+ Add Project" and set Type to "Client App" or "Client Website" — it appears in the separate Websites & Web Apps section.
-
-## Data Backup
-Open browser DevTools → Application → Local Storage → copy the value of `dal-projects` and `dal-pipeline` to back up your data.
+## Environment variables (Vercel, server-only unless noted)
+| Variable | Used by |
+| --- | --- |
+| `DAL_MC_FIREBASE_PROJECT_ID`, `DAL_MC_FIREBASE_CLIENT_EMAIL`, `DAL_MC_FIREBASE_PRIVATE_KEY` | Admin SDK (token verification, Firestore, Storage) |
+| `DAL_MC_INTERNAL_SECRET` | dal-site → `/api/record-quote-payment` |
+| `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`, `MAILGUN_FROM`, `SIGNIN_ALERT_EMAIL` (optional) | email, sign-in alerts, inbound signature check |
+| `FEEDBACK_ADMIN_TOKEN_SECRET` | widget "Open as admin" links |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_SERVICE_ACCOUNT_JSON`, `FIREBASE_SERVICE_ACCOUNT_JSON` | Google Calendar |
+| `REVENUECAT_SECRET_<APP>`, `REVENUECAT_SECRET_KEY` | revenue sync, Tools Hub |
+| `GITHUB_TOKEN`, `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `SENTRY_AUTH_TOKEN`, `POSTHOG_PERSONAL_API_KEY`, `EXPO_TOKEN`, `CRISP_API_IDENTIFIER`, `CRISP_API_KEY`, `CRISP_WEBSITE_IDS`, `UPTIMEROBOT_API_KEY` | Tools Hub / Website Analytics |
+| `FT_ADMIN_SECRET` | FamilyThread admin proxy |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` | SMS |
+| `STRIPE_SECRET_KEY` | payment links |
+| `REACT_APP_FT_*`, `REACT_APP_ZERBIQ_FIREBASE_*` (public) | Firebase **web** config only — never secrets |

@@ -190,23 +190,14 @@ async function findEntryRef(db, id) {
   return null;
 }
 
-module.exports = async (req, res) => {
-  if (req.method === 'POST' || req.method === 'DELETE' || req.method === 'PATCH') {
-    const auth = String(req.headers['authorization'] || '');
-    const secret = process.env.DAL_MC_INTERNAL_SECRET || '';
-    if (!secret || auth !== `Bearer ${secret}`) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-  }
+const { withSecurity } = require('./_lib/security');
 
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(204).end();
-
+// Mission Control (admin token) or server-to-server (DAL_MC_INTERNAL_SECRET).
+module.exports = withSecurity({ name: 'revenue-entries', methods: ['GET', 'POST', 'PATCH', 'DELETE'], auth: 'admin-or-internal' }, async (req, res) => {
   try {
     const db = getDb();
     const id = String((req.query && req.query.id) || '').trim();
+    if (id && !/^[A-Za-z0-9_-]{1,200}$/.test(id)) return res.status(400).json({ error: 'Invalid id' });
 
     if (req.method === 'GET') {
       const type = normalizeType(req.query && req.query.type);
@@ -309,7 +300,6 @@ module.exports = async (req, res) => {
     console.error('revenue-entries api error', e);
     return res.status(status).json({
       error: status === 400 ? e.message : 'Revenue entries request failed',
-      detail: String((e && e.message) || e),
     });
   }
-};
+});

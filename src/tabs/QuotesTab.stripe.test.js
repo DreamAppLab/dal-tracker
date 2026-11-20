@@ -3,7 +3,10 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 import { QuoteDetail } from './QuotesTab';
 
-jest.mock('../firebase', () => ({ db: {} }));
+jest.mock('../firebase', () => ({
+  db: {},
+  auth: { currentUser: { getIdToken: () => Promise.resolve('test-id-token') } },
+}));
 jest.mock('../firebaseZerbiq', () => ({ zerbiqDb: null, zerbiqStorage: null }));
 jest.mock('firebase/firestore', () => ({
   addDoc: jest.fn(),

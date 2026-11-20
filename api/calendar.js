@@ -3,16 +3,6 @@ const { google } = require('googleapis');
 const CALENDAR_ID = 'lab@dreamapplab.com';
 const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar';
 
-function setCors(req, res) {
-  const origin = String(req.headers.origin || '');
-  const allowed =
-    origin === 'https://dal-tracker.vercel.app' ||
-    /^https:\/\/dal-tracker[a-z0-9-]*\.vercel\.app$/i.test(origin);
-  res.setHeader('Access-Control-Allow-Origin', allowed ? origin : 'https://dal-tracker.vercel.app');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-}
-
 function getCalendarClient() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   if (!raw) {
@@ -38,15 +28,32 @@ function completedSummary(appName, label) {
   return base.startsWith('✅') ? base : `✅ ${base}`;
 }
 
-module.exports = async function handler(req, res) {
-  setCors(req, res);
-  if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+const { z } = require('zod');
+const { withSecurity, parseJsonBody, validate } = require('./_lib/security');
 
+const CalendarSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('create'),
+    appName: z.string().max(200).optional().nullable(),
+    label: z.string().max(300).optional().nullable(),
+    dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    tasks: z.array(z.union([z.string().max(500), z.object({ label: z.string().max(500).optional() }).passthrough()])).max(200).optional(),
+  }).passthrough(),
+  z.object({
+    action: z.literal('update'),
+    calendarEventId: z.string().regex(/^[A-Za-z0-9_-]{1,1024}$/),
+    appName: z.string().max(200).optional().nullable(),
+    label: z.string().max(300).optional().nullable(),
+  }).passthrough(),
+  z.object({
+    action: z.literal('delete'),
+    calendarEventId: z.string().regex(/^[A-Za-z0-9_-]{1,1024}$/),
+  }).passthrough(),
+]);
+
+module.exports = withSecurity({ name: 'calendar', methods: ['POST'], auth: 'admin' }, async function handler(req, res) {
   try {
-    const body = req.body || {};
+    const body = validate(CalendarSchema, parseJsonBody(req));
     const action = body.action;
     const calendar = getCalendarClient();
 
@@ -100,6 +107,8 @@ module.exports = async function handler(req, res) {
 
     return res.status(400).json({ error: 'Unknown action' });
   } catch (err) {
-    return res.status(500).json({ error: err.message || 'Calendar request failed' });
+    if (err && err.expose) throw err;
+    console.error('calendar error:', err && err.message);
+    return res.status(502).json({ error: 'Calendar request failed' });
   }
-};
+});

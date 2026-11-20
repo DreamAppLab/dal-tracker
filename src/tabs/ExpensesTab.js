@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { format, parseISO } from 'date-fns';
-import { collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import ImportStatementModal from '../components/ImportStatementModal';
 import {
@@ -16,6 +16,8 @@ import {
   todayISO,
   fileToBase64,
 } from '../data/expensesData';
+import { auditedDeleteDoc } from '../lib/audit';
+import { apiFetch } from '../lib/apiClient';
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -567,7 +569,7 @@ async function downloadWordReport(type, rows, report) {
 }
 
 async function apiJson(url, options) {
-  const res = await fetch(url, options);
+  const res = await apiFetch(url, options);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || data.detail || 'Request failed');
   return data;
@@ -1086,7 +1088,7 @@ export default function ExpensesTab() {
     setDeleting(true);
     setDeleteError('');
     try {
-      await deleteDoc(doc(db, 'expenses', row.id));
+      await auditedDeleteDoc(doc(db, 'expenses', row.id));
       setPendingDelete(null);
     } catch (err) {
       setDeleteError(err.message || 'Could not delete expense.');

@@ -3,6 +3,7 @@ import { format } from 'date-fns';
 import BlogQuillEditor from '../components/BlogQuillEditor';
 import { slugFromTitle } from '../utils/blogSlug';
 import { uploadBlogImage } from '../utils/uploadBlogImage';
+import { apiFetch } from '../lib/apiClient';
 
 const TABS = [
   { id: 'draft', label: 'Drafts' },
@@ -58,7 +59,7 @@ function isoFromLocal(value) {
 }
 
 async function apiJson(url, options) {
-  const res = await fetch(url, options);
+  const res = await apiFetch(url, options);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail || data.error || 'Request failed');
   return data;

@@ -21,6 +21,7 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
+import { apiFetch } from '../lib/apiClient';
 
 const EMPTY_FORM = {
   name: '',
@@ -184,7 +185,7 @@ export default function ClientTab({ project }) {
       fd.append('source', 'project');
       fd.append('projectId', project.id);
       if (attachment) fd.append('attachment', attachment);
-      const res = await fetch('/api/client-email', {
+      const res = await apiFetch('/api/client-email', {
         method: 'POST',
         body: fd,
       });
