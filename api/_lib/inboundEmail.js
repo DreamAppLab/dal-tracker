@@ -59,6 +59,8 @@ function headerMap(body) {
 const msgIds = (s) => String(s || '').match(/<[^<>\s]+>/g) || [];
 
 const domainOf = (addr) => (String(addr || '').split('@')[1] || '').toLowerCase();
+// d= tag of a DKIM-Signature header (tags may be folded across lines).
+const dkimDomain = (sig) => ((String(sig || '').match(/(?:^|;)\s*d\s*=\s*([^;\s]+)/i) || [])[1] || '').toLowerCase();
 // Aligned = same domain, or one is a subdomain of the other (mail.client.com ~
 // client.com). Never "same last two labels": evil.co.uk must not match client.co.uk.
 const normDomain = (d) => String(d || '').toLowerCase().replace(/\.+$/, '');
@@ -84,7 +86,7 @@ function senderVerified(h, fromAddr, envelopeAddr) {
     // when there is exactly one signature and it is the From domain's.
     const sigs = h['dkim-signature'] || [];
     if (sigs.length === 1) {
-      const d = ((sigs[0].match(/(?:^|;)\s*d=([^;\s]+)/i) || [])[1] || '').toLowerCase();
+      const d = dkimDomain(sigs[0]);
       if (aligned(d, fromDomain)) return true;
     }
   }
@@ -221,7 +223,7 @@ async function handleInbound(db, body, { send = sendMail, attachments = [] } = {
           read: false,
         });
       }
-      await markerRef.set({ filedDone: true, filedAs: filed, filedLabel: filedAs, at: FieldValue.serverTimestamp() }, { merge: true });
+      await markerRef.set({ filedDone: true, filedAs: filed, filedLabel: filedAs, verified: msg.verified, auth: authSummary(body), at: FieldValue.serverTimestamp() }, { merge: true });
     } catch (e) {
       saveError = e;
       filedAs = 'could not be filed (Mission Control error)';
@@ -311,4 +313,21 @@ async function bindToken(db, body, { now = Date.now() } = {}) {
   }
 }
 
-module.exports = { handleInbound, parseInbound, emailAddress, headerMap, bindToken };
+// What Mailgun told us about authentication (no message content): stored on the
+// processing record so "why was this [Unverified]?" can be answered later.
+function authSummary(body) {
+  const hm = headerMap(body);
+  const dkimD = (hm['dkim-signature'] || []).map(dkimDomain);
+  return {
+    spf: (hm['x-mailgun-spf'] || []).slice(0, 3),
+    dkim: (hm['x-mailgun-dkim-check-result'] || []).slice(0, 3),
+    dkimDomains: dkimD.slice(0, 5),
+    authResults: (hm['authentication-results'] || []).map((v) => v.slice(0, 300)).slice(0, 3),
+    envelopeDomain: domainOf(emailAddress(field(body, 'sender'))),
+    fromDomain: domainOf(emailAddress(field(body, 'from', 'From'))),
+    hasMessageHeaders: !!body['message-headers'],
+    fields: Object.keys(body).filter((k) => !['body-plain', 'stripped-text', 'body-html', 'stripped-html', 'stripped-signature', 'message-headers', 'token', 'signature'].includes(k)).slice(0, 40),
+  };
+}
+
+module.exports = { authSummary, handleInbound, parseInbound, emailAddress, headerMap, bindToken };

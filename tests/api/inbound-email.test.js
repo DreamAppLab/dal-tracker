@@ -294,3 +294,15 @@ test('a token first seen more than 15 minutes after signing is rejected; a bound
   assert.equal(await bindToken(db, foreign, { now }), false, 'never-seen token older than 15 min');
   assert.equal(await bindToken(db, { ...fresh, 'in-reply-to': '<other@x>' }, { now }), false, 'any extra field changes the fingerprint');
 });
+
+test('authSummary records Mailgun auth results without message content; folded DKIM d= parses', () => {
+  const { authSummary } = require('../../api/_lib/inboundEmail');
+  const h = headers([['X-Mailgun-Spf', 'Pass'], ['X-Mailgun-Dkim-Check-Result', 'Pass'], ['DKIM-Signature', 'v=1; a=rsa-sha256; c=relaxed/relaxed;\r\n        d=gmail.com; s=20230601; b=abc']]);
+  const s = authSummary({ sender: 'a@gmail.com', from: 'A <a@gmail.com>', subject: 'secret subject', 'body-plain': 'secret body', 'message-headers': h, token: 't', signature: 's' });
+  assert.deepEqual(s.dkimDomains, ['gmail.com']);
+  assert.deepEqual(s.spf, ['Pass']);
+  assert.equal(s.fromDomain, 'gmail.com');
+  assert.ok(!JSON.stringify(s).includes('secret body'));
+  assert.ok(!s.fields.includes('token') && !s.fields.includes('signature'));
+  assert.equal(parseInbound({ from: 'a@gmail.com', 'message-headers': h }).verified, true);
+});
