@@ -362,3 +362,30 @@ test('bank/card counts are hidden while lists load', async () => {
   await click(tab('Zerbiq'));
   expect(container.querySelectorAll('.vault-count')).toHaveLength(0);
 });
+
+test('if a newer copy fails, the earlier copied value is still cleared', async () => {
+  await render();
+  await click(btn('Copy EIN'));
+  expect(clipboard.text).toBe(DAL_EIN);
+  const ok = clipboard.writeText;
+  clipboard.writeText = jest.fn(async (t) => {
+    if (t === CARD) throw new Error('Write permission denied.');
+    return ok(t);
+  });
+  await click(btn('Copy card number for Ink'));
+  expect(clipboard.text).toBe(DAL_EIN);
+  await act(async () => { jest.advanceTimersByTime(30_000); });
+  expect(clipboard.text).toBe('');
+});
+
+test('a copy dropped because the tab was hidden says so', async () => {
+  await render();
+  let open;
+  revealGate = new Promise((r) => { open = r; });
+  await click(btn('Copy EIN'));
+  await setVisibility('hidden');
+  await act(async () => { open(); });
+  await setVisibility('visible');
+  expect(clipboard.text).toBe('');
+  expect(container.textContent).toContain('Copy cancelled — try again');
+});

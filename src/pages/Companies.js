@@ -53,18 +53,18 @@ function errorText(e) {
 // always allowed; Firefox/Safari allow clipboard writes only on a click, so
 // there the banner is the way to clear). Closing the tab first leaves the value
 // on the clipboard; the banner says so.
-const clip = { value: null, gen: 0, timer: null, due: false, writing: false, listeners: new Set() };
+const clip = { value: null, gen: 0, doneGen: 0, timer: null, due: false, writing: 0, listeners: new Set() };
 const emitClip = () => clip.listeners.forEach((fn) => fn());
 
 async function clearClipboard(fromClick = false) {
-  if (!clip.value || clip.writing) return;
+  if (!clip.value || clip.writing > 0) return;
   const gen = clip.gen;
   try {
     if (!fromClick && navigator.permissions && navigator.clipboard.readText) {
       const perm = await navigator.permissions.query({ name: 'clipboard-read' }).catch(() => null);
       if (perm && perm.state === 'granted') {
         const current = await navigator.clipboard.readText();
-        if (gen !== clip.gen || clip.writing) return; // a newer copy started meanwhile
+        if (gen !== clip.gen || clip.writing > 0) return; // a newer copy started meanwhile
         if (current !== clip.value) {
           // Something else was copied since; leave it alone.
           clip.value = null;
@@ -74,7 +74,7 @@ async function clearClipboard(fromClick = false) {
         }
       }
     }
-    if (gen !== clip.gen || clip.writing) return;
+    if (gen !== clip.gen || clip.writing > 0) return;
     await navigator.clipboard.writeText('');
     if (gen !== clip.gen) return;
     clip.value = null;
@@ -94,34 +94,40 @@ if (typeof window !== 'undefined') {
   document.addEventListener('visibilitychange', retry);
 }
 
-// The generation is bumped and the old timer cancelled BEFORE the write, and
-// clears are blocked while a write is in flight, so an older copy's clear can
-// never land after (and wipe) a newer value.
-export async function copySensitive(value, clearAfterSeconds) {
-  const g = ++clip.gen;
+function scheduleClear(seconds) {
   clearTimeout(clip.timer);
-  clip.timer = null;
-  clip.writing = true;
-  try {
-    await navigator.clipboard.writeText(value);
-  } catch (e) {
-    clip.writing = false;
-    if (clip.value) {
-      // The old value is still on the clipboard: keep it scheduled for clearing.
-      clip.due = true;
-      emitClip();
-    }
-    throw e;
-  }
-  clip.writing = false;
-  if (g !== clip.gen) return;
-  clip.value = value;
-  clip.due = false;
   clip.timer = setTimeout(() => {
     clip.timer = null;
     clip.due = true;
     clearClipboard();
-  }, clearAfterSeconds * 1000);
+  }, seconds * 1000);
+}
+
+// The generation is bumped and the old timer cancelled BEFORE the write, and
+// clears are blocked while any write is in flight, so an older copy's clear can
+// never land after (and wipe) a newer value. The newest write that actually
+// succeeded is the one tracked for clearing; if a newer write fails, the value
+// still on the clipboard gets a fresh clear timer.
+export async function copySensitive(value, clearAfterSeconds) {
+  const g = ++clip.gen;
+  clearTimeout(clip.timer);
+  clip.timer = null;
+  clip.writing += 1;
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch (e) {
+    clip.writing -= 1;
+    if (clip.value && !clip.timer) scheduleClear(clearAfterSeconds);
+    throw e;
+  }
+  clip.writing -= 1;
+  if (g > clip.doneGen) {
+    clip.doneGen = g;
+    clip.value = value;
+    clip.due = false;
+  }
+  if (clip.value && !clip.timer) scheduleClear(clearAfterSeconds);
+  else if (g === clip.doneGen) scheduleClear(clearAfterSeconds);
   emitClip();
 }
 
@@ -232,7 +238,11 @@ function SecretValue({ path, field, masked, label }) {
     setNote(null);
     try {
       const { v, secs } = await fetchValue('copy');
-      if (gen !== genRef.current) return; // hidden, record changed or unmounted: don't copy
+      if (gen !== genRef.current) {
+        // Hidden, record changed or unmounted: don't copy a possibly stale value.
+        if (mountedRef.current) flash('Copy cancelled — try again', false);
+        return;
+      }
       await copySensitive(v, secs);
       if (gen === genRef.current) flash(`Copied · clipboard clears in ${secs}s`, true, 3500);
     } catch (e) {
@@ -298,7 +308,8 @@ function Modal({ title, onClose, children, footer, locked = false }) {
       const items = [...node.querySelectorAll(FOCUSABLE)];
       if (!items.length) return;
       const [a, z] = [items[0], items[items.length - 1]];
-      if (!node.contains(document.activeElement)) { e.preventDefault(); a.focus(); return; }
+      // Focus left the dialog (not just a click on blank space inside it): pull it back.
+      if (!node.contains(document.activeElement) && document.activeElement !== document.body) { e.preventDefault(); a.focus(); return; }
       if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); }
       else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
     };

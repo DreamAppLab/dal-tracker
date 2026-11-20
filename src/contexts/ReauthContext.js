@@ -124,7 +124,12 @@ export function ReauthProvider({ children }) {
   const isOpen = !!request;
   useEffect(() => {
     if (!isOpen) return undefined;
-    const opener = document.activeElement;
+    const active = document.activeElement;
+    const opener = active && active !== document.body ? active : null;
+    // Where focus should go if the opener can't take it back: the dialog the
+    // action came from (e.g. an edit form), else the topmost open dialog.
+    const dialogs = [...document.querySelectorAll('[role="dialog"][aria-modal="true"]')].filter((d) => !d.classList.contains('reauth-overlay'));
+    const fallbackDialog = (opener && opener.closest && opener.closest('[role="dialog"]')) || dialogs[dialogs.length - 1] || null;
     const focusables = () =>
       cardRef.current ? [...cardRef.current.querySelectorAll('button:not([disabled]), input:not([disabled])')] : [];
     const first = focusables()[0];
@@ -157,7 +162,7 @@ export function ReauthProvider({ children }) {
           opener.focus();
           if (document.activeElement === opener) return;
         }
-        const dialog = opener && opener.closest && opener.closest('[role="dialog"]');
+        const dialog = fallbackDialog && document.contains(fallbackDialog) ? fallbackDialog : null;
         const target = dialog && dialog.querySelector('input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])');
         if (target) target.focus();
       });
