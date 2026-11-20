@@ -5,6 +5,7 @@ import {
   query, where, orderBy, serverTimestamp,
 } from 'firebase/firestore';
 import { apiFetch } from '../lib/apiClient';
+import ClientEmailPanel from '../components/ClientEmailPanel';
 
 const BRAND = '#4CC1F3';
 
@@ -428,6 +429,7 @@ function ProjectDetailView({ project, onBack }) {
   const [archiving, setArchiving] = useState(false);
   const [copied, setCopied] = useState(false);
   const [currentProject, setCurrentProject] = useState(project);
+  const [editing, setEditing] = useState(false);
 
   const scriptTag = `<script src="https://dal-tracker.vercel.app/widget/feedback-widget.js" data-project-id="${currentProject.project_id}" data-project-name="${currentProject.project_name}"></script>`;
 
@@ -533,12 +535,31 @@ function ProjectDetailView({ project, onBack }) {
             {openingAdmin ? 'Opening…' : 'Open as admin ↗'}
           </button>
         )}
+        <button onClick={() => setEditing(true)}
+          style={{ background: '#1e293b', border: '1px solid #334155', color: '#e2e8f0', padding: '7px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 12 }}>
+          ✏️ Edit
+        </button>
         <button onClick={toggleStatus} disabled={archiving}
           style={{ background: '#1e293b', border: '1px solid #334155', color: '#94a3b8', padding: '7px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 12 }}>
           {archiving ? '…' : currentProject.status === 'active' ? '📦 Archive' : '✅ Activate'}
         </button>
         </div>
       </div>
+
+      {editing && (
+        <ProjectModal
+          project={currentProject}
+          onClose={() => setEditing(false)}
+          onSaved={(p) => { setCurrentProject(p); setEditing(false); }}
+        />
+      )}
+
+      {/* Client emails: Compose + the whole conversation with the assigned contact */}
+      <ClientEmailPanel
+        contactId={currentProject.contact_id || null}
+        projectId={currentProject.project_id}
+        onEditProject={() => setEditing(true)}
+      />
 
       {/* Script Tag */}
       <div style={card}>

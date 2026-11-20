@@ -24,6 +24,16 @@ rules every change must follow.
   on a preview site are unlocked with a 12-hour signed link from
   Web Projects → **Open as admin**.
 
+## Client email
+- **Web Projects → a project → Client emails**: Compose to the project's assigned
+  contact and see the whole conversation with them (also sent from Contacts or a
+  project's Client tab). Sends go through `/api/client-email` with Reply-To
+  `clients@inbound.dreamapplab.com`.
+- **Inbound** (`/api/inbound-client-email`, Mailgun route, signature-checked):
+  each message is filed in its thread, or under the sender's contact if it isn't
+  a reply, and is **always copied to lab@dreamapplab.com**, even when it can't be
+  filed. New feedback notes are emailed there too.
+
 ## Companies vault
 Company profiles (`companies/dal`, `companies/zerbiq`), bank accounts and credit
 cards (`companies/{id}/bankAccounts`, `.../creditCards`).
@@ -68,6 +78,7 @@ scan on every pull request.
 | `DAL_MC_FIREBASE_PROJECT_ID`, `DAL_MC_FIREBASE_CLIENT_EMAIL`, `DAL_MC_FIREBASE_PRIVATE_KEY` | Admin SDK (token verification, Firestore, Storage) |
 | `DAL_MC_INTERNAL_SECRET` | dal-site → `/api/record-quote-payment` |
 | `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`, `MAILGUN_FROM`, `SIGNIN_ALERT_EMAIL` (optional) | email, sign-in alerts, inbound signature check |
+| `LAB_INBOX` (optional, default `lab@dreamapplab.com`) | where every inbound client email and new feedback note is copied |
 | `FEEDBACK_ADMIN_TOKEN_SECRET` | widget "Open as admin" links |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_SERVICE_ACCOUNT_JSON` | Google Calendar |
 | `REVENUECAT_SECRET_<APP>`, `REVENUECAT_SECRET_KEY` | revenue sync, Tools Hub |

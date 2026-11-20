@@ -21,7 +21,7 @@ const EmailSchema = z.object({
   clientId: ID,
   subject: z.string().trim().min(1).max(300),
   body: z.string().min(1).max(200_000),
-  source: z.enum(['contact', 'project', 'client', 'quote']).catch('contact'),
+  source: z.enum(['contact', 'project', 'client', 'quote', 'webProject']).catch('contact'),
   projectId: ID.optional().nullable(),
 });
 
