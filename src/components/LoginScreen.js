@@ -76,7 +76,7 @@ export default function LoginScreen() {
             </button>
           </form>
           <button
-            className="login-btn"
+            className="login-btn login-btn-google"
             type="button"
             onClick={async () => {
               setError('');
@@ -85,7 +85,10 @@ export default function LoginScreen() {
               try {
                 await signInWithPopup(auth, new GoogleAuthProvider());
               } catch (err) {
-                if (err && err.code !== 'auth/popup-closed-by-user') setError('Google sign-in failed. Try again.');
+                const code = err && err.code;
+                if (code === 'auth/popup-blocked') setError('The sign-in window was blocked. Allow pop-ups for this site and try again.');
+                else if (code === 'auth/admin-restricted-operation') setError('This Google account is not allowed. Sign in with lab@dreamapplab.com.');
+                else if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') setError('Google sign-in failed. Try again.');
               }
             }}
           >

@@ -180,6 +180,10 @@ body.login-page-active {
   font-size: 13px;
   line-height: 1.4;
 }
+.login-btn-google {
+  width: 100%;
+  margin-top: 12px !important;
+}
 .login-notice {
   margin: 0 0 12px;
   padding: 10px 12px;
