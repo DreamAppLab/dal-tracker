@@ -118,7 +118,8 @@ export async function copySensitive(value, clearAfterSeconds) {
   } catch (e) {
     clip.writing -= 1;
     if (clip.value && !clip.timer) scheduleClear(clearAfterSeconds);
-    throw e;
+    // Browsers report this in technical terms ("Write permission denied").
+    throw Object.assign(new Error('This browser blocked copying, so nothing was copied. Use Reveal instead.'), { code: 'clipboard_blocked', cause: e });
   }
   clip.writing -= 1;
   if (g > clip.doneGen) {
