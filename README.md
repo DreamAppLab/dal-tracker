@@ -101,9 +101,9 @@ To rotate one: create the new key at the provider, update the Vercel variable
 ### Security audit log (Nov 20 2026)
 - **Git history** (`gitleaks git --log-opts=--all`, all refs): only public
   Firebase web API keys, allowlist UIDs, and the retired Brevo key inside an old
-  committed `build/` bundle. Brevo is no longer used anywhere and that key is
-  retired at the provider; history that GitHub has already served can't be
-  scrubbed, so retirement, not rewriting, is the fix.
+  committed `build/` bundle. Brevo is no longer used anywhere. History that
+  GitHub has already served can't be scrubbed, so the fix for any key found
+  there is revoking it at the provider, not rewriting history.
 - **Vercel env**: the old `REACT_APP_*` secret copies (RevenueCat, Vercel,
   GitHub, Mailgun, Sentry, PostHog, Crisp, Expo, Google client secret, FT admin
   secret) were deleted from every environment, along with unreferenced leftovers
