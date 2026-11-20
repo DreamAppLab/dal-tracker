@@ -55,16 +55,20 @@ function headerMap(body) {
   return out;
 }
 
-// Authentication-Results headers Mailgun itself added: those above the first
-// Received line (the receiving server's own trace header is always topmost;
-// anything below it arrived with the message and may be forged).
-function topAuthResults(list) {
-  const out = [];
-  for (const [k, v] of list) {
-    if (k === 'received') break;
-    if (k === 'authentication-results') out.push(v);
-  }
-  return out;
+// The Authentication-Results header Mailgun itself added. Observed layout of
+// Mailgun's message-headers: received, received, authentication-results,
+// x-mailgun-incoming, x-envelope-from, then the sender's own headers. So
+// Mailgun's A-R is the header directly before its single X-Mailgun-Incoming.
+// A sender can't place headers inside that block; a planted second
+// X-Mailgun-Incoming, or a second A-R claiming a Mailgun id, fails closed.
+function mailgunOwnAuthResults(list) {
+  const incoming = list.map(([k], i) => (k === 'x-mailgun-incoming' ? i : -1)).filter((i) => i >= 0);
+  if (incoming.length !== 1 || incoming[0] < 1) return [];
+  const [prevName, prevValue] = list[incoming[0] - 1];
+  if (prevName !== 'authentication-results') return [];
+  const mailgunClaims = list.filter(([k, v]) => k === 'authentication-results' && MAILGUN_AUTHSERV_IDS.has(authServId(v)));
+  if (mailgunClaims.length !== 1) return [];
+  return [prevValue];
 }
 
 const msgIds = (s) => String(s || '').match(/<[^<>\s]+>/g) || [];
@@ -129,7 +133,7 @@ function mailgunAuthResultsVerified(arHeaders, fromDomain) {
 }
 
 function senderVerified(h, fromAddr, envelopeAddr, list = []) {
-  if (mailgunAuthResultsVerified(topAuthResults(list), domainOf(fromAddr))) return true;
+  if (mailgunAuthResultsVerified(mailgunOwnAuthResults(list), domainOf(fromAddr))) return true;
   const spf = h['x-mailgun-spf'] || [];
   const dkim = h['x-mailgun-dkim-check-result'] || [];
   // Mailgun can repeat a header (different case); only conflicting values count.
