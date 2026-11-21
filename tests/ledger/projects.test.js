@@ -269,3 +269,17 @@ test('owners settlement: refunds reverse it, legs carry the kind, ids come from 
   assert.equal(core.settlementPeerId(ids[0]), ids[1]);
   assert.equal(core.ruleSplitLines({ splitPlan: { planCents: 2000, ownCents: 3000 }, icCategoryId: 'x', categoryId: 'y' }, -2500, 'dal'), null);
 });
+
+test('Zerbiq rules: St Augustine law and State of Florida spellings; year typos are refused', () => {
+  const rule = (pattern, zslug) => ({ pattern, fromDate: '2026-08-28', accountId: 'dal_card', icCategoryId: cat('zerbiq', zslug), categoryId: cat('dal', zslug), settleThroughOwners: true });
+  const rules = [rule('AUGUSTINE LAW', 'professional'), ...['STATE OF FLORIDA', 'FL DEPT OF STATE', 'FLORIDA DEPARTMENT OF STATE', 'FLORIDA DEPT OF STATE', 'SUNBIZ', 'DIVISION OF CORPORATIONS', 'FL DIV OF CORP'].map((p) => rule(p, 'taxes_licenses'))];
+  const m = (payee) => core.rulePick(core.matchVendorRule(payee, rules, { date: '2026-10-01', accountId: 'dal_card' }));
+  for (const p of ['ST AUGUSTINE LAW', 'ST. AUGUSTINE LAW PLLC', 'SAINT AUGUSTINE LAW GROUP']) assert.equal(m(p), `ic:${cat('zerbiq', 'professional')}`, p);
+  for (const p of ['STATE OF FLORIDA SUNBIZ', 'FL DEPT OF STATE 850-245', 'FLORIDA DEPARTMENT OF STATE', 'SUNBIZ.ORG', 'DIVISION OF CORPORATIONS TALLAHASSEE']) assert.equal(m(p), `ic:${cat('zerbiq', 'taxes_licenses')}`, p);
+  assert.equal(m('AUGUSTINE BAKERY'), '');
+  const L = makeLedger();
+  assert.throws(() => L.add('dal', { accountId: 'dal_card', date: '0226-03-29', amountCents: -35000, payee: 'Sharmin Shepu', categoryId: cat('dal', 'contractors') }), /Check the year/);
+  assert.throws(() => core.mapLegacyExpense({ id: 'x', date: '0226-03-29', amount: 350, vendor: 'Sharmin Shepu', category: 'Other' }), /year typo/);
+  const plan = core.planMigration([{ id: 'x', date: '0226-03-29', amount: 350, vendor: 'S', category: 'Other' }], new Set(['dal_mig_x']));
+  assert.deepEqual([plan.errors.length, plan.drafts.length], [0, 0], 'already migrated (and fixed in Books): no error on re-run');
+});

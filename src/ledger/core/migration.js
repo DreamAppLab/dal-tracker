@@ -31,10 +31,17 @@ function legacyDate(expense) {
   return DATE_RE.test(raw) ? raw : '';
 }
 
+/** A year typo in an old record (e.g. 0226-03-29) is reported, never migrated as is. */
+function legacyYearOk(date) {
+  const y = Number(date.slice(0, 4));
+  return y >= 2000 && y <= 2099;
+}
+
 /** One legacy expense → a main transaction draft (no id). Throws on bad data. */
 function mapLegacyExpense(expense) {
   const date = legacyDate(expense);
   if (!date) throw new Error('missing or invalid date');
+  if (!legacyYearOk(date)) throw new Error(`date ${date} has a year typo; fix it on the old record`);
   const cents = dollarsToCents(expense.amount);
   if (!cents) throw new Error('zero amount');
   const slug = Object.prototype.hasOwnProperty.call(LEGACY_CATEGORY_MAP, expense.category)
@@ -72,6 +79,8 @@ function planMigration(expenses, existingIds) {
     try {
       mapped.push({ id: migratedId(e.id), draft: mapLegacyExpense(e) });
     } catch (err) {
+      // Already migrated (and possibly corrected in Books since): nothing to do.
+      if (existingIds.has(migratedId(e.id))) continue;
       errors.push({ id: e.id, error: err.message });
     }
   }

@@ -224,6 +224,7 @@ export default function ImportPanel({ onDone }) {
             row.projectId = rule.icCategoryId ? null : rule.projectId || null;
             row.rulePick = row.pick;
             row.ownerSettle = !!rule.settleThroughOwners;
+            row.icLabel = rule.label || '';
             row.reviewNote = rule.reviewNote || (rule.splitPlan && !split ? `Credit on a shared plan: split it between ${core.COMPANY_META[companyId].short} and ${ledger.otherMeta.short} by hand` : '');
           }
         }
@@ -524,7 +525,7 @@ export default function ImportPanel({ onDone }) {
                     <td className="bk-nowrap">{fmtDate(r.date)}</td>
                     <td className="bk-payee" title={r.payee}>{r.payee}{r.memo ? <div className="bk-muted bk-small">{r.memo}</div> : null}
                       {r.movedLabel && <div className="bk-small bk-warn-text">{r.movedLabel}</div>}
-                      {r.pick && r.pick.startsWith('ic:') && r.status !== 'match' && <span className="bk-pill bk-pill-ic">→ {ledger.otherMeta.short} (intercompany)</span>}
+                      {r.pick && r.pick.startsWith('ic:') && r.status !== 'match' && <span className="bk-pill bk-pill-ic">→ {ledger.otherMeta.short} ({r.icLabel && r.pick === r.rulePick ? r.icLabel : 'intercompany'})</span>}
                       {coverage[r.key] > 0 && (
                         <label className="bk-check bk-small bk-warn-text">
                           <input type="checkbox" checked={r.coverAck !== false} onChange={(e) => patch(r.key, { coverAck: e.target.checked })} />
