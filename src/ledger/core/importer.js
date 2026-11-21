@@ -88,9 +88,15 @@ function classifyRows(rows, existing, opts) {
   const nearUsed = new Set();
   return rows.map((row) => {
     if (fps.has(row.fingerprint)) return { ...row, status: 'duplicate', selected: false };
+    // Hand entries (no fingerprint) and rows migrated from the old Expenses tab
+    // (their fingerprint came from the old import, not this file) are matched
+    // by amount and date; a migrated row matches one statement row only once.
+    const p0 = normalizePayee(row.payee);
     const candidates = live
-      .filter((t) => !t.fingerprint && !used.has(t.id) && t.amountCents === row.amountCents && dayDiff(t.date, row.date) <= windowDays)
-      .sort((a, b) => dayDiff(a.date, row.date) - dayDiff(b.date, row.date));
+      .filter((t) => (!t.fingerprint || (t.source === 'migration' && !t.importMatched)) && !used.has(t.id)
+        && t.amountCents === row.amountCents && dayDiff(t.date, row.date) <= windowDays)
+      .sort((a, b) => dayDiff(a.date, row.date) - dayDiff(b.date, row.date)
+        || Number(similarPayee(normalizePayee(b.payee), p0)) - Number(similarPayee(normalizePayee(a.payee), p0)));
     if (candidates.length) {
       used.add(candidates[0].id);
       return { ...row, status: 'match', matchTxnId: candidates[0].id, selected: true };
@@ -146,6 +152,13 @@ function matchVendorRule(payee, rules, ctx = {}) {
     if (!best || score > best.score) best = { score, rule: r };
   }
   return best ? best.rule : null;
+}
+
+/** Of a month's charges from a shared-plan vendor, the plan charge: nearest the billing day, then earliest. */
+function pickPlanCharge(charges, planDay = 4) {
+  if (!charges.length) return null;
+  const dist = (r) => Math.abs(Number(String(r.date).slice(8, 10)) - planDay);
+  return [...charges].sort((a, b) => dist(a) - dist(b) || String(a.date).localeCompare(String(b.date)))[0];
 }
 
 /** The register/import pick a rule gives: its category, or "Paid for <other company>" for an intercompany rule. */
@@ -465,6 +478,7 @@ module.exports = {
   rulePick,
   rulePatternMatches,
   ruleSplitLines,
+  pickPlanCharge,
   suggestTransfer,
   detectDelimiter,
   parseCsvText,

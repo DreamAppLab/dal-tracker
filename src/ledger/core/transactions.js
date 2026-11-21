@@ -48,7 +48,7 @@ const TXN_FIELDS = [
   'settlementId', 'fingerprint', 'importId', 'source', 'project', 'attachmentUrl',
   'checkNumber', 'legacyExpenseId', 'parentLineKey', 'attachmentPath', 'lineId',
   'projectId', 'convertedFromCategoryId', 'legacyProjectLinked', 'legacyNotesAdded',
-  'personalMovedFrom', 'coversHistoricalCents', 'settlementKind',
+  'personalMovedFrom', 'coversHistoricalCents', 'settlementKind', 'importMatched',
 ];
 
 // Fields a linked leg/mirror keeps for itself across re-plans (its own

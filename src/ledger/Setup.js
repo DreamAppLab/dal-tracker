@@ -357,7 +357,10 @@ export default function Setup() {
     ['expo', 'EXPO', true, 'software', 'software', {}],
     ['expo_650', '650 INDUSTRIES', false, 'software', 'software', {}],
     // Vercel Pro is shared: $10 DAL, $10 Zerbiq, overage (Zerbiq builds/previews) all Zerbiq.
-    ['vercel', 'VERCEL', false, 'hosting', 'hosting', { splitPlan: { planCents: 2000, ownCents: 1000, ownMemo: 'Vercel Pro: DAL half', otherMemo: 'Vercel Pro: Zerbiq half', overageMemo: 'Vercel overage: Zerbiq builds/previews' } }],
+    ['vercel', 'VERCEL', false, 'hosting', 'hosting', { splitPlan: { planCents: 2000, ownCents: 1000, planDay: 4, ownMemo: 'Vercel Pro: DAL half', otherMemo: 'Vercel Pro: Zerbiq half', overageMemo: 'Vercel overage: Zerbiq builds/previews' } }],
+    // All dates (these vendors only ever served Zerbiq).
+    ['telnyx', 'TELNYX', false, 'sms_telnyx', 'software', { allDates: true }],
+    ['supabase', 'SUPABASE', false, 'supabase', 'software', { allDates: true }],
     // St Augustine law firm: Zerbiq's legal work. "AUGUSTINE LAW" (whole word) covers ST / ST. / SAINT
     // spellings and never matches "ST AUGUSTINE LAWN CARE".
     ['st_augustine_law', 'AUGUSTINE LAW', true, 'professional', 'professional', { label: 'St Augustine law rule' }],
@@ -369,14 +372,14 @@ export default function Setup() {
       .map(([slug, pattern]) => [slug, pattern, false, 'taxes_licenses', 'taxes_licenses', { label: 'State of Florida rule' }]),
   ];
   const addZerbiqRules = () => run(async () => {
-    const need = ['ai_apis', 'software', 'hosting', 'professional', 'taxes_licenses'].map((slug) => core.ids.category('zerbiq', slug));
+    const need = ['ai_apis', 'software', 'hosting', 'professional', 'taxes_licenses', 'sms_telnyx', 'supabase'].map((slug) => core.ids.category('zerbiq', slug));
     const missing = need.filter((id) => !ledger.categoriesById[id]);
     if (missing.length) throw new Error('Zerbiq’s default categories are missing. Switch to Zerbiq → Setup → Create default books first.');
     for (const [slug, pattern, wholeWord, zSlug, dSlug, extra] of zerbiqPresets) {
       // eslint-disable-next-line no-await-in-loop
       await saveDoc(COL.vendorRules, `dal_rule_ic_${slug}`, {
         companyId: 'dal', pattern, wholeWord, categoryId: core.ids.category('dal', dSlug), icCategoryId: core.ids.category('zerbiq', zSlug),
-        fromDate: ZERBIQ_FROM, toDate: null, accountId: core.ACCOUNT, projectId: null, isDefault: false,
+        fromDate: extra.allDates ? null : ZERBIQ_FROM, toDate: null, accountId: core.ACCOUNT, projectId: null, isDefault: false,
         settleThroughOwners: true, splitPlan: extra.splitPlan || null, reviewNote: null, label: extra.label || null,
       });
     }
@@ -387,6 +390,14 @@ export default function Setup() {
       fromDate: ZERBIQ_FROM, toDate: null, accountId: core.ACCOUNT, projectId: null, isDefault: false, settleThroughOwners: false, splitPlan: null,
       reviewNote: null,
     });
+    // Lob (direct-mail postcards) is DAL's marketing, any date.
+    await saveDoc(COL.vendorRules, 'dal_rule_lob', { companyId: 'dal', pattern: 'LOB.COM', categoryId: core.ids.category('dal', 'marketing'), projectId: null, isDefault: false });
+    // "Personal (not business)" (an owner draw) in both companies, for the card's personal charges.
+    for (const c of core.COMPANY_IDS) {
+      const def = core.defaultCategoryDocs(c).find((d) => d.id === core.ids.category(c, 'personal_spending'));
+      // eslint-disable-next-line no-await-in-loop
+      if (def && !ledger.categoriesById[def.id]) await saveDoc(COL.categories, def.id, def.data, false);
+    }
     // Before the cut-over these stay DAL's: make sure there is a plain DAL rule for each.
     for (const [slug, pattern, dSlug] of [['claude_ai', 'CLAUDE.AI', 'software'], ['650_industries', '650 INDUSTRIES', 'software']]) {
       if (!rules.some((r) => !r.icCategoryId && !r.fromDate && core.normalizePayee(r.pattern) === core.normalizePayee(pattern))) {
@@ -395,7 +406,7 @@ export default function Setup() {
       }
     }
     recordAuditEvent('ledger_update', 'ledgerVendorRules/dal_rule_ic_*', { action: 'zerbiq_vendor_rules', companyId: 'dal', fromDate: ZERBIQ_FROM, count: zerbiqPresets.length + 1 });
-  }, () => `Zerbiq rules saved. On the business card from ${fmtDate(ZERBIQ_FROM)}: Anthropic, Claude.ai, Expo, 650 Industries, St Augustine law and State of Florida fees are 100% Zerbiq; Vercel is split $10 DAL / $10 Zerbiq with any overage to Zerbiq; Zerbiq's share is settled through the owners (no repayment). Vercel Domains stay plain DAL Hosting & domains. Earlier charges keep the DAL rules.`);
+  }, () => `Zerbiq rules saved. On the business card from ${fmtDate(ZERBIQ_FROM)}: Anthropic, Claude.ai, Expo, 650 Industries, St Augustine law and State of Florida fees are 100% Zerbiq (Telnyx and Supabase on any date); Lob is DAL marketing; Vercel's monthly plan charge (around the 4th) is split $10 DAL / rest Zerbiq and its other charges are Zerbiq usage; Zerbiq's share is settled through the owners (no repayment). Vercel Domains stay plain DAL Hosting & domains. Earlier charges keep the DAL rules.`);
   const ruleExtra = (r) => [
     r.icCategoryId ? `→ ${ledger.otherMeta.short} · ${(ledger.categoriesById[r.icCategoryId] || {}).name || 'category'}` : '',
     r.fromDate ? `from ${fmtDate(r.fromDate)}` : '',
@@ -418,11 +429,24 @@ export default function Setup() {
   const savedHistAs = (card && card.historicalPaymentsAs) || 'owner';
   const [histAs, setHistAs] = useState(savedHistAs);
   useEffect(() => { setHistAs(savedHistAs); }, [savedHistAs]);
-  const settle = () => run(() => apiPost('/api/ledger/migrate', { mode: 'settle', as: histAs }), (r) => {
+  const [cutDate, setCutDate] = useState('');
+  const [cutOwed, setCutOwed] = useState('');
+  useEffect(() => {
+    setCutDate((card && card.historicalCutoffDate) || '');
+    setCutOwed(card && card.historicalCutoffDate ? core.centsToDecimalString(card.historicalCutoffOwedCents || 0) : '');
+  }, [card && card.historicalCutoffDate, card && card.historicalCutoffOwedCents]); // eslint-disable-line react-hooks/exhaustive-deps
+  const cutoffPayload = () => {
+    if (!cutDate) return { cutoff: null };
+    const owed = core.parseMoneyToCents(cutOwed || '0');
+    if (owed == null || owed < 0) throw new Error('Enter the balance owed on the cut-over date (0 or more).');
+    return { cutoff: { date: cutDate, owedCents: owed } };
+  };
+  const settle = () => run(() => apiPost('/api/ledger/migrate', { mode: 'settle', as: histAs, ...cutoffPayload() }), (r) => {
     setMigration(r.summary);
     const st = r.summary.settled || {};
     const problems = (st.errors || []).length;
-    return `Migrated card charges marked as paid before Books: ${st.months || 0} monthly entries totalling ${fmt(st.totalCents || 0)}, booked as ${histAs === 'owner' ? 'owner contributions' : 'opening balance equity'}. ${problems ? `${problems} month(s) could not be updated (reconciled) — see details below.` : "The card's migrated history now owes $0.00."}`;
+    const owedNote = st.cutoff ? `Charges up to ${fmtDate(st.cutoff.date)} are covered except ${fmt(st.leftOwedCents || 0)}, which stays owed for the first imported payment; later migrated charges are paid by the imported statements' payments.` : "The card's migrated history now owes $0.00.";
+    return `Migrated card charges marked as paid before Books: ${st.months || 0} monthly entries totalling ${fmt(st.totalCents || 0)}, booked as ${histAs === 'owner' ? 'owner contributions' : 'opening balance equity'}. ${problems ? `${problems} month(s) could not be updated (reconciled) — see details below.` : owedNote}`;
   });
   const rebuild = () => run(() => apiPost('/api/ledger/rebuild', { companyId }), (r) => `Rebuilt ${r.result.months} months from ${r.result.transactions} transactions.`);
 
@@ -592,6 +616,9 @@ export default function Setup() {
                 not touched. They are booked as <em>Owner contributions</em> (you paid the old card bills personally; default — they appear in the
                 owner contributions report), or switch to <em>Opening balance equity</em> if they were paid from accounts these books don't track.
                 Migrate runs this automatically and keeps your choice; you can switch any time.
+                <strong> Importing real card statements?</strong> Enter the day before the first statement you'll import and that statement's
+                <em>Previous balance</em>: migrated charges up to that day are covered, that balance stays owed, and every real payment from then on
+                counts as an owner contribution, so the card matches each statement's new balance.
               </div>
             </div>
             <div className="bk-row-actions">
@@ -599,6 +626,12 @@ export default function Setup() {
                 <option value="owner">Owner contributions</option>
                 <option value="equity">Opening balance equity</option>
               </select>
+              <label className="bk-field-inline" title="Last day before the first card statement you'll import (e.g. 06/14/2026 if the first is 06/15–07/15)"><span>Statements from</span>
+                <input className="bk-input bk-date" type="date" value={cutDate} onChange={(e) => setCutDate(e.target.value)} aria-label="Card statement cut-over date" />
+              </label>
+              <label className="bk-field-inline" title="That statement's Previous balance"><span>owed then</span>
+                <input className="bk-input bk-amt" value={cutOwed} onChange={(e) => setCutOwed(e.target.value)} inputMode="decimal" placeholder="0.00" aria-label="Balance owed on the cut-over date" />
+              </label>
               <button type="button" className="btn btn-primary btn-sm" onClick={settle} disabled={busy}>Mark as paid</button>
             </div>
           </div>

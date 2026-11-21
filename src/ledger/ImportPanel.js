@@ -224,6 +224,7 @@ export default function ImportPanel({ onDone }) {
             row.projectId = rule.icCategoryId ? null : rule.projectId || null;
             row.rulePick = row.pick;
             row.ownerSettle = !!rule.settleThroughOwners;
+            row.planRule = rule.splitPlan ? rule : null;
             row.icLabel = rule.label || '';
             row.reviewNote = rule.reviewNote || (rule.splitPlan && !split ? `Credit on a shared plan: split it between ${core.COMPANY_META[companyId].short} and ${ledger.otherMeta.short} by hand` : '');
           }
@@ -253,6 +254,29 @@ export default function ImportPanel({ onDone }) {
         }
       });
     }
+    // Shared plans billed with separate usage charges (Vercel): each month only
+    // the plan charge (the one nearest the plan's billing day) is split; every
+    // other charge from that vendor that month is the other company's usage.
+    const planRows = out.filter((row) => row.planRule && (row.status === 'new' || row.status === 'possible'));
+    for (const m of [...new Set(planRows.map((row) => row.date.slice(0, 7)))]) {
+      const monthRows = planRows.filter((row) => row.date.slice(0, 7) === m);
+      const rule = monthRows[0].planRule;
+      // eslint-disable-next-line no-await-in-loop
+      const already = (await fetchAccountRange(companyId, account.id, `${m}-01`, `${m}-31`))
+        .some((t) => !t.deleted && (t.splits || []).some((l) => l.lineId === 'own') && core.rulePatternMatches(rule, core.normalizePayee(t.payee)));
+      const day = Number(rule.splitPlan.planDay) || 4;
+      const charges = monthRows.filter((row) => row.amountCents < 0);
+      const plan = already ? null : core.pickPlanCharge(charges, day);
+      for (const row of monthRows) {
+        if (row === plan) continue;
+        row.pick = `ic:${rule.icCategoryId}`;
+        row.splits = null;
+        row.rulePick = row.pick;
+        row.reviewNote = '';
+        row.icLabel = 'usage';
+        row.extraMemo = rule.splitPlan.overageMemo || '';
+      }
+    }
     setRows(out);
     setStep('preview');
     setProgress('');
@@ -267,7 +291,8 @@ export default function ImportPanel({ onDone }) {
   // marked so the estimate shrinks instead of the owners' money counting twice
   // (and the card going below $0.00).
   const coverage = useMemo(() => {
-    if (!account || account.id !== core.ACCOUNT || !account.cardPaymentsPaidPersonally) return {};
+    // With a statement cut-over set, every real payment is a full owner contribution.
+    if (!account || account.id !== core.ACCOUNT || !account.cardPaymentsPaidPersonally || account.historicalCutoffDate) return {};
     let owed = -((ledger.balances || {})[account.id] || 0);
     const out = {};
     const live = rows.filter((r) => r.selected && r.status !== 'match' && r.status !== 'duplicate')
@@ -328,7 +353,7 @@ export default function ImportPanel({ onDone }) {
             const t = await getTxn(r.matchTxnId);
             if (!t) continue;
             batch.set(doc(db, COL.transactions, t.id), {
-              fingerprint: r.fingerprint, importId: r.importId,
+              fingerprint: r.fingerprint, importId: r.importId, importMatched: true,
               ...(t.status === 'reconciled' ? {} : { status: 'cleared' }),
               updatedAt: serverTimestamp(),
             }, { merge: true });
@@ -358,7 +383,7 @@ export default function ImportPanel({ onDone }) {
             makeDraft: (before) => { wrote[r.key] = !before; return before ? undefined : {
               companyId, accountId: account.id, date: r.date, payee: r.payee, amountCents: r.amountCents,
               // A rule's review note (e.g. which company a domain belongs to) stays on the row until someone checks it.
-              memo: [r.memo || '', r.reviewNote && r.pick === r.rulePick ? `Check: ${r.reviewNote}` : ''].filter(Boolean).join(' · '),
+              memo: [r.memo || '', r.extraMemo && r.pick === r.rulePick ? r.extraMemo : '', r.reviewNote && r.pick === r.rulePick ? `Check: ${r.reviewNote}` : ''].filter(Boolean).join(' · '),
               ...(r.pick === 'split' && r.splits ? { categoryId: null, transferAccountId: null, icCategoryId: null, splits: r.splits } : { ...lineFromPick(r.pick, companyId), splits: [] }),
               status: 'cleared', source: 'import',
               projectId: r.projectId && r.pick === r.rulePick ? r.projectId : null,

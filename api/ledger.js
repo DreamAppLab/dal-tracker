@@ -42,20 +42,22 @@ const ReceiptSchema = z
   })
   .strict();
 
-const MigrateSchema = z.object({ mode: z.enum(['dry-run', 'apply', 'rollback', 'settle', 'projects', 'legacy-report', 'legacy-notes', 'legacy-notes-undo', 'personal-preview', 'personal-move', 'personal-undo']), as: z.enum(['equity', 'owner']).optional() }).strict();
+const MigrateSchema = z.object({ mode: z.enum(['dry-run', 'apply', 'rollback', 'settle', 'projects', 'legacy-report', 'legacy-notes', 'legacy-notes-undo', 'personal-preview', 'personal-move', 'personal-undo']), as: z.enum(['equity', 'owner']).optional(),
+  // Card-statement cut-over for "Card payments before Books" (null clears it).
+  cutoff: z.union([z.null(), z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), owedCents: z.number().int().min(0).max(1e10) }).strict()]).optional() }).strict();
 const RebuildSchema = z.object({ companyId }).strict();
 
 async function migrate(req, res) {
-  const { mode, as } = validate(MigrateSchema, parseJsonBody(req, { maxBytes: 1024 }));
+  const { mode, as, cutoff } = validate(MigrateSchema, parseJsonBody(req, { maxBytes: 1024 }));
   // Apply is additive, backed up and idempotent; rollback removes rows.
   if (mode === 'rollback') requireRecentAuth(req.auth, RECENT_AUTH_SECONDS);
   const db = getMcDb();
   if (mode !== 'dry-run' && mode !== 'legacy-report' && mode !== 'personal-preview') {
     // Strict audit before any write.
-    await writeAudit({ type: 'ledger_migration', actor: req.auth, target: 'expenses', meta: { mode, ...(as ? { as } : {}) } }, req);
+    await writeAudit({ type: 'ledger_migration', actor: req.auth, target: 'expenses', meta: { mode, ...(as ? { as } : {}), ...(cutoff !== undefined ? { cutoffDate: cutoff ? cutoff.date : 'none', cutoffOwedCents: cutoff ? cutoff.owedCents : 0 } : {}) } }, req);
   }
   try {
-    const summary = await migrateExpenses(db, { mode, as, getBucket: getMcBucket });
+    const summary = await migrateExpenses(db, { mode, as, cutoff, getBucket: getMcBucket });
     return res.status(200).json({ ok: true, summary });
   } catch (e) {
     if (e && e.status) throw new HttpError(e.status, e.message);
