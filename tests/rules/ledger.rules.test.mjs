@@ -255,6 +255,7 @@ test('ledger: bulk-change records are company-scoped, created once, then only th
   await assertSucceeds(updateDoc(doc(db, 'ledgerBulkEdits', 'dal_bulk_1'), { status: 'applied', appliedCount: 1 }));
   await assertFails(updateDoc(doc(db, 'ledgerBulkEdits', 'dal_bulk_1'), { changes: [] }));
   await assertSucceeds(updateDoc(doc(db, 'ledgerBulkEdits', 'dal_bulk_1'), { status: 'undone', undoneCount: 1 }));
+  await assertFails(updateDoc(doc(db, 'ledgerBulkEdits', 'dal_bulk_1'), { status: 'applied', appliedCount: 2 }));
   await assertFails(deleteDoc(doc(db, 'ledgerBulkEdits', 'dal_bulk_1')));
   await assertSucceeds(getDocs(query(collection(db, 'ledgerBulkEdits'), where('companyId', '==', 'dal'))));
   await assertFails(getDocs(collection(db, 'ledgerBulkEdits')));

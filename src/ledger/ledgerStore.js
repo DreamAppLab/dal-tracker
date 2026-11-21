@@ -526,15 +526,32 @@ export async function fetchCompanyAll(companyId) {
 async function runCategoryChanges(changes, direction, accounts, categories) {
   const groups = Object.entries(core.changesByTxn(changes));
   let changed = 0;
-  // Small chunks keep each Firestore transaction well under its write limit
-  // (main row + monthly totals per row).
-  for (let i = 0; i < groups.length; i += 40) {
-    const chunk = groups.slice(i, i + 40);
-    // eslint-disable-next-line no-await-in-loop
+  const failed = [];
+  const runGroup = async (chunk) => {
     const { plan } = await runPlans(chunk.map(([id, list]) => ({ id, makeDraft: (before) => core.applyCategoryChanges(before, list, direction) })), accounts, categories);
-    changed += new Set(plan.sets.map((x) => x.id).filter((id) => chunk.some(([cid]) => cid === id))).size;
+    const ids = new Set(chunk.map(([id]) => id));
+    return new Set(plan.sets.map((x) => x.id).filter((id) => ids.has(id))).size;
+  };
+  // Small chunks keep each Firestore transaction well under its limits. If a
+  // chunk is refused (one bad row, or rows with many linked legs), its rows
+  // are retried one by one so the rest still go through.
+  for (let i = 0; i < groups.length; i += 25) {
+    const chunk = groups.slice(i, i + 25);
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      changed += await runGroup(chunk);
+    } catch (e) {
+      for (const g of chunk) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          changed += await runGroup([g]);
+        } catch (e2) {
+          failed.push({ id: g[0], error: e2.message });
+        }
+      }
+    }
   }
-  return changed;
+  return { changed, failed };
 }
 
 /**
@@ -543,22 +560,22 @@ async function runCategoryChanges(changes, direction, accounts, categories) {
  */
 export async function bulkRecategorize(companyId, plan, q, accounts, categories) {
   const id = newId(companyId, 'bulk');
-  const changes = plan.changes.map((c) => ({ id: c.id, lineId: c.lineId || null, line: c.line == null ? null : c.line, from: c.from || null, to: c.to, cents: c.cents }));
+  const changes = plan.changes.map((c) => ({ id: c.id, lineKey: c.lineKey == null ? null : c.lineKey, line: c.line == null ? null : c.line, from: c.from || null, to: c.to, cents: c.cents }));
   await setDoc(doc(db, COL.bulkEdits, id), {
     companyId, kind: 'recategorize', payeeContains: String(q.payeeContains).slice(0, 100), fromCategoryId: q.fromCategoryId, toCategoryId: q.toCategoryId,
     txnCount: plan.txnCount, totalCents: plan.totalCents, reconciledCount: plan.reconciled, changes, status: 'applying', createdAt: serverTimestamp(),
   });
-  const done = await runCategoryChanges(changes, 'apply', accounts, categories);
+  const { changed: done, failed } = await runCategoryChanges(changes, 'apply', accounts, categories);
   await setDoc(doc(db, COL.bulkEdits, id), { status: 'applied', appliedCount: done, updatedAt: serverTimestamp() }, { merge: true });
-  recordAuditEvent('ledger_update', `${COL.bulkEdits}/${id}`, { action: 'bulk_recategorize', companyId, payeeContains: q.payeeContains, fromCategoryId: q.fromCategoryId, toCategoryId: q.toCategoryId, txnCount: done, lineCount: changes.length, totalCents: plan.totalCents, reconciledCount: plan.reconciled });
-  return done;
+  recordAuditEvent('ledger_update', `${COL.bulkEdits}/${id}`, { action: 'bulk_recategorize', companyId, payeeContains: q.payeeContains, fromCategoryId: q.fromCategoryId, toCategoryId: q.toCategoryId, txnCount: done, lineCount: changes.length, totalCents: plan.totalCents, reconciledCount: plan.reconciled, failedCount: failed.length });
+  return { done, failed };
 }
 
 /** Undo a bulk change: lines still in the new category go back; later manual edits are kept. */
 export async function undoBulkEdit(edit, accounts, categories) {
   if (edit.status === 'undone') throw new Error('Already undone.');
-  const n = await runCategoryChanges(edit.changes || [], 'undo', accounts, categories);
+  const { changed: n, failed } = await runCategoryChanges(edit.changes || [], 'undo', accounts, categories);
   await setDoc(doc(db, COL.bulkEdits, edit.id), { status: 'undone', undoneCount: n, updatedAt: serverTimestamp() }, { merge: true });
-  recordAuditEvent('ledger_update', `${COL.bulkEdits}/${edit.id}`, { action: 'bulk_recategorize_undone', companyId: edit.companyId, txnCount: n });
-  return n;
+  recordAuditEvent('ledger_update', `${COL.bulkEdits}/${edit.id}`, { action: 'bulk_recategorize_undone', companyId: edit.companyId, txnCount: n, failedCount: failed.length });
+  return { done: n, failed };
 }

@@ -75,6 +75,30 @@ test('bulk recategorize: validation and older splits without line ids', () => {
   assert.throws(() => core.planBulkRecategorize(L.txnList(), { companyId: 'dal', payeeContains: ' ', toCategoryId: cat('dal', 'contractors') }), /payee/);
   assert.throws(() => core.planBulkRecategorize(L.txnList(), { companyId: 'dal', payeeContains: 'x', toCategoryId: cat('zerbiq', 'contractors') }), /category/);
   const before = { companyId: 'dal', role: 'main', splits: [{ categoryId: cat('dal', 'professional'), amountCents: -1 }, { categoryId: cat('dal', 'professional'), amountCents: -1 }] };
-  const out = core.applyCategoryChanges(before, [{ line: 1, lineId: null, from: cat('dal', 'professional'), to: cat('dal', 'contractors') }]);
+  const out = core.applyCategoryChanges(before, [{ line: 1, lineKey: '1', from: cat('dal', 'professional'), to: cat('dal', 'contractors') }]);
   assert.deepEqual(out.splits.map((s) => s.categoryId), [cat('dal', 'professional'), cat('dal', 'contractors')]);
+  // After the split editor saves an old split, its lines get their position as id ("0", "1"):
+  // deleting line 0 and adding a new one must not shift which line undo touches.
+  const edited = { ...before, splits: [{ lineId: '1', categoryId: cat('dal', 'contractors'), amountCents: -1 }, { lineId: 'n3', categoryId: cat('dal', 'software'), amountCents: -1 }] };
+  const undone = core.applyCategoryChanges(edited, [{ line: 1, lineKey: '1', from: cat('dal', 'professional'), to: cat('dal', 'contractors') }], 'undo');
+  assert.deepEqual(undone.splits.map((s) => s.categoryId), [cat('dal', 'professional'), cat('dal', 'software')]);
+});
+
+test('bulk recategorize: intercompany and transfer rows are reported as skipped; rows the planner would refuse are left out up front', () => {
+  const { L, e } = seed();
+  // DAL pays for Zerbiq: the Zerbiq mirror is "booked by the other company".
+  L.add('dal', { accountId: 'dal_card', date: '2026-05-01', amountCents: -6000, payee: 'Sharmin Shepu', transferAccountId: 'dal_ic_zerbiq', icCategoryId: cat('zerbiq', 'contractors') });
+  const z = core.planBulkRecategorize(L.txnList(), { companyId: 'zerbiq', payeeContains: 'Sharmin', fromCategoryId: '*', toCategoryId: cat('zerbiq', 'contractors') });
+  assert.ok(z.skipped.some((s) => /other company/.test(s.reason)), 'zerbiq mirror reported');
+  const plan = core.planBulkRecategorize(L.txnList(), { companyId: 'dal', payeeContains: 'Sharmin', fromCategoryId: '*', toCategoryId: cat('dal', 'contractors') });
+  assert.ok(plan.skipped.some((s) => s.id === e && /Transfer/.test(s.reason)));
+  assert.ok(plan.skipped.some((s) => /intercompany/.test(s.reason)));
+  // The card's opening date moved after one of the rows: that row is refused and dropped from the plan.
+  const accounts = { ...L.accounts, dal_card: { ...L.accounts.dal_card, openingDate: '2026-01-01' } };
+  const byId = Object.fromEntries(L.txnList().map((t) => [t.id, t]));
+  const { plan: ok, failed } = core.validateBulk(plan, byId, accounts, L.categories);
+  assert.equal(failed.length, 1);
+  assert.match(failed[0].error, /opens on/);
+  assert.equal(ok.txnCount, plan.txnCount - 1);
+  assert.equal(ok.totalCents, plan.totalCents + 100000);
 });

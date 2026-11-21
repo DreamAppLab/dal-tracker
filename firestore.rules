@@ -145,7 +145,8 @@ service cloud.firestore {
         && ownedBy(request.resource.data.toCategoryId, request.resource.data.companyId);
       allow update: if isAdmin() && sameCompany()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'appliedCount', 'undoneCount', 'updatedAt'])
-        && request.resource.data.status in ['applied', 'undone'];
+        && ((resource.data.status == 'applying' && request.resource.data.status in ['applied', 'undone'])
+          || (resource.data.status == 'applied' && request.resource.data.status == 'undone'));
       allow delete: if false;
     }
 

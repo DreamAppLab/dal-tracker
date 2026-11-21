@@ -153,7 +153,10 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
    accounts and all years, from any category (or one category) to another. Split lines move one by one;
    transfer and intercompany lines, legs and mirrors are never touched. Reconciled rows are included: a category
    isn't one of the locked fields, and the change never moves a balance. Every row is written through the
-   planner (40 per Firestore transaction), so the monthly totals stay right. The record with the old categories
+   planner (25 per Firestore transaction; a refused chunk is retried row by row), so the monthly totals stay
+   right. Preview dry-runs every row through the planner and lists, without changing them, the rows it would
+   refuse and the matching transfer/intercompany rows (a mirror's category is changed in the other
+   company's books, on its "Paid for" line). The record with the old categories
    is saved *before* any row changes, so **Undo** works even if a run stops part-way. Undo only reverts lines
    that still have the category the bulk change gave them, so later hand edits are kept. It can also add or
    update a vendor rule for the payee. Audited as `ledger_update` with action `bulk_recategorize` /

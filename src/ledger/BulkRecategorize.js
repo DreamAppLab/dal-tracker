@@ -1,7 +1,7 @@
 // Setup → "Change category in bulk": move every transaction from one payee
 // (optionally only from one category) to another category, across all
 // accounts and years, as one audited change that can be undone.
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as core from './core';
 import { bulkRecategorize, COL, fetchCompanyAll, newId, saveDoc, undoBulkEdit, watchCompany } from './ledgerStore';
 import { Empty, fmt, fmtDate } from './ui';
@@ -16,49 +16,62 @@ export default function BulkRecategorize({ ledger }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [history, setHistory] = useState([]);
+  const [failed, setFailed] = useState([]); // rows the planner refused (preview or run)
+  const companyRef = useRef(companyId);
+  companyRef.current = companyId;
 
   useEffect(() => {
-    setQ({ payee: '', from: '*', to: '' }); setPreview(null); setMsg('');
+    setQ({ payee: '', from: '*', to: '' }); setPreview(null); setMsg(''); setFailed([]);
     return watchCompany(COL.bulkEdits, companyId, (rows) => setHistory(rows.sort((a, b) => ((b.createdAt && b.createdAt.seconds) || 0) - ((a.createdAt && a.createdAt.seconds) || 0)).slice(0, 8)), () => setHistory([]));
   }, [companyId]);
 
   const catName = (id) => (id ? (categoriesById[id] || {}).name || 'Unknown category' : 'Uncategorized');
   const active = categories.filter((c) => !c.archived);
   const set = (patch) => { setQ({ ...q, ...patch }); setPreview(null); };
+  const acctName = (id) => (accountsById[id] || {}).name || id;
 
   const doPreview = async () => {
-    setBusy(true); setMsg('');
+    if (busy) return;
+    const forCompany = companyId;
+    setBusy(true); setMsg(''); setFailed([]);
     try {
-      const txns = await fetchCompanyAll(companyId);
-      const plan = core.planBulkRecategorize(txns, { companyId, payeeContains: q.payee, fromCategoryId: q.from, toCategoryId: q.to });
-      if (plan.changes.length > MAX_CHANGES) throw new Error(`That matches ${plan.changes.length} lines; narrow it down (at most ${MAX_CHANGES} at a time).`);
+      const txns = await fetchCompanyAll(forCompany);
+      const raw = core.planBulkRecategorize(txns, { companyId: forCompany, payeeContains: q.payee, fromCategoryId: q.from, toCategoryId: q.to });
+      if (raw.changes.length > MAX_CHANGES) throw new Error(`That matches ${raw.changes.length} lines; narrow it down (at most ${MAX_CHANGES} at a time).`);
+      // Rows the planner would refuse are listed and left out, so a run never stops part-way on them.
+      const { plan, failed: bad } = core.validateBulk(raw, Object.fromEntries(txns.map((t) => [t.id, t])), accountsById, categoriesById);
+      if (companyRef.current !== forCompany) return; // switched books meanwhile
       setPreview(plan);
+      setFailed(bad);
     } catch (e) { setMsg(e.message); } finally { setBusy(false); }
   };
 
   const apply = async () => {
-    if (!preview || !preview.changes.length) return;
+    if (busy || !preview || !preview.changes.length) return;
     setBusy(true); setMsg('');
     try {
-      const done = await bulkRecategorize(companyId, preview, { payeeContains: q.payee.trim(), fromCategoryId: q.from, toCategoryId: q.to }, accountsById, categoriesById);
+      const { done, failed: bad } = await bulkRecategorize(companyId, preview, { payeeContains: q.payee.trim(), fromCategoryId: q.from, toCategoryId: q.to }, accountsById, categoriesById);
+      setFailed(bad);
       let ruleNote = '';
       const pattern = q.payee.trim().toUpperCase().replace(/\s+/g, ' ').slice(0, 100);
       if (addRule && pattern) {
-        const existing = rules.find((r) => r.pattern === pattern);
-        if (existing) await saveDoc(COL.vendorRules, existing.id, { companyId, pattern, categoryId: q.to });
+        const existing = rules.find((r) => core.normalizePayee(r.pattern) === core.normalizePayee(pattern));
+        if (existing) await saveDoc(COL.vendorRules, existing.id, { companyId, pattern: existing.pattern, categoryId: q.to });
         else await saveDoc(COL.vendorRules, newId(companyId, 'rule'), { companyId, pattern, categoryId: q.to, projectId: null, isDefault: false }, false);
         ruleNote = ` Vendor rule “${pattern}” → ${catName(q.to)} ${existing ? 'updated' : 'added'}.`;
       }
-      setMsg(`Moved ${preview.changes.length} line(s) on ${done} transaction(s), ${fmt(Math.abs(preview.totalCents))} in total, to ${catName(q.to)}.${ruleNote} You can undo this below.`);
+      setMsg(`Moved ${done} transaction(s) to ${catName(q.to)} (${preview.changes.length} line(s), ${fmt(Math.abs(preview.totalCents))} in total).${bad.length ? ` ${bad.length} transaction(s) could not be changed — listed below.` : ''}${ruleNote} You can undo this below.`);
       setPreview(null);
     } catch (e) { setMsg(e.message); } finally { setBusy(false); }
   };
 
   const undo = async (edit) => {
+    if (busy) return;
     setBusy(true); setMsg('');
     try {
-      const n = await undoBulkEdit(edit, accountsById, categoriesById);
-      setMsg(`Undone: ${n} transaction(s) moved back. Rows edited by hand since then were left as they are. (The vendor rule, if one was added, stays; edit it under Vendor rules.)`);
+      const { done: n, failed: bad } = await undoBulkEdit(edit, accountsById, categoriesById);
+      setFailed(bad);
+      setMsg(`Undone: ${n} transaction(s) moved back.${bad.length ? ` ${bad.length} could not be changed — listed below.` : ''} Rows edited by hand since then were left as they are. (The vendor rule, if one was added, stays; edit it under Vendor rules.)`);
     } catch (e) { setMsg(e.message); } finally { setBusy(false); }
   };
 
@@ -82,6 +95,12 @@ export default function BulkRecategorize({ ledger }) {
       </div>
       <label className="bk-check bk-small"><input type="checkbox" checked={addRule} onChange={(e) => setAddRule(e.target.checked)} /> Also add a vendor rule so future entries and imports for this payee land in the new category</label>
       {msg && <div className="bk-notice">{msg}</div>}
+      {!!failed.length && (
+        <div className="bk-notice bk-notice-warn">
+          <div className="bk-kicker">Not changed ({failed.length}) — fix these rows in the register, then run it again</div>
+          {failed.slice(0, 20).map((f) => <div key={f.id} className="bk-small">{f.date ? `${fmtDate(f.date)} · ` : ''}{f.payee || f.id}{f.accountId ? ` · ${acctName(f.accountId)}` : ''} — {f.error}</div>)}
+        </div>
+      )}
 
       {preview && (
         <>
@@ -89,6 +108,12 @@ export default function BulkRecategorize({ ledger }) {
             {preview.changes.length ? `${preview.txnCount} transaction(s), ${preview.changes.length} line(s), ${fmt(Math.abs(preview.totalCents))} → ${catName(q.to)}` : 'Nothing to change.'}
             {preview.reconciled > 0 && ` · ${preview.reconciled} reconciled (balances unaffected)`}
           </div>
+          {!!preview.skipped.length && (
+            <details className="bk-small bk-mb">
+              <summary>{preview.skipped.length} matching row(s) are not changed by this tool (transfers or intercompany)</summary>
+              {preview.skipped.map((s, i) => <div key={`${s.id}-${i}`}>{fmtDate(s.date)} · {s.payee} · {acctName(s.accountId)} · {fmt(s.cents)} — {s.reason}</div>)}
+            </details>
+          )}
           {!!preview.changes.length && (
             <div className="bk-table-wrap bk-scroll-y">
               <table className="bk-table">
@@ -97,7 +122,7 @@ export default function BulkRecategorize({ ledger }) {
                   {preview.changes.map((c) => (
                     <tr key={`${c.id}-${c.line == null ? 'm' : c.line}`} className="bk-row">
                       <td>{fmtDate(c.date)}</td>
-                      <td>{(accountsById[c.accountId] || {}).name || c.accountId}</td>
+                      <td>{acctName(c.accountId)}</td>
                       <td className="bk-payee">{c.payee}{c.line != null && <span className="bk-pill">split line</span>}{c.status === 'reconciled' && <span className="bk-pill">reconciled</span>}</td>
                       <td>{catName(c.from)}</td>
                       <td className="num">{fmt(c.cents)}</td>
