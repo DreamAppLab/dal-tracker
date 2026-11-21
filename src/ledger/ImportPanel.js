@@ -540,6 +540,7 @@ export default function ImportPanel({ onDone }) {
                             {r.pick === 'split' && r.splits && (
                               <div className="bk-small">
                                 Split: {r.splits.map((l) => `${l.icCategoryId ? `${ledger.otherMeta.short} · ` : ''}${(categoriesById[l.icCategoryId || l.categoryId] || {}).name || ''} ${fmt(-l.amountCents)}`).join(' + ')}
+                                <div className="bk-muted">Or pick one category below to book it as a single line.</div>
                               </div>
                             )}
                             <CategorySelect ledger={ledger} accountId={account.id} value={r.pick === 'split' ? '' : r.pick} allowSplit={false} onChange={(v) => patch(r.key, { pick: v, splits: null, pairTxnId: v === pickFromLine({ transferAccountId: otherAcct && otherAcct.id }) ? r.pairTxnId : null })} />
