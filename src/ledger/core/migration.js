@@ -132,7 +132,7 @@ const historicalId = (month) => `${COMPANY}_hist_${month}`;
  * @param {string} categoryId  equity category to book them to
  * @returns {{ upserts: Array<{id, draft}>, deleteIds: string[], totalCents, months }}
  */
-function planHistoricalPayments(cardTxns, existing, categoryId, cutoff) {
+function planHistoricalPayments(cardTxns, existing, categoryId, cutoff, viaAccountId) {
   const byMonth = {};
   // Optional card-statement cut-over { date, owedCents }: only migrated charges
   // up to `date` are covered, and `owedCents` (the next statement's previous
@@ -177,7 +177,9 @@ function planHistoricalPayments(cardTxns, existing, categoryId, cutoff) {
         amountCents: pay,
         payee: 'Card payments before Books',
         memo: `Migrated ${month} card charges, paid before these books started.`,
-        categoryId,
+        // Owner money through "Paid personally": a transfer from it; otherwise the equity category.
+        categoryId: viaAccountId ? null : categoryId,
+        transferAccountId: viaAccountId || null,
         source: HISTORICAL_SOURCE,
         status: 'cleared',
       },
@@ -370,7 +372,33 @@ function planLegacyNotesUndo(dalTxns) {
   return out;
 }
 
+// ---- Owner money through "Paid personally" ----
+
+const OWNER_SLUGS = ['owner_contribution', 'owner_draw', 'personal_spending'];
+
+/**
+ * Rows booked to an owner-equity category (contribution, draw, personal
+ * spending) in any of the company's accounts except "Paid personally" itself,
+ * re-booked as a transfer to/from "Paid personally" — so that account shows
+ * everything the owners put in (and took out). Same amounts and accounts:
+ * equity, P&L and balances don't change. `direction: 'undo'` reverses rows
+ * this marked (ownerMoneyFromCategoryId).
+ */
+function planOwnerMoney(txns, companyId, direction = 'apply') {
+  const personal = ids.personal(companyId);
+  const cats = new Set(OWNER_SLUGS.map((s) => ids.category(companyId, s)));
+  const isMain = (t) => t.companyId === companyId && (t.role || 'main') === 'main' && !t.deleted && !t.settlementId;
+  if (direction === 'undo') {
+    return txns.filter((t) => isMain(t) && t.ownerMoneyFromCategoryId && t.transferAccountId === personal && !(t.splits && t.splits.length))
+      .map((t) => ({ id: t.id, before: t, draft: { ...t, categoryId: t.ownerMoneyFromCategoryId, transferAccountId: null, icCategoryId: null, ownerMoneyFromCategoryId: null } }));
+  }
+  return txns.filter((t) => isMain(t) && t.accountId !== personal && t.source !== HISTORICAL_SOURCE
+    && cats.has(t.categoryId) && !t.transferAccountId && !(t.splits && t.splits.length))
+    .map((t) => ({ id: t.id, before: t, draft: { ...t, categoryId: null, icCategoryId: null, transferAccountId: personal, ownerMoneyFromCategoryId: t.categoryId } }));
+}
+
 module.exports = {
+  planOwnerMoney, OWNER_SLUGS,
   legacyExpenseReport, planLegacyNotes, planLegacyNotesUndo, planPersonalMove, planPersonalUndo,
   planLegacyProjects, projectSlug,
   COMPANY, ACCOUNT, migratedId, legacyImportId, mapLegacyExpense, planMigration, planLegacyImports,

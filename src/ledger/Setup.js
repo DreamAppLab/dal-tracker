@@ -293,6 +293,16 @@ export default function Setup() {
   const [newAcct, setNewAcct] = useState({ kind: 'credit_card', name: '', last4: '', openingDate: '' });
   const [personalPreview, setPersonalPreview] = useState(null);
   const [dupes, setDupes] = useState(null);
+  const [ownerMoneyPv, setOwnerMoneyPv] = useState(null);
+  const ownerMoneyRun = (mode) => run(() => apiPost('/api/ledger/migrate', { mode }), (r) => {
+    const o = r.summary.ownerMoney;
+    const line = (c) => `${core.COMPANY_META[c].short}: ${o.companies[c].count} row(s)`;
+    if (mode === 'owner-money-preview') { setOwnerMoneyPv(o); return `Would move ${line('dal')}, ${line('zerbiq')} to Paid personally.`; }
+    setOwnerMoneyPv(null);
+    const tile = (c) => `${core.COMPANY_META[c].short} Paid personally ${fmt(-(o.companies[c].personalCents || 0))}`;
+    const card = o.companies.dal.cardBalanceCents;
+    return `${mode === 'owner-money-undo' ? 'Undone' : 'Done'}: ${line('dal')}, ${line('zerbiq')}. ${tile('dal')}; ${tile('zerbiq')}. DAL card owes ${fmt(-(card || 0))} (unchanged). Equity and P&L are unchanged.${o.errors.length ? ` ${o.errors.length} row(s) could not be changed.` : ''}`;
+  });
   const dupesRun = (mode) => run(() => apiPost('/api/ledger/migrate', { mode, ...(mode === 'dupes-merge' && dupes ? { ids: dupes.pairs.map((pr) => pr.dropId) } : {}) }), (r) => {
     const d = r.summary.dupes;
     if (mode === 'dupes-preview') { setDupes(d); return d.count ? `${d.count} duplicate charge(s) on the card, ${fmt(d.totalCents)} in total.` : 'No duplicates found.'; }
@@ -646,6 +656,29 @@ export default function Setup() {
             </div>
           </div>
         )}
+        <div className="bk-maint-row">
+          <div>
+            <strong>Owner money through “Paid personally”</strong>
+            <div className="bk-muted bk-small">
+              Makes “Paid personally” show everything the owners put in, in both companies: card payments paid personally, checking deposits and
+              “Card payments before Books” booked as <em>Owner contribution</em> (and any <em>Owner draw</em> / <em>Personal</em> rows) become
+              transfers to/from “Paid personally”. Same amounts and dates; equity, P&L, the card and checking balances don't change; reconciled
+              rows stay reconciled. Future card payments on a card paid personally import the same way. You can undo it.
+            </div>
+            {ownerMoneyPv && (
+              <div className="bk-small bk-mt">
+                {core.COMPANY_IDS.map((c) => (
+                  <div key={c}><strong>{core.COMPANY_META[c].short}</strong>: {ownerMoneyPv.companies[c].rows.map((x) => `${fmtDate(x.date)} ${x.payee || '—'} ${fmt(x.cents)}`).join(' · ') || 'nothing'}</div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="bk-row-actions">
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => ownerMoneyRun('owner-money-preview')} disabled={busy}>Preview</button>
+            {ownerMoneyPv && <button type="button" className="btn btn-primary btn-sm" onClick={() => ownerMoneyRun('owner-money')} disabled={busy}>Move to Paid personally</button>}
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => ownerMoneyRun('owner-money-undo')} disabled={busy}>Undo</button>
+          </div>
+        </div>
         {companyId === 'dal' && (
           <div className="bk-maint-row">
             <div>

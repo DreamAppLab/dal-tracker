@@ -245,10 +245,13 @@ export default function ImportPanel({ onDone }) {
     });
     // "Card payments on this account are paid personally": a payment is the
     // owners' money, so it's an owner contribution, not a transfer from checking.
-    if (account.kind === 'credit_card' && account.cardPaymentsPaidPersonally && categoriesById[ownerCat]) {
+    // Owner money goes through "Paid personally" when that account exists (so it
+    // shows everything the owners paid); otherwise the Owner contribution category.
+    const personalPick = accountsById[core.ids.personal(companyId)] ? `xfer:${core.ids.personal(companyId)}` : null;
+    if (account.kind === 'credit_card' && account.cardPaymentsPaidPersonally && (personalPick || categoriesById[ownerCat])) {
       out.forEach((row) => {
         if ((row.status === 'new' || row.status === 'possible') && core.isLikelyCardPayment(row, 'credit_card')) {
-          row.pick = `cat:${ownerCat}`;
+          row.pick = personalPick || `cat:${ownerCat}`;
           row.pairTxnId = null;
           row.pairLabel = '';
         }
@@ -299,7 +302,7 @@ export default function ImportPanel({ onDone }) {
       .sort((a, b) => a.date.localeCompare(b.date) || a.amountCents - b.amountCents);
     for (const r of live) {
       if (r.amountCents < 0) { owed += -r.amountCents; continue; }
-      if (r.pick === `cat:${ownerCat}`) {
+      if (r.pick === `cat:${ownerCat}` || r.pick === `xfer:${core.ids.personal(companyId)}`) {
         const excess = Math.max(0, r.amountCents - Math.max(owed, 0));
         if (excess) out[r.key] = excess;
         owed -= r.amountCents - excess;
@@ -308,7 +311,7 @@ export default function ImportPanel({ onDone }) {
       }
     }
     return out;
-  }, [rows, account, ledger.balances, ownerCat]);
+  }, [rows, account, ledger.balances, ownerCat, companyId]);
   const selected = rows.filter((r) => r.selected);
   const counts = rows.reduce((acc, r) => ({ ...acc, [r.status]: (acc[r.status] || 0) + 1 }), {});
   const pairCount = rows.filter((r) => r.selected && r.pick.startsWith('xfer:')).length;

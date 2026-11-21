@@ -42,7 +42,7 @@ const ReceiptSchema = z
   })
   .strict();
 
-const MigrateSchema = z.object({ mode: z.enum(['dry-run', 'apply', 'rollback', 'settle', 'projects', 'legacy-report', 'legacy-notes', 'legacy-notes-undo', 'personal-preview', 'personal-move', 'personal-undo', 'dupes-preview', 'dupes-merge', 'dupes-undo']), as: z.enum(['equity', 'owner']).optional(),
+const MigrateSchema = z.object({ mode: z.enum(['dry-run', 'apply', 'rollback', 'settle', 'projects', 'legacy-report', 'legacy-notes', 'legacy-notes-undo', 'personal-preview', 'personal-move', 'personal-undo', 'dupes-preview', 'dupes-merge', 'dupes-undo', 'owner-money-preview', 'owner-money', 'owner-money-undo']), as: z.enum(['equity', 'owner']).optional(),
   // Card-statement cut-over for "Card payments before Books" (null clears it).
   // Ids the user previewed (personal-move, dupes-merge): only those are touched.
   ids: z.array(z.string().regex(/^dal_[A-Za-z0-9_-]{1,150}$/)).max(1000).optional(),
@@ -54,7 +54,7 @@ async function migrate(req, res) {
   // Apply is additive, backed up and idempotent; rollback removes rows.
   if (mode === 'rollback') requireRecentAuth(req.auth, RECENT_AUTH_SECONDS);
   const db = getMcDb();
-  if (mode !== 'dry-run' && mode !== 'legacy-report' && mode !== 'personal-preview' && mode !== 'dupes-preview') {
+  if (mode !== 'dry-run' && mode !== 'legacy-report' && mode !== 'personal-preview' && mode !== 'dupes-preview' && mode !== 'owner-money-preview') {
     // Strict audit before any write.
     await writeAudit({ type: 'ledger_migration', actor: req.auth, target: 'expenses', meta: { mode, ...(as ? { as } : {}), ...(cutoff !== undefined ? { cutoffDate: cutoff ? cutoff.date : 'none', cutoffOwedCents: cutoff ? cutoff.owedCents : 0 } : {}) } }, req);
   }
