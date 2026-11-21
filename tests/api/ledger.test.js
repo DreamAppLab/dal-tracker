@@ -435,6 +435,7 @@ test('card duplicates: receipt rows merge into statement rows; off-card rows mov
   });
   await call('migrate', { mode: 'apply' });
   await call('migrate', { mode: 'settle', cutoff: { date: '2026-06-14', owedCents: 61534 } });
+  db.store.set('ledgerImports/dal_imp_nov', { companyId: 'dal', accountId: 'dal_card', periodStart: '2026-10-16', periodEnd: '2026-11-14' });
   // The real statement row for the ASO.DEV charge, imported (uncategorized).
   db.store.set('ledgerTransactions/dal_card_fpaso', { companyId: 'dal', accountId: 'dal_card', date: '2026-06-28', amountCents: -3900, payee: 'ASO.DEV* TRIAL OVER LONDON', memo: '', role: 'main', status: 'cleared', source: 'import', fingerprint: 'fpaso', categoryId: null, transferAccountId: null, icCategoryId: null, splits: [], deleted: false, needsCategory: true });
   assert.equal(balanceOf(db, 'dal_card'), -(61534 + 3900 + 5625 + 3900));
@@ -443,7 +444,7 @@ test('card duplicates: receipt rows merge into statement rows; off-card rows mov
   assert.deepEqual(pv.body.summary.dupes.pairs.map((p) => [p.dropId, p.keepId]), [['dal_mig_b', 'dal_card_fpaso']]);
   // The personal move must not take the receipt row while it's a duplicate.
   const pp = await call('migrate', { mode: 'personal-preview' });
-  assert.deepEqual(pp.body.summary.personal.rows.map((r) => [r.id, r.reason]), [['dal_mig_c', 'not on any card statement']]);
+  assert.deepEqual(pp.body.summary.personal.rows.map((r) => [r.id, r.reason]), [['dal_mig_c', 'not on any imported card statement']]);
   const mg = await call('migrate', { mode: 'dupes-merge' });
   assert.equal(mg.body.summary.dupes.count, 1);
   const kept = db.store.get('ledgerTransactions/dal_card_fpaso');
@@ -452,7 +453,9 @@ test('card duplicates: receipt rows merge into statement rows; off-card rows mov
   assert.match(kept.memo, /Indie subscription/);
   assert.equal(db.store.get('ledgerTransactions/dal_mig_b').deleted, true);
   assert.equal(balanceOf(db, 'dal_card'), -(61534 + 5625 + 3900));
-  await call('migrate', { mode: 'personal-move' });
+  await call('migrate', { mode: 'personal-move', ids: ['dal_mig_nothing'] });
+  assert.equal(db.store.get('ledgerTransactions/dal_mig_c').accountId, 'dal_card', 'only previewed ids move');
+  await call('migrate', { mode: 'personal-move', ids: ['dal_mig_c'] });
   assert.equal(db.store.get('ledgerTransactions/dal_mig_c').accountId, 'dal_personal');
   assert.equal(balanceOf(db, 'dal_card'), -(61534 + 3900), 'card = previous balance + the statement charge');
   assert.ok([...db.store.values()].some((d) => d.type === 'ledger_migration' && d.meta && d.meta.mode === 'dupes-merge'), 'audited');

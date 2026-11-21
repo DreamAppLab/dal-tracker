@@ -199,9 +199,12 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
      receipt, notes, project and (if it had none) the category, then soft-deletes the receipt row
      (`mergedInto` / `mergedFrom` / `mergeBackup`). It re-settles and rebuilds, can be undone, and is audited
      (`migrate` modes `dupes-preview` / `dupes-merge` / `dupes-undo`).
-   - After a cut-over, *Card charges paid on a personal card* also moves migrated charges dated after it that
-     no imported statement matched (paid another way, e.g. Fiverr via PayPal). Receipt duplicates are skipped
-     until they are merged.
+   - After a cut-over, *Card charges paid on a personal card* also moves migrated charges dated after it, up to
+     the last imported statement's end, that no imported statement matched (paid another way, e.g. Fiverr via
+     PayPal). Receipt duplicates are skipped until they are merged. A row with a same-amount card row within 5
+     days is held back as a possible duplicate. Merge and Move apply only to the rows that were previewed
+     (`ids`). Pairing is a maximum matching that prefers the closest dates, a statement row already merged
+     into is never offered again, and undo keeps fields changed after the merge.
 7. **Reconciled rows are locked by the rules.** Their amount, date, account, status and delete flag can't
    change. **Undo reconcile** is server-side (`/api/ledger/unreconcile`), requires a sign-in within the last
    15 minutes, is written to the audit log first, and works on the latest statement only.

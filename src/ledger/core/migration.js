@@ -195,7 +195,7 @@ function planHistoricalPayments(cardTxns, existing, categoryId, cutoff) {
  * them to "Paid personally". Only plain category rows that are still
  * uncleared; marked so the move can be undone.
  */
-function planPersonalMove(dalTxns, cutoffDate) {
+function planPersonalMove(dalTxns, cutoffDate, statementsThrough) {
   // eslint-disable-next-line global-require
   const { findCardDuplicates } = require('./dupes');
   const dupDrops = new Set(findCardDuplicates(dalTxns, ACCOUNT).map((p) => p.dropId));
@@ -205,9 +205,18 @@ function planPersonalMove(dalTxns, cutoffDate) {
   // Hand entries never on a card statement, and (once real statements are
   // imported past a cut-over) migrated charges after it that no statement matched.
   const handEntered = (t) => !t.importId && t.status === 'uncleared';
-  const offCard = (t) => !!cutoffDate && t.date > cutoffDate && !t.importMatched;
+  // Only up to the last imported statement (a statement not imported yet would look "off card").
+  const offCard = (t) => !!cutoffDate && !!statementsThrough && t.date > cutoffDate && t.date <= statementsThrough && !t.importMatched;
+  // A card row of the same amount a few days away may be its statement twin
+  // (a duplicate the pairing missed): hold it back for a person to check.
+  const live = dalTxns.filter((t) => t.accountId === ACCOUNT && !t.deleted && (t.role || 'main') === 'main');
+  const days = (a, b) => Math.abs((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86400000);
+  const twin = (t) => live.some((x) => x.id !== t.id && x.amountCents === t.amountCents && days(x.date, t.date) <= 5);
   return dalTxns.filter((t) => base(t) && (handEntered(t) || offCard(t)))
-    .map((t) => ({ ...t, moveReason: handEntered(t) ? 'hand-entered' : 'not on any card statement' }))
+    .map((t) => {
+      if (handEntered(t)) return { ...t, moveReason: 'hand-entered' };
+      return twin(t) ? { ...t, moveReason: 'possible duplicate on the card: check it (not moved)', holdBack: true } : { ...t, moveReason: 'not on any imported card statement' };
+    })
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 

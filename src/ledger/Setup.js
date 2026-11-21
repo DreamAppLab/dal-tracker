@@ -293,12 +293,13 @@ export default function Setup() {
   const [newAcct, setNewAcct] = useState({ kind: 'credit_card', name: '', last4: '', openingDate: '' });
   const [personalPreview, setPersonalPreview] = useState(null);
   const [dupes, setDupes] = useState(null);
-  const dupesRun = (mode) => run(() => apiPost('/api/ledger/migrate', { mode }), (r) => {
+  const dupesRun = (mode) => run(() => apiPost('/api/ledger/migrate', { mode, ...(mode === 'dupes-merge' && dupes ? { ids: dupes.pairs.map((pr) => pr.dropId) } : {}) }), (r) => {
     const d = r.summary.dupes;
     if (mode === 'dupes-preview') { setDupes(d); return d.count ? `${d.count} duplicate charge(s) on the card, ${fmt(d.totalCents)} in total.` : 'No duplicates found.'; }
     setDupes(null);
     const owed = -(d.cardBalanceCents || 0);
-    return `${mode === 'dupes-undo' ? 'Undone' : 'Merged'}: ${d.count} duplicate(s), ${fmt(d.totalCents)}. “Card payments before Books” recomputed; the card now owes ${fmt(owed)}.${d.errors.length ? ` ${d.errors.length} could not be ${mode === 'dupes-undo' ? 'undone' : 'merged'}.` : ''}`;
+    const settleErr = d.settled && d.settled.errors && d.settled.errors.length ? ` ${d.settled.errors.length} “Card payments before Books” month(s) could not be updated (reconciled).` : '';
+    return `${mode === 'dupes-undo' ? 'Undone' : 'Merged'}: ${d.count} duplicate(s), ${fmt(d.totalCents)}. “Card payments before Books” recomputed; the card now owes ${fmt(owed)}.${d.errors.length ? ` ${d.errors.length} could not be ${mode === 'dupes-undo' ? 'undone' : 'merged'}.` : ''}${settleErr}`;
   });
   const addAccount = () => {
     const name = newAcct.name.trim() || ({ credit_card: 'Business credit card', checking: 'Business checking', personal: 'Paid personally' })[newAcct.kind];
@@ -310,12 +311,12 @@ export default function Setup() {
       vaultBankAccountId: null, vaultCreditCardId: null, archived: false, sort: newAcct.kind === 'personal' ? 4 : 5,
     }, false), () => { setNewAcct({ kind: newAcct.kind, name: '', last4: '', openingDate: '' }); return `Added “${name}”. Set its opening balance in the table if it didn’t start at $0.00.`; });
   };
-  const personalMove = (mode) => run(() => apiPost('/api/ledger/migrate', { mode }), (r) => {
+  const personalMove = (mode) => run(() => apiPost('/api/ledger/migrate', { mode, ...(mode === 'personal-move' && personalPreview ? { ids: personalPreview.rows.map((x) => x.id) } : {}) }), (r) => {
     const p = r.summary.personal;
     if (mode === 'personal-preview') {
       setPersonalPreview(p);
       if (p.blocked && p.blocked.length) return `${p.count} charge(s) found, but these reconciled “Card payments before Books” months would have to change: ${p.blocked.map((id) => id.replace('dal_hist_', '')).join(', ')}. Undo those card reconciliations first.`;
-      return `${p.count} hand-entered card charge(s), ${fmt(Math.abs(p.totalCents))}, would move to Paid personally.`;
+      return `${p.count} card charge(s), ${fmt(Math.abs(p.totalCents))}, would move to Paid personally.${p.heldBack && p.heldBack.length ? ` ${p.heldBack.length} possible duplicate(s) are held back (listed) — check them in the register.` : ''}`;
     }
     setPersonalPreview(null);
     if (!p.count) return 'Nothing to move.';
@@ -680,6 +681,11 @@ export default function Setup() {
                 personal card, PayPal…). This moves them from the card to <em>Paid personally</em> and recomputes “Card payments before Books” so it covers
                 only the real card charges. The card still owes $0.00, and P&L and total owner contributions don't change. You can undo it.
               </div>
+              {personalPreview && !!(personalPreview.heldBack || []).length && (
+                <div className="bk-notice bk-notice-warn bk-small">
+                  Held back (a card row of the same amount is within 5 days — maybe a duplicate): {personalPreview.heldBack.map((r) => `${fmtDate(r.date)} ${r.payee} ${fmt(-r.cents)}`).join(' · ')}
+                </div>
+              )}
               {personalPreview && !!personalPreview.rows.length && (
                 <div className="bk-table-wrap bk-scroll-y bk-mt">
                   <table className="bk-table">

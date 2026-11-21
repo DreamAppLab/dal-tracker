@@ -349,3 +349,25 @@ test('card duplicates: the six production receipt/statement pairs pair up; off-c
   assert.deepEqual(pairs.map((p) => `${p.dropId}>${p.keepId}`), ['r1>s1', 'r2>s2', 'r3>s3', 'r4>s4', 'r5>s5', 'r6>s6']);
   assert.equal(pairs.reduce((s, p) => s - p.amountCents, 0), 24371, '$243.71');
 });
+
+test('card duplicates review: closest pairing, merged rows not re-merged, possible duplicates held back, undo keeps later edits', () => {
+  const row = (id, date, cents, payee, extra = {}) => ({ id, companyId: 'dal', accountId: 'dal_card', date, amountCents: -cents, payee, role: 'main', ...extra });
+  const rec = { source: 'migration', attachmentUrl: 'u', legacyExpenseId: 'x', status: 'cleared' };
+  const imp = { source: 'import', fingerprint: 'f' };
+  // Greedy-by-date would pair Ra with S1 and strand Rb; closest-gap pairs both.
+  const txns = [row('Ra', '2026-07-28', 1000, 'ACME TOOLS', rec), row('Rb', '2026-07-30', 1000, 'ACME TOOLS', rec), row('S1', '2026-07-29', 1000, 'ACME TOOLS INC', imp), row('S2', '2026-07-26', 1000, 'ACME TOOLS INC', imp)];
+  assert.equal(core.findCardDuplicates(txns, 'dal_card').length, 2);
+  // A statement row already merged into is not offered again.
+  assert.equal(core.findCardDuplicates([txns[0], { ...txns[2], mergedFrom: 'old' }], 'dal_card').length, 0);
+  // Off-card move: only up to the last imported statement; a same-amount twin is held back.
+  const mig = (id, date, cents) => row(id, date, cents, `V${id}`, { source: 'migration', legacyExpenseId: id, status: 'cleared', importId: 'dal_imp_legacy' });
+  const plan = core.planPersonalMove([mig('m1', '2026-08-03', 5625), mig('m2', '2026-08-10', 10900), row('s9', '2026-08-11', 10900, 'OTHER', imp), mig('m3', '2026-12-02', 700)], '2026-06-14', '2026-11-14');
+  assert.deepEqual(plan.map((t) => [t.id, !!t.holdBack]), [['m1', false], ['m2', true]]);
+  // Undo keeps a category set after the merge.
+  const keep = row('K', '2026-07-29', 1000, 'ACME', { ...imp, memo: '', categoryId: null, transferAccountId: null, icCategoryId: null, splits: [] });
+  const merged = core.mergedKeep(keep, { id: 'R', memo: 'receipt', categoryId: 'dal_cat_software', attachmentUrl: 'u' });
+  const back = core.unmergedKeep({ ...merged, categoryId: 'dal_cat_hosting' });
+  assert.equal(back.categoryId, 'dal_cat_hosting', 'later recategorization kept');
+  assert.equal(back.attachmentUrl, null);
+  assert.equal(back.memo, '');
+});
