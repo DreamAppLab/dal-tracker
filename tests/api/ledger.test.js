@@ -390,3 +390,19 @@ test('card history: real payments marked "already paid before Books" shrink the 
   assert.equal(big.upserts.length, 0);
   assert.equal(big.coveredCents, 15000, 'never below zero');
 });
+
+test('paid personally: refuses (before writing) when a reconciled "Card payments before Books" month would change', async () => {
+  const db = setup({
+    ...legacySeed(),
+    'expenses/e5': { vendor: 'Best Buy', amount: 752.49, date: '2026-01-20', category: 'Hardware & Equipment', source: 'manual' },
+  });
+  await call('migrate', { mode: 'apply' });
+  const hist = db.store.get('ledgerTransactions/dal_hist_2026-01');
+  db.store.set('ledgerTransactions/dal_hist_2026-01', { ...hist, status: 'reconciled', reconciliationId: 'dal_rec_1' });
+  const pv = await call('migrate', { mode: 'personal-preview' });
+  assert.deepEqual(pv.body.summary.personal.blocked, ['dal_hist_2026-01']);
+  const mv = await call('migrate', { mode: 'personal-move' });
+  assert.equal(mv.statusCode, 409);
+  assert.equal(db.store.get('ledgerTransactions/dal_mig_e5').accountId, 'dal_card', 'nothing moved');
+  assert.equal(balanceOf(db, 'dal_card'), 0);
+});

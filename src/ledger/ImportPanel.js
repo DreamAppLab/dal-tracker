@@ -96,7 +96,11 @@ export default function ImportPanel({ onDone }) {
 
   const acctId = accountId && accountsById[accountId] && accountsById[accountId].companyId === companyId ? accountId : (bankish[0] || {}).id;
   const account = accountsById[acctId];
-  const otherAcct = account ? bankish.find((a) => a.id !== account.id && a.kind !== account.kind) : null;
+  // Card payments pair with an account of the other kind; with several cards
+  // (or bank accounts) the user picks which one.
+  const pairCandidates = account ? bankish.filter((a) => a.id !== account.id && a.kind !== account.kind) : [];
+  const [pairId, setPairId] = useState('');
+  const otherAcct = pairCandidates.find((a) => a.id === pairId) || pairCandidates[0] || null;
 
   const reset = () => { setStep('pick'); setTable(null); setMapping(null); setRows([]); setMeta(null); setError(''); setProgress(''); };
 
@@ -189,6 +193,13 @@ export default function ImportPanel({ onDone }) {
     const existing = await fetchAccountRange(companyId, account.id, from, to);
     const otherTxns = otherAcct ? await fetchAccountRange(companyId, otherAcct.id, from, to) : [];
     const classified = core.classifyRows(fp, existing);
+    // Charges moved from this card to "Paid personally" (paid on a personal
+    // card) that now show up on a card statement: don't import them twice.
+    const personalId = core.ids.personal(companyId);
+    const moved = account.kind === 'credit_card' && accountsById[personalId]
+      ? (await fetchAccountRange(companyId, personalId, from, to)).filter((t) => t.personalMovedFrom === account.id && !t.deleted)
+      : [];
+    const days = (a, b) => Math.abs((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86400000);
     const used = new Set();
     const out = classified.map((r, i) => {
       const row = { ...r, key: i, importId, pick: '', pairTxnId: null };
@@ -209,6 +220,13 @@ export default function ImportPanel({ onDone }) {
             row.projectId = rule.projectId || null;
             row.rulePick = `cat:${rule.categoryId}`;
           }
+        }
+      }
+      if ((r.status === 'new' || r.status === 'possible') && moved.length) {
+        const twin = moved.find((t) => t.amountCents === r.amountCents && days(t.date, r.date) <= 3);
+        if (twin) {
+          row.selected = false;
+          row.movedLabel = `Already in Paid personally: ${twin.payee || '—'} · ${fmtDate(twin.date)} (moved off this card). Tick it only if it really was a card charge.`;
         }
       }
       if (r.status === 'match') {
@@ -251,7 +269,7 @@ export default function ImportPanel({ onDone }) {
       if (r.pick === `cat:${ownerCat}`) {
         const excess = Math.max(0, r.amountCents - Math.max(owed, 0));
         if (excess) out[r.key] = excess;
-        owed = Math.max(owed, 0) - (r.amountCents - excess);
+        owed -= r.amountCents - excess;
       } else {
         owed -= r.amountCents;
       }
@@ -337,13 +355,20 @@ export default function ImportPanel({ onDone }) {
       if (mapping && meta.kind !== 'pdf') await saveDoc(COL.accounts, account.id, { importMapping: mapping });
       recordAuditEvent('import', `ledgerImports/${meta.importId}`, { companyId, accountId: account.id, rows: work.length, fileType: meta.kind });
       const coveredRows = selected.filter((r) => coverage[r.key] && r.coverAck !== false && r.status !== 'match');
+      let settleNote = '';
       if (coveredRows.length) {
         // Recompute "Card payments before Books" now that real payments cover part of it.
         setProgress('Updating “Card payments before Books”…');
-        await apiPost('/api/ledger/migrate', { mode: 'settle', as: account.historicalPaymentsAs || 'owner' });
+        try {
+          const st = (await apiPost('/api/ledger/migrate', { mode: 'settle', as: account.historicalPaymentsAs || 'owner' })).summary.settled;
+          if (st.errors && st.errors.length) settleNote = ` “Card payments before Books” could not be fully updated (${st.errors.length} reconciled month(s)); the card may not show $0.00 for that history — see Setup → Mark as paid.`;
+          else if (st.uncoveredCents) settleNote = ` ${fmt(st.uncoveredCents)} of the marked payments is more than “Card payments before Books” had left, so the card shows that much in credit — check those payments.`;
+        } catch (e) {
+          settleNote = ` The transactions were imported, but “Card payments before Books” wasn't updated (${e.message}). Run Setup → Mark as paid.`;
+        }
       }
       setProgress('');
-      setNotice(`Imported ${work.length} transactions into ${account.name}. ${uncatCount ? `${uncatCount} need a category (Register → Review queue).` : ''}`);
+      setNotice(`Imported ${work.length} transactions into ${account.name}. ${uncatCount ? `${uncatCount} need a category (Register → Review queue).` : ''}${settleNote}`);
       setStep('done');
       if (onDone) onDone();
     } catch (e) {
@@ -375,6 +400,14 @@ export default function ImportPanel({ onDone }) {
             {bankish.map((a) => <option key={a.id} value={a.id}>{a.name}{a.last4 ? ` ··${a.last4}` : ''}</option>)}
           </select>
         </label>
+        {pairCandidates.length > 1 && (
+          <label className="bk-field">
+            <span>Card payments pair with</span>
+            <select className="bk-input" value={otherAcct ? otherAcct.id : ''} onChange={(e) => { setPairId(e.target.value); reset(); }} disabled={step === 'importing'}>
+              {pairCandidates.map((a) => <option key={a.id} value={a.id}>{a.name}{a.last4 ? ` ··${a.last4}` : ''}</option>)}
+            </select>
+          </label>
+        )}
         <label className="bk-field bk-grow">
           <span>Statement file (Chase QFX or CSV, Capital One PDF, Excel)</span>
           <input className="bk-input" type="file" accept=".qfx,.ofx,.qbo,.csv,.tsv,.txt,.pdf,.xlsx,.xls,application/pdf,text/csv" onChange={(e) => { setFile(e.target.files && e.target.files[0]); reset(); setNotice(''); }} disabled={step === 'importing'} />
@@ -462,6 +495,7 @@ export default function ImportPanel({ onDone }) {
                     </td>
                     <td className="bk-nowrap">{fmtDate(r.date)}</td>
                     <td className="bk-payee" title={r.payee}>{r.payee}{r.memo ? <div className="bk-muted bk-small">{r.memo}</div> : null}
+                      {r.movedLabel && <div className="bk-small bk-warn-text">{r.movedLabel}</div>}
                       {coverage[r.key] > 0 && (
                         <label className="bk-check bk-small bk-warn-text">
                           <input type="checkbox" checked={r.coverAck !== false} onChange={(e) => patch(r.key, { coverAck: e.target.checked })} />

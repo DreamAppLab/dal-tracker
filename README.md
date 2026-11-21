@@ -153,7 +153,12 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
      (no statement, still uncleared) move from the card to Paid personally (`migrate` modes
      `personal-preview` / `personal-move` / `personal-undo`, audited). Each moved row is marked
      `personalMovedFrom`, and "Card payments before Books" is recomputed so it covers only real card
-     charges. The card still owes $0.00, and P&L and total owner contributions are unchanged.
+     charges. The card still owes $0.00, and P&L and total owner contributions are unchanged (when the old
+     card payments are booked as owner contributions). It refuses before writing anything if a reconciled
+     "Card payments before Books" month would have to change.
+   - A card payment's `coversHistoricalCents` is clamped to the payment. Editing, deleting or restoring such a
+     payment re-runs settle. With more than one card, the import asks which card the payments pair with,
+     and charges already moved to Paid personally are flagged (unticked) if they show up on a card statement.
    - Card import: on a card with *Payments paid personally*, card payments import as Owner contribution, not a
      transfer from checking. On the DAL card, a payment bigger than what the card owes at that point is
      paying charges already covered by "Card payments before Books". The preview flags it, the row stores

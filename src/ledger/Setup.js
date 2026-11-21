@@ -36,14 +36,14 @@ function AccountRow({ account, vault, ledger }) {
   const [f, setF] = useState(() => ({
     name: account.name,
     last4: account.last4 || '',
-    opening: core.centsToDecimalString(isCard ? -(account.openingBalanceCents || 0) : account.openingBalanceCents || 0),
+    opening: core.centsToDecimalString(isCard || isPersonal ? -(account.openingBalanceCents || 0) : account.openingBalanceCents || 0),
     openingDate: account.openingDate,
     vaultId: (isCard ? account.vaultCreditCardId : account.vaultBankAccountId) || '',
   }));
   const [msg, setMsg] = useState('');
   const options = isCard ? vault.cards : vault.banks;
   const dirty = f.name !== account.name || f.last4 !== (account.last4 || '') || f.openingDate !== account.openingDate
-    || core.parseMoneyToCents(f.opening) !== (isCard ? -(account.openingBalanceCents || 0) : account.openingBalanceCents || 0)
+    || core.parseMoneyToCents(f.opening) !== (isCard || isPersonal ? -(account.openingBalanceCents || 0) : account.openingBalanceCents || 0)
     || f.vaultId !== ((isCard ? account.vaultCreditCardId : account.vaultBankAccountId) || '');
   const save = async () => {
     const cents = core.parseMoneyToCents(f.opening);
@@ -60,11 +60,11 @@ function AccountRow({ account, vault, ledger }) {
         ...rest,
         name: f.name.trim().slice(0, 80) || account.name,
         last4: f.last4.replace(/\D/g, '').slice(-4),
-        openingBalanceCents: isCard ? -cents : cents,
+        openingBalanceCents: isCard || isPersonal ? -cents : cents,
         openingDate: f.openingDate,
         ...(isCard ? { vaultCreditCardId: f.vaultId || null } : { vaultBankAccountId: f.vaultId || null }),
       });
-      const newCents = isCard ? -cents : cents;
+      const newCents = isCard || isPersonal ? -cents : cents;
       if (newCents !== (account.openingBalanceCents || 0) || f.openingDate !== account.openingDate) {
         recordAuditEvent('ledger_update', `ledgerAccounts/${id}`, {
           companyId: account.companyId, fromOpeningCents: account.openingBalanceCents || 0, toOpeningCents: newCents, fromDate: account.openingDate, toDate: f.openingDate,
@@ -304,10 +304,19 @@ export default function Setup() {
   };
   const personalMove = (mode) => run(() => apiPost('/api/ledger/migrate', { mode }), (r) => {
     const p = r.summary.personal;
-    if (mode === 'personal-preview') { setPersonalPreview(p); return `${p.count} hand-entered card charge(s), ${fmt(Math.abs(p.totalCents))}, would move to Paid personally.`; }
+    if (mode === 'personal-preview') {
+      setPersonalPreview(p);
+      if (p.blocked && p.blocked.length) return `${p.count} charge(s) found, but these reconciled “Card payments before Books” months would have to change: ${p.blocked.map((id) => id.replace('dal_hist_', '')).join(', ')}. Undo those card reconciliations first.`;
+      return `${p.count} hand-entered card charge(s), ${fmt(Math.abs(p.totalCents))}, would move to Paid personally.`;
+    }
     setPersonalPreview(null);
     if (!p.count) return 'Nothing to move.';
-    return `${mode === 'personal-undo' ? 'Moved back to the card' : 'Moved to Paid personally'}: ${p.moved} charge(s), ${fmt(Math.abs(p.totalCents))}. “Card payments before Books” was recomputed (${fmt(p.settled.totalCents)}), so the card still owes $0.00; P&L and owner contributions are unchanged.${p.errors.length ? ` ${p.errors.length} row(s) could not be moved.` : ''}`;
+    const problems = [
+      p.errors.length ? `${p.errors.length} row(s) could not be moved` : '',
+      p.settled.errors && p.settled.errors.length ? `${p.settled.errors.length} “Card payments before Books” month(s) could not be updated` : '',
+    ].filter(Boolean).join('; ');
+    const owed = -(p.cardBalanceCents || 0);
+    return `${mode === 'personal-undo' ? 'Moved back to the card' : 'Moved to Paid personally'}: ${p.moved} charge(s), ${fmt(Math.abs(p.totalCents))}. “Card payments before Books” is now ${fmt(p.settled.totalCents)}. The card's history ${owed === 0 ? 'still owes $0.00' : `now shows ${fmt(owed)} owed — check Setup → Mark as paid`}. P&L is unchanged; ${p.as === 'owner' ? 'total owner contributions are unchanged.' : `owner contributions ${mode === 'personal-undo' ? 'drop' : 'rise'} by ${fmt(Math.abs(p.totalCents))} because the old card payments are booked as opening balance equity.`}${problems ? ` Problems: ${problems}.` : ''}`;
   });
   const usedCats = new Set(monthly.flatMap((m) => Object.entries(m.cat || {}).filter(([, v]) => v !== 0).map(([k]) => k)));
   const missingDefaults = !accounts.some((a) => a.kind === 'checking') || !accounts.some((a) => a.kind === 'credit_card') || !accounts.some((a) => a.kind === 'intercompany') || !categories.length;

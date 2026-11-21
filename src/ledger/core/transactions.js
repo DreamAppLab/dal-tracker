@@ -153,8 +153,12 @@ function normalizeMain(draft, accounts, categories) {
   t.attachmentPath = t.attachmentPath || null;
   t.lineId = LINE_ID_RE.test(String(t.lineId || '')) ? t.lineId : null;
   t.projectId = t.projectId || null;
-  if (t.coversHistoricalCents != null && !(Number.isInteger(t.coversHistoricalCents) && t.coversHistoricalCents >= 0
-    && t.coversHistoricalCents <= Math.abs(Number(t.amountCents) || 0))) throw new LedgerError('The amount marked as already paid before Books is not valid.');
+  // Part of an imported card payment that paid charges already covered by
+  // "Card payments before Books": never more than the payment itself.
+  if (t.coversHistoricalCents != null) {
+    const v = Number(t.coversHistoricalCents);
+    t.coversHistoricalCents = Number.isInteger(v) && v > 0 && Number(t.amountCents) > 0 ? Math.min(v, Number(t.amountCents)) : null;
+  }
   t.convertedFromCategoryId = t.convertedFromCategoryId || null;
   if (t.projectId && !belongsTo(t.projectId, t.companyId)) throw new LedgerError('That project belongs to the other company.');
   for (const sp of t.splits || []) {

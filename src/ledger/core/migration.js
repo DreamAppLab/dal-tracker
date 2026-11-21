@@ -187,7 +187,8 @@ function planPersonalMove(dalTxns) {
 /** Rows moved by planPersonalMove that are still in "Paid personally". */
 function planPersonalUndo(dalTxns) {
   const personal = ids.personal(COMPANY);
-  return dalTxns.filter((t) => t.companyId === COMPANY && (t.role || 'main') === 'main' && t.personalMovedFrom === ACCOUNT && t.accountId === personal);
+  return dalTxns.filter((t) => t.companyId === COMPANY && (t.role || 'main') === 'main' && t.personalMovedFrom === ACCOUNT && t.accountId === personal
+    && !t.deleted && t.status !== 'reconciled');
 }
 
 // Old Expenses "app" tags that mean overhead rather than a project.

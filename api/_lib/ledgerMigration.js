@@ -144,7 +144,8 @@ async function settleHistory(db, opts) {
   }
   await commitInChunks(db, ops);
   await cardRef.set({ historicalPaymentsAs: as }, { merge: true });
-  return { as, months: plan.months, totalCents: plan.totalCents, removed: plan.deleteIds.length, errors };
+  const requestedCovered = dalTxns.filter((t) => !t.deleted && t.accountId === core.ACCOUNT && (t.role || 'main') === 'main' && Number.isInteger(t.coversHistoricalCents)).reduce((s, t) => s + t.coversHistoricalCents, 0);
+  return { as, months: plan.months, totalCents: plan.totalCents, removed: plan.deleteIds.length, errors, coveredCents: plan.coveredCents || 0, uncoveredCents: Math.max(0, requestedCovered - (plan.coveredCents || 0)) };
 }
 
 /**
@@ -157,7 +158,33 @@ async function settleHistory(db, opts) {
 async function movePersonal(db, direction, preview) {
   const dalTxns = await readCompany(db, 'ledgerTransactions', core.COMPANY);
   const rows = direction === 'undo' ? core.planPersonalUndo(dalTxns) : core.planPersonalMove(dalTxns);
-  const summary = { direction, count: rows.length, totalCents: rows.reduce((s, t) => s + t.amountCents, 0), rows: rows.map((t) => ({ id: t.id, date: t.date, payee: t.payee, cents: t.amountCents, memo: t.memo || '' })) };
+  const cardDoc = (await db.collection('ledgerAccounts').doc(core.ACCOUNT).get()).data() || {};
+  const as = cardDoc.historicalPaymentsAs || 'owner';
+  // Preflight: the re-settle after the move changes some "Card payments before
+  // Books" months. A reconciled one can't change, so refuse before writing
+  // anything (otherwise the card would go below $0.00 and the owners' money
+  // would count twice).
+  const movedIds = new Set(rows.map((t) => t.id));
+  const target = direction === 'undo' ? core.ACCOUNT : core.ids.personal(core.COMPANY);
+  const simulated = dalTxns.map((t) => (movedIds.has(t.id) ? { ...t, accountId: target } : t));
+  const histNow = dalTxns.filter((t) => t.source === core.HISTORICAL_SOURCE && (t.role || 'main') === 'main');
+  const simPlan = core.planHistoricalPayments(simulated, histNow, core.ids.category(core.COMPANY, as === 'owner' ? 'owner_contribution' : 'opening_equity'));
+  const histById = Object.fromEntries(histNow.map((t) => [t.id, t]));
+  const blocked = [
+    ...simPlan.upserts.filter((u) => histById[u.id] && histById[u.id].status === 'reconciled' && !histById[u.id].deleted
+      && (histById[u.id].amountCents !== u.draft.amountCents || histById[u.id].date !== u.draft.date)).map((u) => u.id),
+    ...simPlan.deleteIds.filter((id) => histById[id] && histById[id].status === 'reconciled' && !histById[id].deleted),
+  ];
+  const summary = {
+    direction, as, count: rows.length, totalCents: rows.reduce((s, t) => s + t.amountCents, 0),
+    rows: rows.map((t) => ({ id: t.id, date: t.date, payee: t.payee, cents: t.amountCents, memo: t.memo || '' })),
+    blocked,
+  };
+  if (blocked.length && !preview) {
+    const err = new Error(`These "Card payments before Books" months are reconciled and would have to change: ${blocked.map((id) => id.replace('dal_hist_', '')).join(', ')}. Undo those card reconciliations first, then move.`);
+    err.status = 409;
+    throw err;
+  }
   if (preview || !rows.length) return summary;
   const personalId = core.ids.personal(core.COMPANY);
   const accountDocs = [...(await readCompany(db, 'ledgerAccounts', 'dal')), ...(await readCompany(db, 'ledgerAccounts', 'zerbiq'))];
@@ -194,7 +221,10 @@ async function movePersonal(db, direction, preview) {
   await commitInChunks(db, ops);
   const settled = await settleHistory(db, {});
   const rebuilt = await rebuildMonthly(db, core.COMPANY);
-  return { ...summary, moved: rows.length - errors.length, errors, settled, rebuilt };
+  // What the card really owes now (cents from the card's view; 0 = $0.00 owed).
+  const after = await readCompany(db, 'ledgerTransactions', core.COMPANY);
+  const cardBalanceCents = (cardDoc.openingBalanceCents || 0) + after.filter((t) => t.accountId === core.ACCOUNT && !t.deleted).reduce((s, t) => s + t.amountCents, 0);
+  return { ...summary, moved: rows.length - errors.length, errors, settled, rebuilt, cardBalanceCents };
 }
 
 /** Create projects from the migrated rows' old app tags and tag those rows (idempotent). */

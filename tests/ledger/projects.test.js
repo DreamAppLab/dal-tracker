@@ -176,3 +176,17 @@ test('a purchase paid personally can become a fixed asset: still an owner contri
   const bs = core.balanceSheet({ accounts, categories: L.categories, totals, totalsBeforeFy: { acct: {}, cat: {} }, companyId: 'dal', asOf: '2026-12-31' });
   assert.ok(bs.balanced);
 });
+
+test('paid personally: refunds reduce contributions; covered amount on a payment is clamped to the payment', () => {
+  const L = makeLedger();
+  L.accounts.dal_personal.openingDate = '2026-01-01';
+  L.add('dal', { accountId: 'dal_personal', date: '2026-03-01', amountCents: -10000, payee: 'Store', categoryId: cat('dal', 'office') });
+  L.add('dal', { accountId: 'dal_personal', date: '2026-03-05', amountCents: 2500, payee: 'Store refund', categoryId: cat('dal', 'office') });
+  const accounts = Object.entries(L.accounts).map(([id, a]) => ({ id, ...a }));
+  const r = core.ownerEquityReport({ accounts, categories: L.categories, txns: L.txnList(), companyId: 'dal', from: '2026-01-01', to: '2026-12-31', totalsBefore: { acct: {}, cat: {} } });
+  assert.deepEqual([r.totals.contributions, r.totals.distributions], [7500, 0]);
+  const p = L.add('dal', { accountId: 'dal_card', date: '2026-03-09', amountCents: 5000, payee: 'PAYMENT', categoryId: cat('dal', 'owner_contribution'), coversHistoricalCents: 9000 });
+  assert.equal(L.txns[p].coversHistoricalCents, 5000);
+  L.save(p, { ...L.txns[p], amountCents: 3000 });
+  assert.equal(L.txns[p].coversHistoricalCents, 3000, 'editing the amount down never fails');
+});

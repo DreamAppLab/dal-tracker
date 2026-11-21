@@ -243,7 +243,7 @@ function ownerEquityReport(p) {
     // Spending from "Paid personally" is an owner contribution (a refund or a
     // transfer back into it reduces it).
     if (personal.has(t.accountId) && t.amountCents) {
-      lines.push({ txnId: t.id, date: t.date, payee: t.payee, memo: t.memo, accountId: t.accountId, categoryId: null, category: 'Paid personally', cents: -t.amountCents });
+      lines.push({ txnId: t.id, date: t.date, payee: t.payee, memo: t.memo, accountId: t.accountId, categoryId: null, category: 'Paid personally', cents: -t.amountCents, personal: true });
     }
     if (t.role === 'leg') continue;
     linesOf(t).forEach((line) => {
@@ -259,7 +259,8 @@ function ownerEquityReport(p) {
   for (const l of lines) {
     const m = l.date.slice(0, 7);
     if (!byMonth[m]) byMonth[m] = { month: m, contributions: 0, distributions: 0 };
-    if (l.cents > 0) { byMonth[m].contributions += l.cents; contributions += l.cents; } else { byMonth[m].distributions += -l.cents; distributions += -l.cents; }
+    // A refund in "Paid personally" reduces the contribution (it isn't a draw).
+    if (l.cents > 0 || l.personal) { byMonth[m].contributions += l.cents; contributions += l.cents; } else { byMonth[m].distributions += -l.cents; distributions += -l.cents; }
   }
   const months = [];
   for (let m = from.slice(0, 7); m <= to.slice(0, 7); m = addMonths(m, 1)) {
