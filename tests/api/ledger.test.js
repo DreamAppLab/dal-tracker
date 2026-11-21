@@ -95,7 +95,9 @@ test('migration: dry-run writes nothing; apply backs up, migrates, verifies; re-
   assert.equal(db.store.get('ledgerTransactions/dal_mig_e1').amountCents, -2000);
   assert.equal(db.store.get('ledgerTransactions/dal_mig_e2').amountCents, 1550);
   assert.equal(db.store.get('ledgerImports/dal_imp_abc').legacy, true);
-  assert.equal(db.store.get('ledgerMonthly/dal_2026-01').acct.dal_card, -450);
+  // Migrated charges (-20.00 + 15.50 credit) are cleared by the historical card payment: card owes 0.
+  assert.equal(db.store.get('ledgerMonthly/dal_2026-01').acct.dal_card || 0, 0);
+  assert.equal(db.store.get('ledgerMonthly/dal_2026-01').cat.dal_cat_hosting, -2000, 'expenses unchanged');
   assert.equal(db.store.get('ledgerMonthly/dal_2026-02').cat._uncat, -999);
   assert.ok(db.store.get('ledgerAccounts/dal_card'));
   assert.equal(db.store.get('ledgerAccounts/dal_card').openingDate, '2026-01-01');
@@ -183,4 +185,71 @@ test('migration rollback also removes import records attached to migrated rows (
   assert.equal(rb.statusCode, 200);
   assert.equal(db.store.get('ledgerImports/dal_imp_chase1'), undefined);
   assert.ok(db.store.get('ledgerImports/dal_imp_other'), 'unrelated imports untouched');
+});
+
+// ── Historical card payments (migrated charges were paid before Books) ───
+const core = require('../../src/ledger/core');
+const txnsOf = (db, companyId) => [...db.store.entries()].filter(([p, d]) => p.startsWith('ledgerTransactions/') && d.companyId === companyId).map(([p, d]) => ({ id: p.split('/')[1], ...d }));
+const balanceOf = (db, accountId) => (db.store.get(`ledgerAccounts/${accountId}`).openingBalanceCents || 0) + txnsOf(db, 'dal').filter((t) => t.accountId === accountId && !t.deleted).reduce((s, t) => s + t.amountCents, 0);
+const monthlyOf = (db) => [...db.store.entries()].filter(([p]) => p.startsWith('ledgerMonthly/dal_')).map(([, d]) => d);
+const categoriesOf = (db) => Object.fromEntries([...db.store.entries()].filter(([p]) => p.startsWith('ledgerCategories/')).map(([p, d]) => [p.split('/')[1], d]));
+
+test('historical card payments: migrated card owes 0, P&L and checking unchanged, idempotent, switchable, balanced, rollback-safe', async () => {
+  const db = setup({
+    ...legacySeed(),
+    'expenses/e4': { vendor: 'GitHub', amount: 4, date: '2025-11-03', category: 'Software & Subscriptions', source: 'import', statementId: 'old' },
+  });
+  const r1 = await call('migrate', { mode: 'apply' });
+  assert.equal(r1.statusCode, 200, JSON.stringify(r1.body));
+  assert.equal(r1.body.summary.settled.months, 3, 'Nov 2025, Jan 2026, Feb 2026');
+  assert.equal(balanceOf(db, 'dal_card'), 0, 'card owes $0.00 for the migrated history');
+  assert.equal(balanceOf(db, 'dal_checking'), 0, 'checking untouched');
+  const hist = txnsOf(db, 'dal').filter((t) => t.source === 'historical_payment');
+  assert.deepEqual(hist.map((t) => t.id).sort(), ['dal_hist_2025-11', 'dal_hist_2026-01', 'dal_hist_2026-02']);
+  assert.ok(hist.every((t) => t.categoryId === 'dal_cat_opening_equity' && t.type === 'equity'));
+  assert.equal(db.store.get('ledgerTransactions/dal_hist_2026-01').date, '2026-01-06', 'dated the last migrated charge of the month');
+  const cats = categoriesOf(db);
+  assert.equal(cats.dal_cat_opening_equity.equityType, 'opening');
+
+  // P&L counts the expenses exactly as before.
+  const pnl = core.pnlFromMonthly(monthlyOf(db), cats, 'dal', '2026-01-01', '2026-01-31');
+  assert.equal(pnl.totalExpense, 2000 - 1550);
+  assert.equal(pnl.excludedEquityCents, 450);
+
+  // Balance sheet still balances; owner report does not count these.
+  const accounts = [...db.store.entries()].filter(([p]) => p.startsWith('ledgerAccounts/dal_')).map(([p, d]) => ({ id: p.split('/')[1], ...d }));
+  const totals = core.totalsAsOf({ monthly: monthlyOf(db), monthTxns: [], companyId: 'dal', asOf: '2026-12-31' });
+  const totalsBeforeFy = core.totalsAsOf({ monthly: monthlyOf(db), monthTxns: [], companyId: 'dal', asOf: '2025-12-31' });
+  const bs = core.balanceSheet({ accounts, categories: cats, totals, totalsBeforeFy, companyId: 'dal', asOf: '2026-12-31' });
+  assert.ok(bs.balanced);
+  assert.equal(bs.liabilities.find((r) => r.accountId === 'dal_card').cents, 0);
+  const owner = core.ownerEquityReport({ categories: cats, txns: txnsOf(db, 'dal'), companyId: 'dal', from: '2025-01-01', to: '2026-12-31', totalsBefore: { acct: {}, cat: {} } });
+  assert.equal(owner.totals.contributions, 0);
+
+  // Idempotent: re-running apply or settle changes nothing.
+  const snap = JSON.stringify(hist.map((t) => [t.id, t.amountCents, t.categoryId]).sort());
+  await call('migrate', { mode: 'apply' });
+  await call('migrate', { mode: 'settle' });
+  assert.equal(JSON.stringify(txnsOf(db, 'dal').filter((t) => t.source === 'historical_payment').map((t) => [t.id, t.amountCents, t.categoryId]).sort()), snap);
+  assert.equal(balanceOf(db, 'dal_card'), 0);
+
+  // Switch to owner contributions (if they were paid personally); remembered on re-run.
+  const sw = await call('migrate', { mode: 'settle', as: 'owner' });
+  assert.equal(sw.statusCode, 200);
+  assert.ok(txnsOf(db, 'dal').filter((t) => t.source === 'historical_payment').every((t) => t.categoryId === 'dal_cat_owner_contribution'));
+  await call('migrate', { mode: 'apply' });
+  assert.ok(txnsOf(db, 'dal').filter((t) => t.source === 'historical_payment').every((t) => t.categoryId === 'dal_cat_owner_contribution'), 'choice kept on re-run');
+  const owner2 = core.ownerEquityReport({ categories: categoriesOf(db), txns: txnsOf(db, 'dal'), companyId: 'dal', from: '2025-01-01', to: '2026-12-31', totalsBefore: { acct: {}, cat: {} } });
+  assert.equal(owner2.totals.contributions, 2000 - 1550 + 999 + 400);
+  const audits = [...db.store.values()].filter((d) => d.type === 'ledger_migration' && d.meta && d.meta.mode === 'settle');
+  assert.ok(audits.length >= 2, 'settle runs are audit-logged');
+
+  // A migrated row deleted later shrinks that month's payment; rollback removes everything.
+  db.store.set('ledgerTransactions/dal_mig_e4', { ...db.store.get('ledgerTransactions/dal_mig_e4'), deleted: true });
+  await call('migrate', { mode: 'settle' });
+  assert.equal(db.store.get('ledgerTransactions/dal_hist_2025-11'), undefined);
+  assert.equal(balanceOf(db, 'dal_card'), 0);
+  const rb = await call('migrate', { mode: 'rollback' });
+  assert.equal(rb.statusCode, 200);
+  assert.equal(txnsOf(db, 'dal').filter((t) => t.source === 'historical_payment').length, 0);
 });

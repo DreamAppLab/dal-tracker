@@ -89,6 +89,54 @@ function legacyTotalCents(expenses, errorIds) {
  * @param {FirebaseFirestore.Firestore} db  Admin Firestore
  * @param {object} opts { mode: 'dry-run'|'apply'|'rollback', runId?: string }
  */
+/**
+ * Clear the migrated card history with "Card payments before Books" entries
+ * (see core.planHistoricalPayments). as: 'equity' (default, Opening balance
+ * equity) or 'owner' (Owner contribution, if Eddie paid them personally).
+ * The choice is remembered on the card account so re-runs keep it.
+ */
+async function settleHistory(db, opts) {
+  const cardRef = db.collection('ledgerAccounts').doc(core.ACCOUNT);
+  const cardSnap = await cardRef.get();
+  if (!cardSnap.exists) return { months: 0, totalCents: 0, skipped: 'no card account' };
+  const card = cardSnap.data();
+  const as = (opts && opts.as) || card.historicalPaymentsAs || 'equity';
+  const slug = as === 'owner' ? 'owner_contribution' : 'opening_equity';
+  const categoryId = core.ids.category(core.COMPANY, slug);
+  const catRef = db.collection('ledgerCategories').doc(categoryId);
+  if (!(await catRef.get()).exists) {
+    const def = core.defaultCategoryDocs(core.COMPANY).find((d) => d.id === categoryId);
+    await catRef.set({ ...def.data, createdAt: FieldValue.serverTimestamp() });
+  }
+  const dalTxns = await readCompany(db, 'ledgerTransactions', core.COMPANY);
+  const existing = dalTxns.filter((t) => t.source === core.HISTORICAL_SOURCE);
+  const plan = core.planHistoricalPayments(dalTxns, existing, categoryId);
+  const { accounts, categories } = accountsAndCategories(
+    [...(await readCompany(db, 'ledgerAccounts', 'dal')), ...(await readCompany(db, 'ledgerAccounts', 'zerbiq'))],
+    [...(await readCompany(db, 'ledgerCategories', 'dal')), ...(await readCompany(db, 'ledgerCategories', 'zerbiq'))]
+  );
+  const byId = Object.fromEntries(existing.map((t) => [t.id, t]));
+  const ops = [];
+  const errors = [];
+  for (const { id, draft } of plan.upserts) {
+    const before = byId[id] ? { ...byId[id] } : null;
+    if (before) delete before.id;
+    try {
+      const p = core.planTransactionWrite({ id, draft: before ? { ...before, ...draft, status: before.status, reconciliationId: before.reconciliationId } : draft, before, existing: {}, accounts, categories });
+      p.sets.forEach(({ id: docId, data }) => ops.push((b) => b.set(db.collection('ledgerTransactions').doc(docId), { ...data, updatedAt: FieldValue.serverTimestamp() }, { merge: true })));
+    } catch (e) {
+      errors.push({ id, error: e.message });
+    }
+  }
+  for (const id of plan.deleteIds) {
+    if (byId[id] && byId[id].status === 'reconciled') { errors.push({ id, error: 'reconciled' }); continue; }
+    ops.push((b) => b.delete(db.collection('ledgerTransactions').doc(id)));
+  }
+  await commitInChunks(db, ops);
+  await cardRef.set({ historicalPaymentsAs: as }, { merge: true });
+  return { as, months: plan.months, totalCents: plan.totalCents, removed: plan.deleteIds.length, errors };
+}
+
 async function migrateExpenses(db, opts) {
   const mode = (opts && opts.mode) || 'dry-run';
   const expenses = await readAll(db, 'expenses');
@@ -97,13 +145,20 @@ async function migrateExpenses(db, opts) {
   const migrated = dalTxns.filter((t) => t.source === 'migration' && t.legacyExpenseId);
   const existingIds = new Set(dalTxns.map((t) => t.id));
 
+  if (mode === 'settle') {
+    const settled = await settleHistory(db, { as: opts.as });
+    const rebuilt = await rebuildMonthly(db, core.COMPANY);
+    return { mode, settled, rebuilt };
+  }
+
   if (mode === 'rollback') {
     // Migrated rows plus anything derived from them (transfer legs in DAL,
     // intercompany mirrors in Zerbiq) if they were recategorized since.
     const migratedIds = new Set(migrated.map((t) => t.id));
     const zerbiqTxns = await readCompany(db, 'ledgerTransactions', 'zerbiq');
     const derived = [...dalTxns, ...zerbiqTxns].filter((t) => t.parentId && migratedIds.has(t.parentId));
-    const all = [...migrated, ...derived];
+    const historical = dalTxns.filter((t) => t.source === core.HISTORICAL_SOURCE);
+    const all = [...migrated, ...derived, ...historical];
     const locked = all.filter((t) => t.status === 'reconciled');
     if (locked.length) {
       const err = new Error(`${locked.length} migrated transactions are reconciled. Undo those reconciliations first.`);
@@ -182,7 +237,10 @@ async function migrateExpenses(db, opts) {
   });
   await commitInChunks(db, ops);
 
-  // 4) Aggregates from scratch (self-healing, idempotent).
+  // 4) The migrated charges were paid long ago: clear the card for that history.
+  summary.settled = await settleHistory(db, {});
+
+  // 5) Aggregates from scratch (self-healing, idempotent).
   summary.rebuilt = await rebuildMonthly(db, 'dal');
 
   // 5) Verify: every legacy dollar is in the ledger exactly once.
@@ -198,4 +256,4 @@ async function migrateExpenses(db, opts) {
   return summary;
 }
 
-module.exports = { migrateExpenses, rebuildMonthly, seedDefaults };
+module.exports = { migrateExpenses, rebuildMonthly, seedDefaults, settleHistory };

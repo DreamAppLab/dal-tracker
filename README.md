@@ -141,6 +141,12 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
    transactions. The Expenses migration runs from Books → Setup (Dry run / Migrate / Roll back), or with
    `node scripts/migrate-expenses-to-ledger.js [--apply|--rollback]` where the service account is in the
    environment. Migrate backs up first and is safe to re-run.
+   The migrated card charges were paid before these books started. So the migration also posts one
+   **"Card payments before Books"** entry per month on the DAL card (`dal_hist_<YYYY-MM>`, source
+   `historical_payment`), which brings the card's migrated history to $0.00 owed without touching P&L or
+   checking. These are booked to *Opening balance equity (paid before Books)* by default, an equity
+   category with `equityType: 'opening'` that the owner report ignores. Setup → "Migrated card charges
+   were paid before Books" switches them to *Owner contributions*, and re-runs keep that choice.
 
 ### Indexes
 Composite indexes live in `firestore.indexes.json`. Deploy them with

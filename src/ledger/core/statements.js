@@ -85,7 +85,7 @@ function balanceSheet(p) {
       row.accumulatedCents = p.fixedAssets[a.id].accumulatedCents;
     }
     if (classify(a, bal) === 'asset') assets.push(row);
-    else liabilities.push({ ...row, cents: -bal });
+    else liabilities.push({ ...row, cents: bal ? -bal : 0 });
   }
   const order = { checking: 1, intercompany: 2, fixed_asset: 3, credit_card: 4 };
   const sortRows = (r) => r.sort((x, y) => (order[x.kind] || 9) - (order[y.kind] || 9) || x.name.localeCompare(y.name));
@@ -234,7 +234,7 @@ function ownerEquityReport(p) {
     if (t.companyId !== companyId || t.deleted || t.role === 'leg' || t.date < from || t.date > to) continue;
     linesOf(t).forEach((line) => {
       const c = line.categoryId && categories[line.categoryId];
-      if (!c || c.kind !== 'equity') return;
+      if (!c || c.kind !== 'equity' || c.equityType === 'opening') return;
       lines.push({ txnId: t.id, date: t.date, payee: t.payee, memo: line.memo || t.memo, accountId: t.accountId, categoryId: line.categoryId, category: c.name, cents: line.amountCents });
     });
   }
@@ -253,7 +253,7 @@ function ownerEquityReport(p) {
     if (months.length > 240) break;
   }
   let openingNet = 0;
-  for (const [id, v] of Object.entries(totalsBefore.cat)) if (categories[id] && categories[id].kind === 'equity') openingNet += v;
+  for (const [id, v] of Object.entries(totalsBefore.cat)) if (categories[id] && categories[id].kind === 'equity' && categories[id].equityType !== 'opening') openingNet += v;
   return { lines, months, totals: { contributions, distributions, net: contributions - distributions }, openingNetCents: openingNet, closingNetCents: openingNet + contributions - distributions };
 }
 

@@ -29,6 +29,10 @@ const SHARED_EXPENSE = [
 const EQUITY = [
   ['owner_contribution', 'Owner contribution', 'equity'],
   ['owner_draw', 'Owner draw', 'equity'],
+  // Not an owner movement: offsets activity paid outside these books before
+  // they started (e.g. migrated card charges paid long ago). Excluded from the
+  // owner contributions & distributions report.
+  ['opening_equity', 'Opening balance equity (paid before Books)', 'equity', 'opening'],
 ];
 
 const DEFAULT_CATEGORIES = Object.freeze({
@@ -112,9 +116,9 @@ const DEFAULT_RULES = Object.freeze({
 
 function defaultCategoryDocs(companyId) {
   assertCompany(companyId);
-  return DEFAULT_CATEGORIES[companyId].map(([slug, name, kind], i) => ({
+  return DEFAULT_CATEGORIES[companyId].map(([slug, name, kind, equityType], i) => ({
     id: ids.category(companyId, slug),
-    data: { companyId, name, kind, slug, sort: i, archived: false, isDefault: true },
+    data: { companyId, name, kind, slug, sort: i, archived: false, isDefault: true, ...(equityType ? { equityType } : {}) },
   }));
 }
 
