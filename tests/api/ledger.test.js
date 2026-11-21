@@ -406,3 +406,23 @@ test('paid personally: refuses (before writing) when a reconciled "Card payments
   assert.equal(db.store.get('ledgerTransactions/dal_mig_e5').accountId, 'dal_card', 'nothing moved');
   assert.equal(balanceOf(db, 'dal_card'), 0);
 });
+
+test('settle with a card-statement cut-over: covered up to the date, balance left owed, remembered, clearable', async () => {
+  const db = setup({
+    'expenses/a': { vendor: 'GitHub', amount: 400, date: '2026-05-20', category: 'Software & Subscriptions', source: 'import', statementId: 's1' },
+    'expenses/b': { vendor: 'Figma', amount: 215.34, date: '2026-06-10', category: 'Software & Subscriptions', source: 'import', statementId: 's1' },
+    'expenses/c': { vendor: 'Vercel', amount: 1000, date: '2026-06-20', category: 'Domain & Hosting', source: 'import', statementId: 's2' },
+  });
+  await call('migrate', { mode: 'apply' });
+  assert.equal(balanceOf(db, 'dal_card'), 0);
+  const r = await call('migrate', { mode: 'settle', cutoff: { date: '2026-06-14', owedCents: 61534 } });
+  assert.equal(r.statusCode, 200, JSON.stringify(r.body));
+  assert.equal(r.body.summary.settled.leftOwedCents, 61534);
+  assert.equal(balanceOf(db, 'dal_card'), -(61534 + 100000), 'owes the next statement\'s previous balance plus later charges');
+  assert.equal(db.store.get('ledgerAccounts/dal_card').historicalCutoffDate, '2026-06-14');
+  await call('migrate', { mode: 'settle' });
+  assert.equal(balanceOf(db, 'dal_card'), -(61534 + 100000), 'remembered on re-run');
+  await call('migrate', { mode: 'settle', cutoff: null });
+  assert.equal(balanceOf(db, 'dal_card'), 0, 'cleared: everything covered again');
+  assert.equal((await call('migrate', { mode: 'settle', cutoff: { date: '06/14/2026', owedCents: 1 } })).statusCode, 400);
+});

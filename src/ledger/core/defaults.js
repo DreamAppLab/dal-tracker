@@ -29,6 +29,9 @@ const SHARED_EXPENSE = [
 const EQUITY = [
   ['owner_contribution', 'Owner contribution', 'equity'],
   ['owner_draw', 'Owner draw', 'equity'],
+  // The business card used for something personal (e.g. travel): not a
+  // business expense; it's the owners' own spending, i.e. an owner draw.
+  ['personal_spending', 'Personal (not business)', 'equity', 'personal'],
   // Not an owner movement: offsets activity paid outside these books before
   // they started (e.g. migrated card charges paid long ago). Excluded from the
   // owner contributions & distributions report.

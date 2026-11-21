@@ -79,6 +79,7 @@ export function describeTxn(t, ledger) {
 const EQUITY_HINTS = {
   owner_draw: 'reimburse / pay back an owner',
   owner_contribution: 'owner put money in',
+  personal_spending: 'card used for something personal (owner draw)',
 };
 
 export function CategorySelect({ ledger, value, onChange, accountId, allowSplit = true, className = 'bk-input', autoFocus, onKeyDown, id, disabled, inputRef }) {

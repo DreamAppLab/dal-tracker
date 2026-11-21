@@ -98,6 +98,9 @@ async function settleHistory(db, opts) {
   if (!cardSnap.exists) return { months: 0, totalCents: 0, skipped: 'no card account' };
   const card = cardSnap.data();
   const as = (opts && opts.as) || card.historicalPaymentsAs || 'owner';
+  // Card-statement cut-over: set from Setup, then remembered on the card.
+  const cutoff = opts && opts.cutoff !== undefined ? opts.cutoff
+    : (card.historicalCutoffDate ? { date: card.historicalCutoffDate, owedCents: card.historicalCutoffOwedCents || 0 } : null);
   const slug = as === 'owner' ? 'owner_contribution' : 'opening_equity';
   const categoryId = core.ids.category(core.COMPANY, slug);
   const catRef = db.collection('ledgerCategories').doc(categoryId);
@@ -109,7 +112,7 @@ async function settleHistory(db, opts) {
   const zerbiqTxns = await readCompany(db, 'ledgerTransactions', 'zerbiq');
   // Only the main entries are ours; legs/mirrors (if a user re-booked one) are derived.
   const existing = dalTxns.filter((t) => t.source === core.HISTORICAL_SOURCE && (t.role || 'main') === 'main');
-  const plan = core.planHistoricalPayments(dalTxns, existing, categoryId);
+  const plan = core.planHistoricalPayments(dalTxns, existing, categoryId, cutoff);
   const allById = Object.fromEntries([...dalTxns, ...zerbiqTxns].map(({ id, ...d }) => [id, d]));
   const { accounts, categories } = accountsAndCategories(
     [...(await readCompany(db, 'ledgerAccounts', 'dal')), ...(await readCompany(db, 'ledgerAccounts', 'zerbiq'))],
@@ -143,9 +146,9 @@ async function settleHistory(db, opts) {
     }
   }
   await commitInChunks(db, ops);
-  await cardRef.set({ historicalPaymentsAs: as }, { merge: true });
+  await cardRef.set({ historicalPaymentsAs: as, historicalCutoffDate: cutoff ? cutoff.date : null, historicalCutoffOwedCents: cutoff ? cutoff.owedCents || 0 : null }, { merge: true });
   const requestedCovered = dalTxns.filter((t) => !t.deleted && t.accountId === core.ACCOUNT && (t.role || 'main') === 'main' && Number.isInteger(t.coversHistoricalCents)).reduce((s, t) => s + t.coversHistoricalCents, 0);
-  return { as, months: plan.months, totalCents: plan.totalCents, removed: plan.deleteIds.length, errors, coveredCents: plan.coveredCents || 0, uncoveredCents: Math.max(0, requestedCovered - (plan.coveredCents || 0)) };
+  return { as, cutoff, months: plan.months, totalCents: plan.totalCents, removed: plan.deleteIds.length, errors, coveredCents: plan.coveredCents || 0, uncoveredCents: cutoff ? 0 : Math.max(0, requestedCovered - (plan.coveredCents || 0)), leftOwedCents: plan.leftOwedCents || 0 };
 }
 
 /**
@@ -168,7 +171,8 @@ async function movePersonal(db, direction, preview) {
   const target = direction === 'undo' ? core.ACCOUNT : core.ids.personal(core.COMPANY);
   const simulated = dalTxns.map((t) => (movedIds.has(t.id) ? { ...t, accountId: target } : t));
   const histNow = dalTxns.filter((t) => t.source === core.HISTORICAL_SOURCE && (t.role || 'main') === 'main');
-  const simPlan = core.planHistoricalPayments(simulated, histNow, core.ids.category(core.COMPANY, as === 'owner' ? 'owner_contribution' : 'opening_equity'));
+  const simCutoff = cardDoc.historicalCutoffDate ? { date: cardDoc.historicalCutoffDate, owedCents: cardDoc.historicalCutoffOwedCents || 0 } : null;
+  const simPlan = core.planHistoricalPayments(simulated, histNow, core.ids.category(core.COMPANY, as === 'owner' ? 'owner_contribution' : 'opening_equity'), simCutoff);
   const histById = Object.fromEntries(histNow.map((t) => [t.id, t]));
   const blocked = [
     ...simPlan.upserts.filter((u) => histById[u.id] && histById[u.id].status === 'reconciled' && !histById[u.id].deleted
@@ -299,7 +303,7 @@ async function migrateExpenses(db, opts) {
   }
 
   if (mode === 'settle') {
-    const settled = await settleHistory(db, { as: opts.as });
+    const settled = await settleHistory(db, { as: opts.as, ...(opts.cutoff !== undefined ? { cutoff: opts.cutoff } : {}) });
     const rebuilt = await rebuildMonthly(db, core.COMPANY);
     return { mode, settled, rebuilt };
   }

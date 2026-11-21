@@ -132,23 +132,31 @@ const historicalId = (month) => `${COMPANY}_hist_${month}`;
  * @param {string} categoryId  equity category to book them to
  * @returns {{ upserts: Array<{id, draft}>, deleteIds: string[], totalCents, months }}
  */
-function planHistoricalPayments(cardTxns, existing, categoryId) {
+function planHistoricalPayments(cardTxns, existing, categoryId, cutoff) {
   const byMonth = {};
+  // Optional card-statement cut-over { date, owedCents }: only migrated charges
+  // up to `date` are covered, and `owedCents` (the next statement's previous
+  // balance) is left owed, to be paid by real imported payments.
+  const cutDate = cutoff && cutoff.date ? cutoff.date : null;
+  const cutOwed = cutoff && Number.isInteger(cutoff.owedCents) && cutoff.owedCents > 0 ? cutoff.owedCents : 0;
   // Real card payments imported later that paid some of these same charges
   // (marked on import): the estimate shrinks by that much, newest month first.
   let covered = 0;
   for (const t of cardTxns) {
-    if (!t.deleted && t.accountId === ACCOUNT && (t.role || 'main') === 'main' && t.source !== HISTORICAL_SOURCE && Number.isInteger(t.coversHistoricalCents) && t.coversHistoricalCents > 0) covered += t.coversHistoricalCents;
+    if (!cutDate && !t.deleted && t.accountId === ACCOUNT && (t.role || 'main') === 'main' && t.source !== HISTORICAL_SOURCE && Number.isInteger(t.coversHistoricalCents) && t.coversHistoricalCents > 0) covered += t.coversHistoricalCents;
   }
   for (const t of cardTxns) {
     if (t.deleted || t.accountId !== ACCOUNT || t.source !== 'migration' || !t.legacyExpenseId) continue;
+    // With a cut-over, a migrated row that a statement import matched belongs to
+    // that statement (charges made before the cut-over can post after it).
+    if (cutDate && (t.date > cutDate || t.importMatched)) continue;
     const m = t.date.slice(0, 7);
     if (!byMonth[m]) byMonth[m] = { net: 0, last: t.date };
     byMonth[m].net += t.amountCents;
     if (t.date > byMonth[m].last) byMonth[m].last = t.date;
   }
   const months = Object.entries(byMonth).sort().filter(([, v]) => v.net).map(([month, v]) => ({ month, ...v, pay: -v.net }));
-  let remaining = covered;
+  let remaining = covered + cutOwed;
   for (let i = months.length - 1; i >= 0 && remaining > 0; i -= 1) {
     if (months[i].pay <= 0) continue;
     const take = Math.min(remaining, months[i].pay);
@@ -177,7 +185,8 @@ function planHistoricalPayments(cardTxns, existing, categoryId) {
   }
   const keep = new Set(upserts.map((u) => u.id));
   const deleteIds = existing.filter((t) => !keep.has(t.id)).map((t) => t.id);
-  return { upserts, deleteIds, totalCents: total, months: upserts.length, coveredCents: covered - remaining };
+  const applied = covered + cutOwed - remaining;
+  return { upserts, deleteIds, totalCents: total, months: upserts.length, coveredCents: Math.min(covered, applied), leftOwedCents: Math.min(cutOwed, applied) };
 }
 
 /**
