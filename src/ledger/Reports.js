@@ -186,16 +186,17 @@ export default function Reports({ onOpenTxn }) {
     if (!wanted.length) return;
     wanted.forEach((r) => inFlight.current.add(key(r)));
     setLoading(true);
+    const currentSig = sig;
+    // Results are keyed by company/range/sig, so they are always safe to keep
+    // even if the effect that asked for them re-ran meanwhile.
     Promise.all(wanted.map((r) => fetchRange(companyId, r.from, r.to).then((rows) => [key(r), rows])))
       .then((pairs) => {
-        if (isCancelled()) return;
-        // Keep only entries for the current aggregate state (old copies are dropped).
-        setTxCache((c) => Object.fromEntries([...Object.entries(c).filter(([k]) => k.endsWith(`|${sig}`)), ...pairs]));
+        setTxCache((c) => Object.fromEntries([...Object.entries(c).filter(([k]) => k.endsWith(`|${currentSig}`)), ...pairs]));
       })
       .catch((e) => setError(e.message))
       .finally(() => {
         wanted.forEach((r) => inFlight.current.delete(key(r)));
-        if (!isCancelled()) setLoading(false);
+        setLoading(inFlight.current.size > 0);
       });
   }
 

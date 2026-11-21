@@ -152,7 +152,7 @@ function disposalDraft({ account, bookValueCents, date, proceedsCents, proceedsA
     companyId: account.companyId,
     accountId: account.id,
     date,
-    amountCents: -bookValueCents,
+    amountCents: bookValueCents ? -bookValueCents : 0,
     payee: `Disposal · ${account.name}`,
     memo: memo || '',
     source: 'disposal',
@@ -163,4 +163,24 @@ function disposalDraft({ account, bookValueCents, date, proceedsCents, proceedsA
   return { ...base, categoryId: gainLossCategoryId };
 }
 
-module.exports = { assetSummary, depreciationToPost, isDepreciation, disposalDraft, basisAt };
+/**
+ * Checks before a disposal on `date`: refuses future dates, a second
+ * disposal, and additions/write-downs dated after it; returns the auto
+ * depreciation entries dated after it, which must be removed first so the
+ * asset ends at exactly zero.
+ */
+function disposalPreflight(account, txns, date, today) {
+  const live = txns.filter((t) => !t.deleted && t.accountId === account.id);
+  if (today && date > today) return { error: 'The disposal date cannot be in the future.' };
+  if (account.openingDate && date < account.openingDate) return { error: `This asset is on the books from ${account.openingDate}; pick a later date.` };
+  if (live.some((t) => t.source === 'disposal')) return { error: 'This asset was already disposed of.' };
+  const later = live.filter((t) => t.date > date);
+  const laterOther = later.filter((t) => !autoMonth(t, account));
+  if (laterOther.length) {
+    const last = laterOther.map((t) => t.date).sort().pop();
+    return { error: `The asset has other entries dated after ${date} (latest ${last}). Move or delete them first, or pick a later date.` };
+  }
+  return { deleteIds: later.map((t) => t.id) };
+}
+
+module.exports = { assetSummary, depreciationToPost, isDepreciation, disposalDraft, disposalPreflight, basisAt };

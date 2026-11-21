@@ -175,9 +175,15 @@ function generalLedger(p) {
   const accountSections = accounts.filter((a) => a.companyId === companyId).map((a) => {
     const opening = openingAsOf(a, core_addDays(from, -1)) + (totalsBefore.acct[a.id] || 0);
     let bal = opening;
-    const lines = inRange.filter((t) => t.accountId === a.id).map((t) => {
-      bal += t.amountCents;
-      return { txnId: t.id, date: t.date, payee: t.payee, memo: t.memo, cents: t.amountCents, balance: bal, role: t.role };
+    const rows = inRange.filter((t) => t.accountId === a.id).map((t) => ({ txnId: t.id, date: t.date, payee: t.payee, memo: t.memo, cents: t.amountCents, role: t.role }));
+    // An account opened inside the range starts with an "Opening balance" line.
+    if (a.openingBalanceCents && a.openingDate && a.openingDate >= from && a.openingDate <= to) {
+      rows.unshift({ txnId: null, date: a.openingDate, payee: 'Opening balance', memo: '', cents: a.openingBalanceCents, role: 'opening' });
+      rows.sort((x, y) => x.date.localeCompare(y.date) || (x.role === 'opening' ? -1 : y.role === 'opening' ? 1 : 0));
+    }
+    const lines = rows.map((l) => {
+      bal += l.cents;
+      return { ...l, balance: bal };
     });
     return { id: a.id, name: a.name, kind: a.kind, opening, closing: bal, lines };
   }).filter((s) => s.opening || s.lines.length)

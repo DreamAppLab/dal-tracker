@@ -88,7 +88,7 @@ export function GeneralLedgerView({ gl, accountsById, onOpenTxn }) {
           {s.lines.map((l, i) => (
             <React.Fragment key={`${l.txnId}-${i}`}>
             {l.yearStart && <tr className="bk-gl-head"><td colSpan={isAccount ? 5 : 6}>Fiscal year {l.date.slice(0, 4)}: income and expense restart at zero (prior year closed to retained earnings)</td></tr>}
-            <tr className="bk-row bk-click" onClick={() => onOpenTxn && onOpenTxn({ id: l.txnId, accountId: l.accountId || s.id, date: l.date })}>
+            <tr className={`bk-row ${l.txnId ? 'bk-click' : 'bk-gl-head'}`} onClick={() => l.txnId && onOpenTxn && onOpenTxn({ id: l.txnId, accountId: l.accountId || s.id, date: l.date })}>
               <td className="bk-nowrap">{fmtDate(l.date)}</td>
               <td className="bk-payee">{l.payee}</td>
               <td className="bk-memo">{l.memo}</td>

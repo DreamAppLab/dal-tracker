@@ -407,13 +407,19 @@ export async function createFixedAsset(companyId, f, categories) {
 }
 
 /** Sell or write off an asset: depreciation through the date, then one disposal entry, then archive. */
-export async function disposeAsset(asset, { date, proceedsCents, proceedsAccountId, memo }, accounts, categories) {
+export async function disposeAsset(asset, { date, proceedsCents, proceedsAccountId, memo, today }, accounts, categories) {
+  const pre = core.disposalPreflight(asset, await fetchAccountAll(asset.companyId, asset.id), date, today);
+  if (pre.error) throw new Error(pre.error);
+  // Auto depreciation already posted for months after the disposal is removed first.
+  for (const id of pre.deleteIds) {
+    // eslint-disable-next-line no-await-in-loop
+    await runPlans([{ id, makeDraft: (before) => (before && !before.deleted ? { ...before, deleted: true } : undefined) }], accounts, categories);
+  }
   await postDepreciation(asset, date, accounts, categories);
   const glId = await ensureCategory(asset.companyId, categories, 'asset_gain_loss', 'Gain (loss) on asset sales', 'income');
   const cats = categories[glId] ? categories : { ...categories, [glId]: { companyId: asset.companyId, name: 'Gain (loss) on asset sales', kind: 'income' } };
   const txns = await fetchAccountAll(asset.companyId, asset.id);
   const s = core.assetSummary(asset, txns, date);
-  if (s.disposedDate) throw new Error('This asset was already disposed of.');
   const draft = core.disposalDraft({ account: asset, bookValueCents: s.bookValueCents, date, proceedsCents, proceedsAccountId, gainLossCategoryId: glId, memo });
   await runPlans([{ id: `${asset.id}_disposal`, makeDraft: (before) => (before && !before.deleted ? undefined : draft) }], accounts, cats);
   await setDoc(doc(db, COL.accounts, asset.id), { archived: true, disposedDate: date, updatedAt: serverTimestamp() }, { merge: true });

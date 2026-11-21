@@ -139,7 +139,9 @@ function FixedAssets({ ledger, run, busy }) {
     if (!core.DATE_RE.test(disposing.date)) { setErr('Enter the disposal date.'); return; }
     if (proceeds == null || proceeds < 0) { setErr('Proceeds must be zero or positive.'); return; }
     if (proceeds && !disposing.to) { setErr('Pick the account that received the money.'); return; }
-    run(() => disposeAsset(disposing.asset, { date: disposing.date, proceedsCents: proceeds, proceedsAccountId: disposing.to }, accountsById, categoriesById),
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    run(() => disposeAsset(disposing.asset, { date: disposing.date, proceedsCents: proceeds, proceedsAccountId: disposing.to, today }, accountsById, categoriesById),
       (r) => { setDisposing(null); return `Disposed of ${disposing.asset.name}: book value ${fmt(r.bookValueCents)}, ${r.gainCents >= 0 ? 'gain' : 'loss'} ${fmt(Math.abs(r.gainCents))}. The asset is archived.`; });
   };
   const add = () => {

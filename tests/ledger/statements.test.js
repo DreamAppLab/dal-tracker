@@ -243,3 +243,60 @@ test('general ledger resets income/expense running balances at the fiscal year b
   const chk = gl.accounts.find((s) => s.id === 'dal_checking');
   assert.equal(chk.closing, 13000, 'balance-sheet accounts keep running');
 });
+
+// ── Final-check fixes ────────────────────────────────────────────────────
+test('disposing of a fully depreciated asset never writes -0 (rules require integer cents)', () => {
+  for (const proceeds of [0, 25000]) {
+    const { L, acct, post } = assetLedger({ openingBalanceCents: 120000, openingDate: '2026-01-01', inServiceDate: '2026-01-01', lifeMonths: 12 });
+    post('2026-12-31');
+    const bv = core.assetSummary(acct(), L.txnList(), '2027-01-10').bookValueCents;
+    assert.equal(bv, 0);
+    const plan = core.planTransactionWrite({
+      id: 'dal_fa_x_disposal',
+      draft: core.disposalDraft({ account: acct(), bookValueCents: bv, date: '2027-01-10', proceedsCents: proceeds, proceedsAccountId: 'dal_checking', gainLossCategoryId: cat('dal', 'asset_gain_loss') }),
+      before: null, existing: {}, accounts: L.accounts, categories: L.categories,
+    });
+    for (const { data } of plan.sets) {
+      assert.ok(!Object.is(data.amountCents, -0), `amount ${data.amountCents}`);
+      (data.splits || []).forEach((sp) => assert.ok(!Object.is(sp.amountCents, -0)));
+    }
+    L.apply(plan);
+    assert.equal(L.balance('dal_fa_x'), 0);
+    assert.equal(L.balance('dal_checking'), proceeds);
+  }
+});
+
+test('disposal preflight: future dates, second disposals and later entries are refused; later auto depreciation is removed', () => {
+  const { L, acct, post } = assetLedger({ openingBalanceCents: 120000, openingDate: '2026-01-01', inServiceDate: '2026-01-01', lifeMonths: 12 });
+  post('2026-12-31');
+  assert.match(core.disposalPreflight(acct(), L.txnList(), '2027-02-01', '2027-01-15').error, /future/);
+  assert.match(core.disposalPreflight(acct(), L.txnList(), '2025-12-01', '2027-01-15').error, /on the books from/);
+  const pre = core.disposalPreflight(acct(), L.txnList(), '2026-06-15', '2027-01-15');
+  assert.equal(pre.deleteIds.length, 7, 'Jun–Dec depreciation (June is dated 06-30, after the sale)');
+  pre.deleteIds.forEach((id) => L.softDelete(id, true));
+  const bv = core.assetSummary(acct(), L.txnList(), '2026-06-15').bookValueCents;
+  assert.equal(bv, 70000, 'Jan–May depreciation only');
+  L.save('dal_fa_x_disposal', core.disposalDraft({ account: acct(), bookValueCents: bv, date: '2026-06-15', proceedsCents: 50000, proceedsAccountId: 'dal_checking', gainLossCategoryId: cat('dal', 'asset_gain_loss') }));
+  assert.equal(L.balance('dal_fa_x'), 0, 'asset ends at exactly zero');
+  assert.match(core.disposalPreflight(acct(), L.txnList(), '2026-03-01', '2027-01-15').error, /already disposed/);
+  // A real addition dated after the disposal date blocks it.
+  const b = assetLedger({ openingBalanceCents: 120000, openingDate: '2026-01-01', inServiceDate: '2026-01-01', lifeMonths: 12 });
+  b.L.add('dal', { accountId: 'dal_checking', date: '2026-08-01', amountCents: -10000, payee: 'Upgrade', transferAccountId: 'dal_fa_x' });
+  assert.match(core.disposalPreflight(b.acct(), b.L.txnList(), '2026-06-15', '2027-01-15').error, /entries dated after/);
+});
+
+test('general ledger shows the opening balance of an account opened inside the range', () => {
+  const L = makeLedger();
+  Object.assign(L.accounts.dal_checking, { openingBalanceCents: 500000, openingDate: '2026-01-01' });
+  L.add('dal', { accountId: 'dal_checking', date: '2026-01-20', amountCents: -1000, payee: 'Fee', categoryId: cat('dal', 'bank_fees') });
+  const accounts = Object.entries(L.accounts).map(([id, a]) => ({ id, ...a }));
+  const gl = core.generalLedger({
+    accounts, categories: L.categories, txns: L.txnList(), companyId: 'dal', from: '2026-01-01', to: '2026-01-31',
+    totalsBefore: core.totalsAsOf({ monthly: L.monthlyList(), monthTxns: [], companyId: 'dal', asOf: '2025-12-31' }),
+    totalsBeforeFyOfFrom: core.totalsAsOf({ monthly: L.monthlyList(), monthTxns: [], companyId: 'dal', asOf: '2025-12-31' }),
+  });
+  const chk = gl.accounts.find((s) => s.id === 'dal_checking');
+  assert.equal(chk.opening, 0);
+  assert.deepEqual(chk.lines.map((l) => [l.payee, l.balance]), [['Opening balance', 500000], ['Fee', 499000]]);
+  assert.equal(chk.closing, 499000, 'matches the balance sheet');
+});
