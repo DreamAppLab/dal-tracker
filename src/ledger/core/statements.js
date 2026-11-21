@@ -277,13 +277,13 @@ function projectReport({ txns, categories, projects, companyId, from, to }) {
   };
   for (const t of txns) {
     if (t.companyId !== companyId || t.deleted || t.role === 'leg' || t.date < from || t.date > to) continue;
-    linesOf(t).forEach((line) => {
+    linesOf(t).forEach((line, lineIndex) => {
       const c = line.categoryId && categories[line.categoryId];
       if (!c || (c.kind !== 'income' && c.kind !== 'expense')) return;
       const pid = line.projectId || t.projectId || NO_PROJECT;
       const r = row(pid);
       if (c.kind === 'income') r.income += line.amountCents; else r.expense += -line.amountCents;
-      r.lines.push({ txnId: t.id, date: t.date, payee: t.payee, memo: line.memo || t.memo, accountId: t.accountId, categoryId: line.categoryId, category: c.name, cents: line.amountCents });
+      r.lines.push({ txnId: t.id, line: lineIndex, split: !!(t.splits && t.splits.length), date: t.date, payee: t.payee, memo: line.memo || t.memo, accountId: t.accountId, categoryId: line.categoryId, category: c.name, cents: line.amountCents });
     });
   }
   const list = Object.values(rows).map((r) => ({ ...r, net: r.income - r.expense, lines: r.lines.sort((a, b) => a.date.localeCompare(b.date)) }))

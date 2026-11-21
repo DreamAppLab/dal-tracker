@@ -154,7 +154,8 @@ async function linkLegacyProjects(db) {
   const plan = core.planLegacyProjects(txns, existing);
   await commitInChunks(db, [
     ...plan.create.map(({ id, data }) => (b) => b.set(db.collection('ledgerProjects').doc(id), { ...data, createdAt: FieldValue.serverTimestamp() })),
-    ...plan.tag.map(({ id, projectId }) => (b) => b.set(db.collection('ledgerTransactions').doc(id), { projectId, updatedAt: FieldValue.serverTimestamp() }, { merge: true })),
+    ...plan.tag.map(({ id, projectId }) => (b) => b.set(db.collection('ledgerTransactions').doc(id), { projectId, legacyProjectLinked: true, updatedAt: FieldValue.serverTimestamp() }, { merge: true })),
+    ...(plan.mark || []).map((id) => (b) => b.set(db.collection('ledgerTransactions').doc(id), { legacyProjectLinked: true }, { merge: true })),
   ]);
   return { created: plan.create.length, tagged: plan.tag.length };
 }

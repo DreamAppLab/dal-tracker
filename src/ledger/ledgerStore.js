@@ -420,10 +420,20 @@ export async function convertToFixedAsset(txn, f, accounts, categories) {
     lifeMonths: f.lifeMonths, salvageCents: f.salvageCents || 0, openingCostCents: 0, openingAccumulatedCents: 0, fromTxnId: txn.id,
   }, categories);
   const accts = { ...accounts, [assetId]: { ...data, id: assetId } };
-  await runPlans([{ id: txn.id, makeDraft: (before) => {
-    if (!before || before.deleted) throw new Error('Transaction not found.');
-    return { ...before, categoryId: null, icCategoryId: null, splits: [], transferAccountId: assetId, convertedFromCategoryId: before.categoryId };
-  } }], accts, categories);
+  try {
+    await runPlans([{ id: txn.id, makeDraft: (before) => {
+      // Re-check the fresh copy: it may have been split, recategorized or deleted elsewhere.
+      if (!before || before.deleted) throw new Error('Transaction not found.');
+      if (before.role !== 'main' || (before.splits && before.splits.length) || !before.categoryId || before.amountCents >= 0) {
+        throw new Error('This transaction changed in the meantime; reopen it and try again.');
+      }
+      return { ...before, categoryId: null, icCategoryId: null, splits: [], transferAccountId: assetId, convertedFromCategoryId: before.categoryId };
+    } }], accts, categories);
+  } catch (e) {
+    // Don't leave an empty asset behind.
+    await setDoc(doc(db, COL.accounts, assetId), { archived: true, updatedAt: serverTimestamp() }, { merge: true }).catch(() => {});
+    throw e;
+  }
   recordAuditEvent('ledger_update', `ledgerTransactions/${txn.id}`, { action: 'converted_to_fixed_asset', companyId: txn.companyId, assetId, amountCents: txn.amountCents });
   return assetId;
 }
@@ -431,7 +441,7 @@ export async function convertToFixedAsset(txn, f, accounts, categories) {
 /** Undo "Make this a fixed asset": removes its depreciation, restores the expense, archives the asset. */
 export async function undoFixedAsset(txn, accounts, categories) {
   const asset = accounts[txn.transferAccountId];
-  if (!txn.convertedFromCategoryId || !asset || asset.kind !== 'fixed_asset') throw new Error('This transaction was not turned into a fixed asset here.');
+  if (!txn.convertedFromCategoryId || !asset || asset.kind !== 'fixed_asset' || (asset.fromTxnId && asset.fromTxnId !== txn.id)) throw new Error('This transaction was not turned into a fixed asset here.');
   const rows = await fetchAccountAll(txn.companyId, asset.id);
   const live = rows.filter((t) => !t.deleted);
   if (live.some((t) => t.source === 'disposal')) throw new Error('The asset has been sold or disposed of; undo that first.');

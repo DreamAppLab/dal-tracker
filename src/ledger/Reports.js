@@ -445,7 +445,7 @@ export default function Reports({ onOpenTxn }) {
         {tab === 'tb' && <TrialBalanceView tb={statements.tb} asOf={asOf} />}
         {tab === 'gl' && <GeneralLedgerView gl={statements.gl} accountsById={accountsById} onOpenTxn={onOpenTxn} />}
         {tab === 'owner' && <OwnerEquityView report={statements.owner} onOpenTxn={onOpenTxn} />}
-        {tab === 'projects' && <ProjectReportView report={statements.projects} onPick={(r) => setDrill({ title: `${r.name} · income & expense`, range, rows: r.lines.map((l) => ({ ...l, line: 0, split: false })) })} />}
+        {tab === 'projects' && <ProjectReportView report={statements.projects} onPick={(r) => setDrill({ title: `${r.name} · income & expense`, range, rows: r.lines })} />}
         {tab === 'assets' && (
           <>
             {notice && <div className="bk-notice">{notice}</div>}

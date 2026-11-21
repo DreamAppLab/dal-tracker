@@ -206,6 +206,7 @@ export default function ImportPanel({ onDone }) {
           if (rule) {
             row.pick = `cat:${rule.categoryId}`;
             row.projectId = rule.projectId || null;
+            row.rulePick = `cat:${rule.categoryId}`;
           }
         }
       }
@@ -281,7 +282,7 @@ export default function ImportPanel({ onDone }) {
             makeDraft: (before) => (before ? undefined : {
               companyId, accountId: account.id, date: r.date, payee: r.payee, memo: r.memo || '', amountCents: r.amountCents,
               ...lineFromPick(r.pick, companyId), splits: [], status: 'cleared', source: 'import',
-              projectId: r.pick.startsWith('cat:') ? (r.projectId || null) : null,
+              projectId: r.projectId && r.pick === r.rulePick ? r.projectId : null,
               fingerprint: r.fingerprint, importId: r.importId,
             }),
           };

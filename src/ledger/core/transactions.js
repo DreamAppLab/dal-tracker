@@ -46,7 +46,7 @@ const TXN_FIELDS = [
   'splits', 'needsCategory', 'deleted', 'parentId', 'parentLine', 'role',
   'settlementId', 'fingerprint', 'importId', 'source', 'project', 'attachmentUrl',
   'checkNumber', 'legacyExpenseId', 'parentLineKey', 'attachmentPath', 'lineId',
-  'projectId', 'convertedFromCategoryId',
+  'projectId', 'convertedFromCategoryId', 'legacyProjectLinked',
 ];
 
 // Fields a linked leg/mirror keeps for itself across re-plans (its own
@@ -172,6 +172,7 @@ function normalizeMain(draft, accounts, categories) {
     t.categoryId = only.categoryId;
     t.transferAccountId = only.transferAccountId;
     t.icCategoryId = only.icCategoryId;
+    t.projectId = only.projectId || t.projectId || null;
     // Keep the surviving line's key so its leg/mirror (and their cleared /
     // reconciled state) are not recreated under a different id.
     t.lineId = only.lineId;

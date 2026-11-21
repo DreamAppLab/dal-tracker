@@ -168,18 +168,30 @@ function projectSlug(name) {
  * distinct name (deterministic id → idempotent), and the txns to tag.
  */
 function planLegacyProjects(txns, existingProjects) {
-  const have = new Set(existingProjects.map((p) => p.id));
+  // Reuse a project that already exists under the same name (e.g. added by
+  // hand in Setup with a random suffix) instead of creating a second one.
+  const bySlug = {};
+  existingProjects.filter((p) => p.companyId === undefined || p.companyId === COMPANY)
+    .forEach((p) => { const k = projectSlug(p.name || ''); if (!bySlug[k] || p.id === `${COMPANY}_proj_${k}`) bySlug[k] = p.id; });
   const create = {};
   const tag = [];
+  const mark = []; // already tagged by the user: just record that it was handled
   for (const t of txns) {
-    if (t.companyId !== COMPANY || t.role !== 'main' || t.projectId || !t.project) continue;
+    if (t.companyId === COMPANY && t.role === 'main' && t.projectId && t.project && !t.legacyProjectLinked) mark.push(t.id);
+    // legacyProjectLinked: handled once; a project the user later cleared stays cleared.
+    if (t.companyId !== COMPANY || t.role !== 'main' || t.projectId || t.legacyProjectLinked || !t.project) continue;
     const name = String(t.project).trim();
     if (NOT_A_PROJECT.has(name.toUpperCase())) continue;
-    const id = `${COMPANY}_proj_${projectSlug(name)}`;
-    if (!have.has(id) && !create[id]) create[id] = { companyId: COMPANY, name: name.slice(0, 80), archived: false, legacy: true };
+    const slug = projectSlug(name);
+    let id = bySlug[slug];
+    if (!id) {
+      id = `${COMPANY}_proj_${slug}`;
+      bySlug[slug] = id;
+      create[id] = { companyId: COMPANY, name: name.slice(0, 80), archived: false, legacy: true };
+    }
     tag.push({ id: t.id, projectId: id });
   }
-  return { create: Object.entries(create).map(([id, data]) => ({ id, data })), tag };
+  return { create: Object.entries(create).map(([id, data]) => ({ id, data })), tag, mark };
 }
 
 module.exports = {

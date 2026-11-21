@@ -79,6 +79,33 @@ test('old Expenses app tags become projects (idempotent; DAL General is overhead
   assert.deepEqual(p1.tag.map((t) => t.id), ['dal_mig_1', 'dal_mig_2', 'dal_mig_3']);
   const p2 = core.planLegacyProjects(txns.map((t) => ({ ...t, projectId: t.projectId || (p1.tag.find((x) => x.id === t.id) || {}).projectId })), p1.create.map((c) => ({ id: c.id, ...c.data })));
   assert.deepEqual([p2.create.length, p2.tag.length], [0, 0]);
+  assert.deepEqual(p1.mark, ['dal_mig_5'], 'a row the user already tagged is only marked as handled');
+  // A project added by hand under the same name is reused, not duplicated.
+  const p3 = core.planLegacyProjects(txns.slice(0, 1), [{ id: 'dal_proj_logabode_x7k2', companyId: 'dal', name: 'Logabode' }]);
+  assert.deepEqual([p3.create.length, p3.tag[0].projectId], [0, 'dal_proj_logabode_x7k2']);
+  // Once handled, a row the user set back to "No project" is never re-tagged.
+  const p4 = core.planLegacyProjects([{ id: 'dal_mig_1', companyId: 'dal', role: 'main', project: 'Logabode', projectId: null, legacyProjectLinked: true }], []);
+  assert.deepEqual([p4.create.length, p4.tag.length], [0, 0]);
+});
+
+test('a split saved with one line keeps the project of that line', () => {
+  const L = makeLedger();
+  const id = L.add('dal', { accountId: 'dal_card', date: '2026-04-03', amountCents: -1000, payee: 'Sharmin Shepu', splits: [
+    { lineId: 'a', categoryId: cat('dal', 'contractors'), amountCents: -1000, projectId: P('logabode') },
+  ] });
+  assert.equal(L.txns[id].projectId, P('logabode'));
+  assert.equal(L.txns[id].categoryId, cat('dal', 'contractors'));
+});
+
+test('by-project drill lines carry a unique line index per split line', () => {
+  const L = makeLedger();
+  L.add('dal', { accountId: 'dal_card', date: '2026-04-03', amountCents: -300, payee: 'X', splits: [
+    { lineId: 'a', categoryId: cat('dal', 'contractors'), amountCents: -100 }, { lineId: 'b', categoryId: cat('dal', 'software'), amountCents: -200 },
+  ] });
+  const r = core.projectReport({ txns: L.txnList(), categories: L.categories, projects, companyId: 'dal', from: '2026-04-01', to: '2026-04-30' });
+  const keys = r.rows[0].lines.map((l) => `${l.txnId}-${l.line}`);
+  assert.equal(new Set(keys).size, 2);
+  assert.ok(r.rows[0].lines.every((l) => l.split));
 });
 
 test('"make this a fixed asset": re-booked off the P&L onto an asset; undo restores the expense', () => {

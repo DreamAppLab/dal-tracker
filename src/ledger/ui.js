@@ -157,6 +157,8 @@ export function downloadText(filename, text, type = 'text/csv') {
 }
 
 export function csvCell(v) {
-  const s = String(v == null ? '' : v);
+  let s = String(v == null ? '' : v);
+  // Text that a spreadsheet would run as a formula (imported payees/notes) gets a leading '.
+  if (typeof v === 'string' && /^(?:[=+@\t\r]|-(?![\d.]))/.test(s)) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }

@@ -126,6 +126,7 @@ export default function Register({ focusTxn, onFocusHandled }) {
   // Reset per-company UI state when switching books.
   useEffect(() => {
     setEditId(null); setEditForm(null); setSelected(null); setNewForm(blankForm()); setMode('register'); setQueue(null); setDeletedRows(null);
+    setFilters({ search: '', from: '', to: '', pick: '*', status: '', min: '', max: '', project: '*' });
   }, [companyId]);
 
   // Jump to a transaction (from reports / intercompany drill-down).
@@ -224,10 +225,14 @@ export default function Register({ focusTxn, onFocusHandled }) {
       if (!f.splits || !f.splits.length) throw new Error('Open the split editor to assign the lines.');
       const sum = f.splits.reduce((s, l) => s + l.amountCents, 0);
       if (sum !== amountCents) throw new Error('The amount changed — reopen Split to rebalance the lines.');
-      splits = f.splits;
+      // A project picked for the whole transaction applies to lines without their own.
+      splits = f.splits.map((l) => ({ ...l, projectId: l.projectId || f.projectId || null }));
       lineFields = { categoryId: null, transferAccountId: null, icCategoryId: null };
     } else {
       lineFields = lineFromPick(f.pick, companyId);
+    }
+    if (base && base.convertedFromCategoryId && (lineFields.transferAccountId !== base.transferAccountId || splits.length)) {
+      throw new Error('This purchase was turned into a fixed asset. To book it as an expense again, use ⋯ → Undo fixed asset.');
     }
     return {
       ...(base || {}),
@@ -249,8 +254,12 @@ export default function Register({ focusTxn, onFocusHandled }) {
     const r = core.matchVendorRule(f.payee, rules);
     if (!r) return f;
     const next = { ...f };
-    if (!f.pick) next.pick = `cat:${r.categoryId}`;
-    if (!f.projectId && r.projectId) next.projectId = r.projectId;
+    // The rule fills only what is still blank: its category, and its project
+    // together with that category (never re-added after the user clears it).
+    if (!f.pick) {
+      next.pick = `cat:${r.categoryId}`;
+      if (!f.projectId && r.projectId) next.projectId = r.projectId;
+    }
     return next;
   };
 
@@ -381,7 +390,7 @@ export default function Register({ focusTxn, onFocusHandled }) {
     const f = target === 'new' ? newForm : editForm;
     const total = amountFromForm(f);
     const current = target === 'edit' ? withBalance.find((t) => t.id === editId) : null;
-    const lines = f.splits || (current && f.pick !== 'split' ? [{ ...lineFromPick(current ? pickFromTxn(current) : '', companyId), amountCents: total }] : null);
+    const lines = f.splits || (current && f.pick !== 'split' ? [{ ...lineFromPick(current ? pickFromTxn(current) : '', companyId), projectId: f.projectId || null, amountCents: total }] : null);
     setSplit({ target, totalCents: total || 0, lines, payee: f.payee });
   };
 
