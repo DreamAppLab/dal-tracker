@@ -371,3 +371,16 @@ test('card duplicates review: closest pairing, merged rows not re-merged, possib
   assert.equal(back.attachmentUrl, null);
   assert.equal(back.memo, '');
 });
+
+test('intercompany totals: owners settlements are not "reimbursed" (no money moved)', () => {
+  const r = core.openItems([
+    { id: 'a', date: '2026-09-01', amountCents: 71321, role: 'leg' },
+    { id: 'b', date: '2026-09-01', amountCents: -71321, role: 'leg', settlementId: 'set_owndalcardx', settlementKind: 'owners' },
+    { id: 'c', date: '2026-10-22', amountCents: -14, role: 'mirror' },
+    { id: 'd', date: '2026-10-22', amountCents: 14, role: 'leg', settlementId: 'set_owndalcardy' },
+    { id: 'e', date: '2026-11-01', amountCents: 500, role: 'leg' },
+    { id: 'f', date: '2026-11-02', amountCents: -500, role: 'leg', settlementId: 'set_abc123' },
+  ]);
+  assert.deepEqual(r.totals, { paidForThem: 71821, paidForUs: 14, settledIn: 500, settledOut: 0, ownersIn: 71321, ownersOut: 14 });
+  assert.equal(r.balance, 0);
+});
