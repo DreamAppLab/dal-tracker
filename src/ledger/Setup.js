@@ -278,11 +278,14 @@ export default function Setup() {
   };
   const migrate = (mode) => run(() => apiPost('/api/ledger/migrate', { mode }), (r) => { setMigration(r.summary); return mode === 'dry-run' ? 'Dry run finished (nothing written).' : mode === 'apply' ? (r.summary.verified ? 'Migration complete and verified.' : 'Migration finished but totals did not verify — see details.') : 'Rollback complete.'; });
   const card = accounts.find((a) => a.id === 'dal_card');
-  const [histAs, setHistAs] = useState((card && card.historicalPaymentsAs) || 'owner');
+  const savedHistAs = (card && card.historicalPaymentsAs) || 'owner';
+  const [histAs, setHistAs] = useState(savedHistAs);
+  useEffect(() => { setHistAs(savedHistAs); }, [savedHistAs]);
   const settle = () => run(() => apiPost('/api/ledger/migrate', { mode: 'settle', as: histAs }), (r) => {
     setMigration(r.summary);
     const st = r.summary.settled || {};
-    return `Migrated card charges marked as paid before Books: ${st.months || 0} monthly entries totalling ${fmt(st.totalCents || 0)}, booked as ${histAs === 'owner' ? 'owner contributions' : 'opening balance equity'}. The card's migrated history now owes $0.00.`;
+    const problems = (st.errors || []).length;
+    return `Migrated card charges marked as paid before Books: ${st.months || 0} monthly entries totalling ${fmt(st.totalCents || 0)}, booked as ${histAs === 'owner' ? 'owner contributions' : 'opening balance equity'}. ${problems ? `${problems} month(s) could not be updated (reconciled) — see details below.` : "The card's migrated history now owes $0.00."}`;
   });
   const rebuild = () => run(() => apiPost('/api/ledger/rebuild', { companyId }), (r) => `Rebuilt ${r.result.months} months from ${r.result.transactions} transactions.`);
 

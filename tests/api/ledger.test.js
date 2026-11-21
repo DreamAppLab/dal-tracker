@@ -247,6 +247,22 @@ test('historical card payments: migrated card owes 0, P&L and checking unchanged
   const audits = [...db.store.values()].filter((d) => d.type === 'ledger_migration' && d.meta && d.meta.mode === 'settle');
   assert.ok(audits.length >= 2, 'settle runs are audit-logged');
 
+  // Someone re-books a historical entry as a transfer from checking (leg created), and soft-deletes another:
+  // settle restores both as system entries, removes the leg, and checking/card come back to 0.
+  const hId = 'dal_hist_2026-01';
+  const h = db.store.get(`ledgerTransactions/${hId}`);
+  db.store.set(`ledgerTransactions/${hId}`, { ...h, categoryId: null, transferAccountId: 'dal_checking', type: 'transfer' });
+  db.store.set(`ledgerTransactions/${hId}__x0`, { companyId: 'dal', accountId: 'dal_checking', date: h.date, amountCents: -h.amountCents, role: 'leg', parentId: hId, parentLine: 0, transferAccountId: 'dal_card', source: 'historical_payment', status: 'uncleared', deleted: false, splits: [], payee: h.payee });
+  db.store.set('ledgerTransactions/dal_hist_2026-02', { ...db.store.get('ledgerTransactions/dal_hist_2026-02'), deleted: true });
+  const fix = await call('migrate', { mode: 'settle' });
+  assert.equal(fix.statusCode, 200, JSON.stringify(fix.body));
+  assert.deepEqual(fix.body.summary.settled.errors, []);
+  assert.equal(db.store.get(`ledgerTransactions/${hId}__x0`), undefined, 'leg removed');
+  assert.equal(db.store.get(`ledgerTransactions/${hId}`).transferAccountId, null);
+  assert.equal(db.store.get('ledgerTransactions/dal_hist_2026-02').deleted, false, 'undeleted');
+  assert.equal(balanceOf(db, 'dal_card'), 0);
+  assert.equal(balanceOf(db, 'dal_checking'), 0);
+
   // A migrated row deleted later shrinks that month's payment; rollback removes everything.
   db.store.set('ledgerTransactions/dal_mig_e4', { ...db.store.get('ledgerTransactions/dal_mig_e4'), deleted: true });
   await call('migrate', { mode: 'settle' });

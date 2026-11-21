@@ -86,10 +86,6 @@ function legacyTotalCents(expenses, errorIds) {
 }
 
 /**
- * @param {FirebaseFirestore.Firestore} db  Admin Firestore
- * @param {object} opts { mode: 'dry-run'|'apply'|'rollback', runId?: string }
- */
-/**
  * Clear the migrated card history with "Card payments before Books" entries
  * (see core.planHistoricalPayments). as: 'owner' (default — the old card
  * bills were paid from the owner's personal money: Owner contribution) or
@@ -110,8 +106,11 @@ async function settleHistory(db, opts) {
     await catRef.set({ ...def.data, createdAt: FieldValue.serverTimestamp() });
   }
   const dalTxns = await readCompany(db, 'ledgerTransactions', core.COMPANY);
-  const existing = dalTxns.filter((t) => t.source === core.HISTORICAL_SOURCE);
+  const zerbiqTxns = await readCompany(db, 'ledgerTransactions', 'zerbiq');
+  // Only the main entries are ours; legs/mirrors (if a user re-booked one) are derived.
+  const existing = dalTxns.filter((t) => t.source === core.HISTORICAL_SOURCE && (t.role || 'main') === 'main');
   const plan = core.planHistoricalPayments(dalTxns, existing, categoryId);
+  const allById = Object.fromEntries([...dalTxns, ...zerbiqTxns].map(({ id, ...d }) => [id, d]));
   const { accounts, categories } = accountsAndCategories(
     [...(await readCompany(db, 'ledgerAccounts', 'dal')), ...(await readCompany(db, 'ledgerAccounts', 'zerbiq'))],
     [...(await readCompany(db, 'ledgerCategories', 'dal')), ...(await readCompany(db, 'ledgerCategories', 'zerbiq'))]
@@ -119,25 +118,40 @@ async function settleHistory(db, opts) {
   const byId = Object.fromEntries(existing.map((t) => [t.id, t]));
   const ops = [];
   const errors = [];
+  const applyPlan = (p) => {
+    p.sets.forEach(({ id: docId, data }) => ops.push((b) => b.set(db.collection('ledgerTransactions').doc(docId), { ...data, updatedAt: FieldValue.serverTimestamp() }, { merge: true })));
+    p.deletes.forEach(({ id: docId }) => ops.push((b) => b.delete(db.collection('ledgerTransactions').doc(docId))));
+  };
   for (const { id, draft } of plan.upserts) {
-    const before = byId[id] ? { ...byId[id] } : null;
-    if (before) delete before.id;
+    const before = allById[id] || null;
     try {
-      const p = core.planTransactionWrite({ id, draft: before ? { ...before, ...draft, status: before.status, reconciliationId: before.reconciliationId } : draft, before, existing: {}, accounts, categories });
-      p.sets.forEach(({ id: docId, data }) => ops.push((b) => b.set(db.collection('ledgerTransactions').doc(docId), { ...data, updatedAt: FieldValue.serverTimestamp() }, { merge: true })));
+      // These entries are system-managed: re-running restores them (undeletes,
+      // and resets a category/transfer someone edited), keeping only their
+      // cleared/reconciled state. Linked legs/mirrors are removed by the planner.
+      const full = before
+        ? { ...before, ...draft, transferAccountId: null, icCategoryId: null, splits: [], deleted: false, status: before.status, reconciliationId: before.reconciliationId || null }
+        : draft;
+      applyPlan(core.planTransactionWrite({ id, draft: full, before, existing: allById, accounts, categories }));
     } catch (e) {
       errors.push({ id, error: e.message });
     }
   }
   for (const id of plan.deleteIds) {
-    if (byId[id] && byId[id].status === 'reconciled') { errors.push({ id, error: 'reconciled' }); continue; }
-    ops.push((b) => b.delete(db.collection('ledgerTransactions').doc(id)));
+    try {
+      applyPlan(core.planTransactionWrite({ id, draft: null, before: allById[id], existing: allById, accounts, categories }));
+    } catch (e) {
+      errors.push({ id, error: e.message });
+    }
   }
   await commitInChunks(db, ops);
   await cardRef.set({ historicalPaymentsAs: as }, { merge: true });
   return { as, months: plan.months, totalCents: plan.totalCents, removed: plan.deleteIds.length, errors };
 }
 
+/**
+ * @param {FirebaseFirestore.Firestore} db  Admin Firestore
+ * @param {object} opts { mode: 'dry-run'|'apply'|'rollback'|'settle', as?: 'owner'|'equity', runId?: string }
+ */
 async function migrateExpenses(db, opts) {
   const mode = (opts && opts.mode) || 'dry-run';
   const expenses = await readAll(db, 'expenses');
@@ -155,11 +169,11 @@ async function migrateExpenses(db, opts) {
   if (mode === 'rollback') {
     // Migrated rows plus anything derived from them (transfer legs in DAL,
     // intercompany mirrors in Zerbiq) if they were recategorized since.
-    const migratedIds = new Set(migrated.map((t) => t.id));
+    const historical = dalTxns.filter((t) => t.source === core.HISTORICAL_SOURCE && (t.role || 'main') === 'main');
+    const parentIds = new Set([...migrated, ...historical].map((t) => t.id));
     const zerbiqTxns = await readCompany(db, 'ledgerTransactions', 'zerbiq');
-    const derived = [...dalTxns, ...zerbiqTxns].filter((t) => t.parentId && migratedIds.has(t.parentId));
-    const historical = dalTxns.filter((t) => t.source === core.HISTORICAL_SOURCE);
-    const all = [...migrated, ...derived, ...historical];
+    const derived = [...dalTxns, ...zerbiqTxns].filter((t) => t.parentId && parentIds.has(t.parentId));
+    const all = [...migrated, ...historical, ...derived];
     const locked = all.filter((t) => t.status === 'reconciled');
     if (locked.length) {
       const err = new Error(`${locked.length} migrated transactions are reconciled. Undo those reconciliations first.`);
