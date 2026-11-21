@@ -144,9 +144,10 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
    The migrated card charges were paid before these books started. So the migration also posts one
    **"Card payments before Books"** entry per month on the DAL card (`dal_hist_<YYYY-MM>`, source
    `historical_payment`), which brings the card's migrated history to $0.00 owed without touching P&L or
-   checking. These are booked to *Opening balance equity (paid before Books)* by default, an equity
-   category with `equityType: 'opening'` that the owner report ignores. Setup → "Migrated card charges
-   were paid before Books" switches them to *Owner contributions*, and re-runs keep that choice.
+   checking. The old card bills were paid from the owner's personal money, so by default these are
+   booked as *Owner contribution* and appear on the owner contributions report. Setup → "Migrated card
+   charges were paid before Books" can switch them to *Opening balance equity (paid before Books)*, an
+   equity category with `equityType: 'opening'` that the owner report ignores. Re-runs keep the choice.
 
 ### Indexes
 Composite indexes live in `firestore.indexes.json`. Deploy them with

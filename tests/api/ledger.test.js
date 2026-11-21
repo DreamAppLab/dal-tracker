@@ -206,10 +206,9 @@ test('historical card payments: migrated card owes 0, P&L and checking unchanged
   assert.equal(balanceOf(db, 'dal_checking'), 0, 'checking untouched');
   const hist = txnsOf(db, 'dal').filter((t) => t.source === 'historical_payment');
   assert.deepEqual(hist.map((t) => t.id).sort(), ['dal_hist_2025-11', 'dal_hist_2026-01', 'dal_hist_2026-02']);
-  assert.ok(hist.every((t) => t.categoryId === 'dal_cat_opening_equity' && t.type === 'equity'));
+  assert.ok(hist.every((t) => t.categoryId === 'dal_cat_owner_contribution' && t.type === 'equity'), 'default: owner contributions (paid personally)');
   assert.equal(db.store.get('ledgerTransactions/dal_hist_2026-01').date, '2026-01-06', 'dated the last migrated charge of the month');
   const cats = categoriesOf(db);
-  assert.equal(cats.dal_cat_opening_equity.equityType, 'opening');
 
   // P&L counts the expenses exactly as before.
   const pnl = core.pnlFromMonthly(monthlyOf(db), cats, 'dal', '2026-01-01', '2026-01-31');
@@ -224,7 +223,8 @@ test('historical card payments: migrated card owes 0, P&L and checking unchanged
   assert.ok(bs.balanced);
   assert.equal(bs.liabilities.find((r) => r.accountId === 'dal_card').cents, 0);
   const owner = core.ownerEquityReport({ categories: cats, txns: txnsOf(db, 'dal'), companyId: 'dal', from: '2025-01-01', to: '2026-12-31', totalsBefore: { acct: {}, cat: {} } });
-  assert.equal(owner.totals.contributions, 0);
+  assert.equal(owner.totals.contributions, 2000 - 1550 + 999 + 400, 'monthly owner contributions on the owner report');
+  assert.deepEqual(owner.months.filter((m) => m.contributions).map((m) => m.month), ['2025-11', '2026-01', '2026-02']);
 
   // Idempotent: re-running apply or settle changes nothing.
   const snap = JSON.stringify(hist.map((t) => [t.id, t.amountCents, t.categoryId]).sort());
@@ -233,14 +233,17 @@ test('historical card payments: migrated card owes 0, P&L and checking unchanged
   assert.equal(JSON.stringify(txnsOf(db, 'dal').filter((t) => t.source === 'historical_payment').map((t) => [t.id, t.amountCents, t.categoryId]).sort()), snap);
   assert.equal(balanceOf(db, 'dal_card'), 0);
 
-  // Switch to owner contributions (if they were paid personally); remembered on re-run.
-  const sw = await call('migrate', { mode: 'settle', as: 'owner' });
+  // Switch to opening balance equity (paid from accounts outside Books); remembered on re-run.
+  const sw = await call('migrate', { mode: 'settle', as: 'equity' });
   assert.equal(sw.statusCode, 200);
-  assert.ok(txnsOf(db, 'dal').filter((t) => t.source === 'historical_payment').every((t) => t.categoryId === 'dal_cat_owner_contribution'));
+  assert.ok(txnsOf(db, 'dal').filter((t) => t.source === 'historical_payment').every((t) => t.categoryId === 'dal_cat_opening_equity'));
+  assert.equal(categoriesOf(db).dal_cat_opening_equity.equityType, 'opening');
   await call('migrate', { mode: 'apply' });
-  assert.ok(txnsOf(db, 'dal').filter((t) => t.source === 'historical_payment').every((t) => t.categoryId === 'dal_cat_owner_contribution'), 'choice kept on re-run');
+  assert.ok(txnsOf(db, 'dal').filter((t) => t.source === 'historical_payment').every((t) => t.categoryId === 'dal_cat_opening_equity'), 'choice kept on re-run');
   const owner2 = core.ownerEquityReport({ categories: categoriesOf(db), txns: txnsOf(db, 'dal'), companyId: 'dal', from: '2025-01-01', to: '2026-12-31', totalsBefore: { acct: {}, cat: {} } });
-  assert.equal(owner2.totals.contributions, 2000 - 1550 + 999 + 400);
+  assert.equal(owner2.totals.contributions, 0, 'opening equity is not an owner contribution');
+  assert.equal(balanceOf(db, 'dal_card'), 0);
+  await call('migrate', { mode: 'settle', as: 'owner' });
   const audits = [...db.store.values()].filter((d) => d.type === 'ledger_migration' && d.meta && d.meta.mode === 'settle');
   assert.ok(audits.length >= 2, 'settle runs are audit-logged');
 

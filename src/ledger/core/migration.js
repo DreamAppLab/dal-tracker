@@ -144,7 +144,7 @@ function planHistoricalPayments(cardTxns, existing, categoryId) {
         date: last,
         amountCents: -net,
         payee: 'Card payments before Books',
-        memo: `Migrated ${month} charges were paid before these books started (outside Books).`,
+        memo: `Migrated ${month} card charges, paid before these books started.`,
         categoryId,
         source: HISTORICAL_SOURCE,
         status: 'cleared',

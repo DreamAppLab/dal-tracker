@@ -91,8 +91,9 @@ function legacyTotalCents(expenses, errorIds) {
  */
 /**
  * Clear the migrated card history with "Card payments before Books" entries
- * (see core.planHistoricalPayments). as: 'equity' (default, Opening balance
- * equity) or 'owner' (Owner contribution, if Eddie paid them personally).
+ * (see core.planHistoricalPayments). as: 'owner' (default — the old card
+ * bills were paid from the owner's personal money: Owner contribution) or
+ * 'equity' (Opening balance equity, for money from accounts not in Books).
  * The choice is remembered on the card account so re-runs keep it.
  */
 async function settleHistory(db, opts) {
@@ -100,7 +101,7 @@ async function settleHistory(db, opts) {
   const cardSnap = await cardRef.get();
   if (!cardSnap.exists) return { months: 0, totalCents: 0, skipped: 'no card account' };
   const card = cardSnap.data();
-  const as = (opts && opts.as) || card.historicalPaymentsAs || 'equity';
+  const as = (opts && opts.as) || card.historicalPaymentsAs || 'owner';
   const slug = as === 'owner' ? 'owner_contribution' : 'opening_equity';
   const categoryId = core.ids.category(core.COMPANY, slug);
   const catRef = db.collection('ledgerCategories').doc(categoryId);
