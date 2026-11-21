@@ -19,6 +19,20 @@ function parseDate(s) {
 function fmtDate(dt) {
   return dt.toISOString().slice(0, 10);
 }
+
+/** A real calendar date 'YYYY-MM-DD' in 2000-2099 (not a half-typed date input). */
+function isValidDate(s) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(s || ''))) return false;
+  const y = Number(String(s).slice(0, 4));
+  if (y < 2000 || y > 2099) return false;
+  const dt = parseDate(s);
+  return !Number.isNaN(dt.getTime()) && fmtDate(dt) === s;
+}
+
+/** A usable report range: both dates valid and in order. */
+function isValidRange(from, to) {
+  return isValidDate(from) && isValidDate(to) && from <= to;
+}
 function addDays(s, n) {
   const dt = parseDate(s);
   dt.setUTCDate(dt.getUTCDate() + n);
@@ -68,6 +82,7 @@ function periodRange(kind, anchor) {
 
 /** The comparison period: previous month/quarter/year, same span last year for YTD, equal-length before a custom range. */
 function priorRange(range) {
+  if (!range || !isValidRange(range.from, range.to)) return null; // half-typed custom dates: no comparison
   const { from, to, kind } = range;
   if (kind === 'month') {
     const prev = addMonths(from.slice(0, 7), -1);
@@ -241,6 +256,8 @@ function balanceSeries(monthlyDocs, account, accountId, companyId, fromMonth, to
 module.exports = {
   parseDate,
   fmtDate,
+  isValidDate,
+  isValidRange,
   addDays,
   addMonths,
   monthStart,
