@@ -244,3 +244,24 @@ test('ledger: projects are company-scoped, archived not deleted; transactions an
   await assertSucceeds(setDoc(doc(db, 'ledgerVendorRules', 'dal_rule_sharmin'), { companyId: 'dal', pattern: 'SHARMIN', categoryId: 'dal_cat_contractors', projectId: 'dal_proj_logabode' }));
   await assertFails(setDoc(doc(db, 'ledgerVendorRules', 'dal_rule_bad'), { companyId: 'dal', pattern: 'X', categoryId: 'dal_cat_contractors', projectId: 'zerbiq_proj_x' }));
 });
+
+test('ledger: bulk-change records are company-scoped, created once, then only their status changes; reconciled rows can change category', async () => {
+  const db = admin();
+  const rec = { companyId: 'dal', kind: 'recategorize', payeeContains: 'Sharmin Shepu', fromCategoryId: '*', toCategoryId: 'dal_cat_contractors', status: 'applying', changes: [{ id: 'dal_t1', lineId: null, line: null, from: 'dal_cat_professional', to: 'dal_cat_contractors', cents: -100 }] };
+  await assertSucceeds(setDoc(doc(db, 'ledgerBulkEdits', 'dal_bulk_1'), rec));
+  await assertFails(setDoc(doc(db, 'ledgerBulkEdits', 'dal_bulk_2'), { ...rec, toCategoryId: 'zerbiq_cat_contractors' }));
+  await assertFails(setDoc(doc(db, 'ledgerBulkEdits', 'zerbiq_bulk_3'), rec));
+  await assertFails(setDoc(doc(db, 'ledgerBulkEdits', 'dal_bulk_4'), { ...rec, status: 'applied' }));
+  await assertSucceeds(updateDoc(doc(db, 'ledgerBulkEdits', 'dal_bulk_1'), { status: 'applied', appliedCount: 1 }));
+  await assertFails(updateDoc(doc(db, 'ledgerBulkEdits', 'dal_bulk_1'), { changes: [] }));
+  await assertSucceeds(updateDoc(doc(db, 'ledgerBulkEdits', 'dal_bulk_1'), { status: 'undone', undoneCount: 1 }));
+  await assertFails(updateDoc(doc(db, 'ledgerBulkEdits', 'dal_bulk_1'), { status: 'applied', appliedCount: 2 }));
+  await assertFails(deleteDoc(doc(db, 'ledgerBulkEdits', 'dal_bulk_1')));
+  await assertSucceeds(getDocs(query(collection(db, 'ledgerBulkEdits'), where('companyId', '==', 'dal'))));
+  await assertFails(getDocs(collection(db, 'ledgerBulkEdits')));
+  // A category change doesn't move money, so it is allowed on a reconciled row.
+  await assertSucceeds(setDoc(doc(db, 'ledgerTransactions', 'dal_rc1'), txn({ status: 'cleared', categoryId: 'dal_cat_professional' })));
+  await assertSucceeds(updateDoc(doc(db, 'ledgerTransactions', 'dal_rc1'), { status: 'reconciled', reconciliationId: 'dal_rec_1' }));
+  await assertSucceeds(updateDoc(doc(db, 'ledgerTransactions', 'dal_rc1'), { categoryId: 'dal_cat_contractors' }));
+  await assertFails(updateDoc(doc(db, 'ledgerTransactions', 'dal_rc1'), { amountCents: -1 }));
+});

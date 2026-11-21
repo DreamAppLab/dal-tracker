@@ -41,6 +41,7 @@ const COL = Object.freeze({
   transactions: 'ledgerTransactions',
   vendorRules: 'ledgerVendorRules',
   projects: 'ledgerProjects',
+  bulkEdits: 'ledgerBulkEdits',
   reconciliations: 'ledgerReconciliations',
   monthly: 'ledgerMonthly',
   imports: 'ledgerImports',

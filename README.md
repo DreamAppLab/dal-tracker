@@ -78,6 +78,7 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
 | `ledgerCategories` | Per-company `income` / `expense` / `equity` categories. These are archived, never deleted. |
 | `ledgerTransactions` | `date`, `amountCents` (integer, signed), `payee`, `memo` (shown as **Description / notes**), `projectId` (optional), `status` (`uncleared` / `cleared` / `reconciled`), `type`, `categoryId` or `transferAccountId`, `splits[]`, `fingerprint`, `deleted` (soft delete). `role` is `main`, `leg` or `mirror`. `convertedFromCategoryId` is set when an expense was turned into a fixed asset. |
 | `ledgerProjects` | Per-company projects / apps (`name`, `archived`). Ids are `<companyId>_proj_<slug>`. They are archived, never deleted. |
+| `ledgerBulkEdits` | Bulk "change category" records: every moved line with its old category (for undo), `status` `applying` → `applied` → `undone`. Created once and never deleted; afterwards only the status and counters change. |
 | `ledgerVendorRules` | "Payee contains X" → category, plus an optional default project. Applied on entry and import (the longest match wins). |
 | `ledgerReconciliations` | Finished statements (`startingBalanceCents`, `endingBalanceCents`, `statementDate`, `status`). |
 | `ledgerMonthly` | Cached totals per company per month (`acct` and `cat` maps), kept up to date with atomic increments. |
@@ -148,6 +149,18 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
    (a manual entry or the other leg of a card payment) is attached to it rather than duplicated.
    **Chase is the primary bank**: in Download account activity, pick *Quicken Web Connect (.QFX)* (best)
    or *CSV*. Capital One PDF / CSV and Excel (including the Fiverr export) are also supported.
+8a. **Change category in bulk** (Setup). Moves every transaction whose payee contains some text, in all
+   accounts and all years, from any category (or one category) to another. Split lines move one by one;
+   transfer and intercompany lines, legs and mirrors are never touched. Reconciled rows are included: a category
+   isn't one of the locked fields, and the change never moves a balance. Every row is written through the
+   planner (25 per Firestore transaction; a refused chunk is retried row by row), so the monthly totals stay
+   right. Preview dry-runs every row through the planner and lists, without changing them, the rows it would
+   refuse and the matching transfer/intercompany rows (a mirror's category is changed in the other
+   company's books, on its "Paid for" line). The record with the old categories
+   is saved *before* any row changes, so **Undo** works even if a run stops part-way. Undo only reverts lines
+   that still have the category the bulk change gave them, so later hand edits are kept. It can also add or
+   update a vendor rule for the payee. Audited as `ledger_update` with action `bulk_recategorize` /
+   `bulk_recategorize_undone` (`src/ledger/core/bulk.js`, `tests/ledger/bulk.test.js`).
 9. **Destructive actions are audited** through `recordAuditEvent()` (`ledger_delete`, `ledger_restore`,
    `ledger_update`, whose `action` says what changed, e.g. `converted_to_fixed_asset`) and on the server (`ledger_unreconcile`, `ledger_migration`).
 10. **Maintenance.** Books → Setup → *Rebuild totals* recomputes `ledgerMonthly` for a company from its
