@@ -375,6 +375,11 @@ function planLegacyNotesUndo(dalTxns) {
 // ---- Owner money through "Paid personally" ----
 
 const OWNER_SLUGS = ['owner_contribution', 'owner_draw', 'personal_spending'];
+/** Has a company switched its owner money to go through "Paid personally"? */
+const ownerMoneyViaPersonal = (accounts, companyId) => {
+  const p = accounts && accounts[ids.personal(companyId)];
+  return !!(p && !p.archived && p.ownerMoneyVia === 'personal');
+};
 
 /**
  * Rows booked to an owner-equity category (contribution, draw, personal
@@ -398,7 +403,7 @@ function planOwnerMoney(txns, companyId, direction = 'apply') {
 }
 
 module.exports = {
-  planOwnerMoney, OWNER_SLUGS,
+  planOwnerMoney, OWNER_SLUGS, ownerMoneyViaPersonal,
   legacyExpenseReport, planLegacyNotes, planLegacyNotesUndo, planPersonalMove, planPersonalUndo,
   planLegacyProjects, projectSlug,
   COMPANY, ACCOUNT, migratedId, legacyImportId, mapLegacyExpense, planMigration, planLegacyImports,

@@ -294,7 +294,7 @@ export default function Setup() {
   const [personalPreview, setPersonalPreview] = useState(null);
   const [dupes, setDupes] = useState(null);
   const [ownerMoneyPv, setOwnerMoneyPv] = useState(null);
-  const ownerMoneyRun = (mode) => run(() => apiPost('/api/ledger/migrate', { mode }), (r) => {
+  const ownerMoneyRun = (mode) => run(() => apiPost('/api/ledger/migrate', { mode, ...(mode === 'owner-money' && ownerMoneyPv ? { ids: core.COMPANY_IDS.flatMap((c) => ownerMoneyPv.companies[c].rows.map((x) => x.id)) } : {}) }), (r) => {
     const o = r.summary.ownerMoney;
     const line = (c) => `${core.COMPANY_META[c].short}: ${o.companies[c].count} row(s)`;
     if (mode === 'owner-money-preview') { setOwnerMoneyPv(o); return `Would move ${line('dal')}, ${line('zerbiq')} to Paid personally.`; }

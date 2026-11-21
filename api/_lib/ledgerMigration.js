@@ -334,19 +334,20 @@ async function ensurePersonalOpen(db, companyId, date) {
  * Equity, P&L and every other balance are unchanged. Reconciled rows keep
  * their amount, date and account, so they convert too. Undo reverses it.
  */
-async function ownerMoney(db, mode) {
+async function ownerMoney(db, mode, onlyIds) {
   const direction = mode === 'owner-money-undo' ? 'undo' : 'apply';
+  const pick = (rows) => (onlyIds && direction === 'apply' ? rows.filter((r) => onlyIds.includes(r.id)) : rows);
   const result = { companies: {} };
   const txByCo = {};
   for (const c of core.COMPANY_IDS) {
     // eslint-disable-next-line no-await-in-loop
     txByCo[c] = await readCompany(db, 'ledgerTransactions', c);
-    const rows = core.planOwnerMoney(txByCo[c], c, direction);
+    const rows = pick(core.planOwnerMoney(txByCo[c], c, direction));
     result.companies[c] = { count: rows.length, totalCents: rows.reduce((s, r) => s + r.before.amountCents, 0), rows: rows.slice(0, 200).map((r) => ({ id: r.id, date: r.before.date, payee: r.before.payee, accountId: r.before.accountId, cents: r.before.amountCents })) };
   }
   if (mode === 'owner-money-preview') return result;
   for (const c of core.COMPANY_IDS) {
-    const rows = core.planOwnerMoney(txByCo[c], c, direction);
+    const rows = pick(core.planOwnerMoney(txByCo[c], c, direction));
     // eslint-disable-next-line no-await-in-loop
     if (direction === 'apply' && rows.length) await ensurePersonalOpen(db, c, rows.map((r) => r.before.date).sort()[0]);
   }
@@ -359,7 +360,7 @@ async function ownerMoney(db, mode) {
   const ops = [];
   const errors = [];
   for (const c of core.COMPANY_IDS) {
-    for (const r of core.planOwnerMoney(txByCo[c], c, direction)) {
+    for (const r of pick(core.planOwnerMoney(txByCo[c], c, direction))) {
       const { id: _i, ...before } = r.before; // eslint-disable-line no-unused-vars
       const { id: _j, ...draft } = r.draft; // eslint-disable-line no-unused-vars
       try {
@@ -371,13 +372,30 @@ async function ownerMoney(db, mode) {
       }
     }
   }
-  await commitInChunks(db, ops);
-  // "Card payments before Books" follow the switch.
-  await db.collection('ledgerAccounts').doc(core.ACCOUNT).set({ ownerMoneyVia: direction === 'undo' ? 'category' : 'personal' }, { merge: true });
-  result.settled = await settleHistory(db, {});
+  try {
+    await commitInChunks(db, ops);
+    // The switch (per company, on its Paid personally account; "Card payments
+    // before Books" read it from the DAL card) only flips when every row converted.
+    if (!errors.length) {
+      const via = direction === 'undo' ? 'category' : 'personal';
+      for (const c of core.COMPANY_IDS) {
+        // eslint-disable-next-line no-await-in-loop
+        const pref = db.collection('ledgerAccounts').doc(core.ids.personal(c));
+        // eslint-disable-next-line no-await-in-loop
+        if ((await pref.get()).exists) await pref.set({ ownerMoneyVia: via }, { merge: true });
+      }
+      const cardRef = db.collection('ledgerAccounts').doc(core.ACCOUNT);
+      if ((await cardRef.get()).exists) await cardRef.set({ ownerMoneyVia: via }, { merge: true });
+    }
+    result.settled = await settleHistory(db, {});
+  } finally {
+    // Cached totals are recomputed even if something above failed part-way.
+    for (const c of core.COMPANY_IDS) {
+      // eslint-disable-next-line no-await-in-loop
+      result.companies[c].rebuilt = await rebuildMonthly(db, c);
+    }
+  }
   for (const c of core.COMPANY_IDS) {
-    // eslint-disable-next-line no-await-in-loop
-    result.companies[c].rebuilt = await rebuildMonthly(db, c);
     // eslint-disable-next-line no-await-in-loop
     const after = await readCompany(db, 'ledgerTransactions', c);
     const acctBal = (id) => after.filter((t) => t.accountId === id && !t.deleted).reduce((s, t) => s + t.amountCents, 0);
@@ -435,7 +453,7 @@ async function migrateExpenses(db, opts) {
     return { mode, projects: await linkLegacyProjects(db) };
   }
 
-  if (mode === 'owner-money-preview' || mode === 'owner-money' || mode === 'owner-money-undo') return { mode, ownerMoney: await ownerMoney(db, mode) };
+  if (mode === 'owner-money-preview' || mode === 'owner-money' || mode === 'owner-money-undo') return { mode, ownerMoney: await ownerMoney(db, mode, opts.ids || null) };
   if (mode === 'dupes-preview' || mode === 'dupes-merge' || mode === 'dupes-undo') return { mode, dupes: await mergeCardDuplicates(db, mode, opts.ids || null) };
   if (mode === 'personal-preview') return { mode, personal: await movePersonal(db, 'apply', true) };
   if (mode === 'personal-move') return { mode, personal: await movePersonal(db, 'apply', false, opts.ids || null) };

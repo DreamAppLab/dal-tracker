@@ -247,7 +247,7 @@ export default function ImportPanel({ onDone }) {
     // owners' money, so it's an owner contribution, not a transfer from checking.
     // Owner money goes through "Paid personally" when that account exists (so it
     // shows everything the owners paid); otherwise the Owner contribution category.
-    const personalPick = accountsById[core.ids.personal(companyId)] ? `xfer:${core.ids.personal(companyId)}` : null;
+    const personalPick = core.ownerMoneyViaPersonal(accountsById, companyId) ? `xfer:${core.ids.personal(companyId)}` : null;
     if (account.kind === 'credit_card' && account.cardPaymentsPaidPersonally && (personalPick || categoriesById[ownerCat])) {
       out.forEach((row) => {
         if ((row.status === 'new' || row.status === 'possible') && core.isLikelyCardPayment(row, 'credit_card')) {
@@ -341,9 +341,11 @@ export default function ImportPanel({ onDone }) {
       // Rules marked "settle through owners", and any "Paid for" pick on a card paid personally.
       const settles = (r) => (r.ownerSettle || (account.kind === 'credit_card' && account.cardPaymentsPaidPersonally)) && r.status !== 'match' && icShare(r) !== 0;
       const ownerRows = work.filter((w) => w.kind === 'new' && settles(w.r));
-      const accts = ownerRows.length
-        ? await ensureOwnerSettlementAccounts(ownerRows.map((w) => w.r.date).sort()[0], accountsById)
-        : accountsById;
+      // Rows going to/through "Paid personally" (owners settlements, payments paid
+      // personally) need it (and the intercompany accounts) open by their dates.
+      const personalRows = work.filter((w) => w.kind === 'new' && w.r.pick === `xfer:${core.ids.personal(companyId)}`);
+      const needOpen = [...ownerRows, ...personalRows].map((w) => w.r.date).sort()[0];
+      const accts = needOpen ? await ensureOwnerSettlementAccounts(needOpen, accountsById) : accountsById;
       let done = 0;
       // Settlements add 4 writes per row; keep each transaction well under Firestore's limit.
       const CHUNK = ownerRows.length ? 25 : 60;
