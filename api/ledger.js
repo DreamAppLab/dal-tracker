@@ -42,7 +42,7 @@ const ReceiptSchema = z
   })
   .strict();
 
-const MigrateSchema = z.object({ mode: z.enum(['dry-run', 'apply', 'rollback', 'settle', 'projects', 'legacy-report', 'legacy-notes', 'legacy-notes-undo']), as: z.enum(['equity', 'owner']).optional() }).strict();
+const MigrateSchema = z.object({ mode: z.enum(['dry-run', 'apply', 'rollback', 'settle', 'projects', 'legacy-report', 'legacy-notes', 'legacy-notes-undo', 'personal-preview', 'personal-move', 'personal-undo']), as: z.enum(['equity', 'owner']).optional() }).strict();
 const RebuildSchema = z.object({ companyId }).strict();
 
 async function migrate(req, res) {
@@ -50,7 +50,7 @@ async function migrate(req, res) {
   // Apply is additive, backed up and idempotent; rollback removes rows.
   if (mode === 'rollback') requireRecentAuth(req.auth, RECENT_AUTH_SECONDS);
   const db = getMcDb();
-  if (mode !== 'dry-run' && mode !== 'legacy-report') {
+  if (mode !== 'dry-run' && mode !== 'legacy-report' && mode !== 'personal-preview') {
     // Strict audit before any write.
     await writeAudit({ type: 'ledger_migration', actor: req.auth, target: 'expenses', meta: { mode, ...(as ? { as } : {}) } }, req);
   }

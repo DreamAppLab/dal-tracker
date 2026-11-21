@@ -124,6 +124,12 @@ const historicalId = (month) => `${COMPANY}_hist_${month}`;
  */
 function planHistoricalPayments(cardTxns, existing, categoryId) {
   const byMonth = {};
+  // Real card payments imported later that paid some of these same charges
+  // (marked on import): the estimate shrinks by that much, newest month first.
+  let covered = 0;
+  for (const t of cardTxns) {
+    if (!t.deleted && t.accountId === ACCOUNT && (t.role || 'main') === 'main' && t.source !== HISTORICAL_SOURCE && Number.isInteger(t.coversHistoricalCents) && t.coversHistoricalCents > 0) covered += t.coversHistoricalCents;
+  }
   for (const t of cardTxns) {
     if (t.deleted || t.accountId !== ACCOUNT || t.source !== 'migration' || !t.legacyExpenseId) continue;
     const m = t.date.slice(0, 7);
@@ -131,18 +137,26 @@ function planHistoricalPayments(cardTxns, existing, categoryId) {
     byMonth[m].net += t.amountCents;
     if (t.date > byMonth[m].last) byMonth[m].last = t.date;
   }
+  const months = Object.entries(byMonth).sort().filter(([, v]) => v.net).map(([month, v]) => ({ month, ...v, pay: -v.net }));
+  let remaining = covered;
+  for (let i = months.length - 1; i >= 0 && remaining > 0; i -= 1) {
+    if (months[i].pay <= 0) continue;
+    const take = Math.min(remaining, months[i].pay);
+    months[i].pay -= take;
+    remaining -= take;
+  }
   const upserts = [];
   let total = 0;
-  for (const [month, { net, last }] of Object.entries(byMonth).sort()) {
-    if (!net) continue;
-    total += -net;
+  for (const { month, last, pay } of months) {
+    if (!pay) continue;
+    total += pay;
     upserts.push({
       id: historicalId(month),
       draft: {
         companyId: COMPANY,
         accountId: ACCOUNT,
         date: last,
-        amountCents: -net,
+        amountCents: pay,
         payee: 'Card payments before Books',
         memo: `Migrated ${month} card charges, paid before these books started.`,
         categoryId,
@@ -153,7 +167,27 @@ function planHistoricalPayments(cardTxns, existing, categoryId) {
   }
   const keep = new Set(upserts.map((u) => u.id));
   const deleteIds = existing.filter((t) => !keep.has(t.id)).map((t) => t.id);
-  return { upserts, deleteIds, totalCents: total, months: upserts.length };
+  return { upserts, deleteIds, totalCents: total, months: upserts.length, coveredCents: covered - remaining };
+}
+
+/**
+ * Migrated card charges that never came from a card statement (entered by
+ * hand on the old Expenses tab) were paid on an owner's personal card: move
+ * them to "Paid personally". Only plain category rows that are still
+ * uncleared; marked so the move can be undone.
+ */
+function planPersonalMove(dalTxns) {
+  return dalTxns.filter((t) => t.companyId === COMPANY && (t.role || 'main') === 'main' && !t.deleted
+    && t.accountId === ACCOUNT && t.source === 'migration' && t.legacyExpenseId && !t.importId
+    && t.status === 'uncleared' && !t.transferAccountId && !t.icCategoryId
+    && !((t.splits || []).some((l) => l.transferAccountId || l.icCategoryId)))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** Rows moved by planPersonalMove that are still in "Paid personally". */
+function planPersonalUndo(dalTxns) {
+  const personal = ids.personal(COMPANY);
+  return dalTxns.filter((t) => t.companyId === COMPANY && (t.role || 'main') === 'main' && t.personalMovedFrom === ACCOUNT && t.accountId === personal);
 }
 
 // Old Expenses "app" tags that mean overhead rather than a project.
@@ -300,7 +334,7 @@ function planLegacyNotesUndo(dalTxns) {
 }
 
 module.exports = {
-  legacyExpenseReport, planLegacyNotes, planLegacyNotesUndo,
+  legacyExpenseReport, planLegacyNotes, planLegacyNotesUndo, planPersonalMove, planPersonalUndo,
   planLegacyProjects, projectSlug,
   COMPANY, ACCOUNT, migratedId, legacyImportId, mapLegacyExpense, planMigration, planLegacyImports,
   HISTORICAL_SOURCE, historicalId, planHistoricalPayments,

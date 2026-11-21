@@ -42,7 +42,7 @@ function needsMonthTxns(asOf) {
   return asOf !== monthEnd(asOf);
 }
 
-const KIND_ORDER = { checking: 1, credit_card: 2, intercompany: 3, fixed_asset: 4 };
+const KIND_ORDER = { checking: 1, credit_card: 2, intercompany: 3, fixed_asset: 4, personal: 5 };
 
 /** An account's opening balance counts only from its opening date. */
 function openingAsOf(a, asOf) {
@@ -60,6 +60,7 @@ function equityCategoryRows(cat, categories) {
 }
 
 function classify(account, balance) {
+  if (account.kind === 'personal') return 'equity';
   if (account.kind === 'credit_card') return 'liability';
   if (account.kind === 'intercompany') return balance < 0 ? 'liability' : 'asset';
   return 'asset'; // checking, fixed_asset
@@ -72,6 +73,7 @@ function balanceSheet(p) {
   const { accounts, categories, totals, totalsBeforeFy, companyId } = p;
   const assets = [];
   const liabilities = [];
+  const ownerPaid = [];
   let openingEquity = 0;
   for (const a of accounts) {
     if (a.companyId !== companyId) continue;
@@ -84,7 +86,10 @@ function balanceSheet(p) {
       row.costCents = p.fixedAssets[a.id].costCents;
       row.accumulatedCents = p.fixedAssets[a.id].accumulatedCents;
     }
-    if (classify(a, bal) === 'asset') assets.push(row);
+    const cls = classify(a, bal);
+    // Paid personally: what the owners spent for the business is their contribution.
+    if (cls === 'equity') { if (bal) ownerPaid.push({ key: `acct:${a.id}`, name: `Owner contributions · ${a.name}`, accountId: a.id, cents: -bal }); }
+    else if (cls === 'asset') assets.push(row);
     else liabilities.push({ ...row, cents: bal ? -bal : 0 });
   }
   const order = { checking: 1, intercompany: 2, fixed_asset: 3, credit_card: 4 };
@@ -99,6 +104,7 @@ function balanceSheet(p) {
   const equity = [];
   if (openingEquity) equity.push({ key: 'opening', name: 'Opening balance equity', cents: openingEquity });
   equityCategoryRows(totals.cat, categories).forEach((r) => equity.push(r));
+  ownerPaid.forEach((r) => equity.push(r));
   equity.push({ key: 'retained', name: 'Retained earnings (prior years)', cents: retained });
   equity.push({ key: 'net', name: 'Net income (this year)', cents: currentNet });
   if (all.uncategorizedCents) equity.push({ key: UNCAT, name: 'Uncategorized activity (needs review)', cents: all.uncategorizedCents, warn: true });
@@ -132,7 +138,7 @@ function trialBalance(p) {
     if (a.companyId !== companyId) continue;
     const ob = openingAsOf(a, p.asOf);
     opening += ob;
-    push(a.name, a.kind === 'credit_card' ? 'Liabilities' : a.kind === 'intercompany' ? 'Intercompany' : 'Assets', ob + (totals.acct[a.id] || 0));
+    push(a.kind === 'personal' ? `Owner contributions · ${a.name}` : a.name, a.kind === 'credit_card' ? 'Liabilities' : a.kind === 'intercompany' ? 'Intercompany' : a.kind === 'personal' ? 'Equity' : 'Assets', ob + (totals.acct[a.id] || 0));
   }
   push('Opening balance equity', 'Equity', -opening);
   const prior = pnlFromCatTotals(totalsBeforeFy.cat, categories);
@@ -229,9 +235,17 @@ function ownerEquityReport(p) {
   // eslint-disable-next-line global-require
   const { linesOf } = require('./transactions');
   const { categories, txns, companyId, from, to, totalsBefore } = p;
+  const accounts = p.accounts || [];
+  const personal = new Set(accounts.filter((a) => a.companyId === companyId && a.kind === 'personal').map((a) => a.id));
   const lines = [];
   for (const t of txns) {
-    if (t.companyId !== companyId || t.deleted || t.role === 'leg' || t.date < from || t.date > to) continue;
+    if (t.companyId !== companyId || t.deleted || t.date < from || t.date > to) continue;
+    // Spending from "Paid personally" is an owner contribution (a refund or a
+    // transfer back into it reduces it).
+    if (personal.has(t.accountId) && t.amountCents) {
+      lines.push({ txnId: t.id, date: t.date, payee: t.payee, memo: t.memo, accountId: t.accountId, categoryId: null, category: 'Paid personally', cents: -t.amountCents });
+    }
+    if (t.role === 'leg') continue;
     linesOf(t).forEach((line) => {
       const c = line.categoryId && categories[line.categoryId];
       if (!c || c.kind !== 'equity' || c.equityType === 'opening') return;
@@ -254,6 +268,7 @@ function ownerEquityReport(p) {
   }
   let openingNet = 0;
   for (const [id, v] of Object.entries(totalsBefore.cat)) if (categories[id] && categories[id].kind === 'equity' && categories[id].equityType !== 'opening') openingNet += v;
+  for (const id of personal) openingNet += -((totalsBefore.acct || {})[id] || 0);
   return { lines, months, totals: { contributions, distributions, net: contributions - distributions }, openingNetCents: openingNet, closingNetCents: openingNet + contributions - distributions };
 }
 

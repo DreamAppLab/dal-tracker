@@ -195,7 +195,7 @@ export function OwnerEquityView({ report, onOpenTxn }) {
           </tbody>
         </table>
       </div>
-      <div className="bk-muted bk-small">Uses the owner equity categories (Owner contribution, Owner draw). These never affect profit and loss.</div>
+      <div className="bk-muted bk-small">Uses the owner equity categories (Owner contribution, Owner draw) plus spending from “Paid personally” (the owners paid it, so it counts as their contribution). None of these affect profit and loss.</div>
     </>
   );
 }

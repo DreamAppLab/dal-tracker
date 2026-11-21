@@ -187,7 +187,27 @@ function defaultAccountDocs(companyId, opening) {
         sort: 3,
       },
     },
+    personalAccountDoc(companyId, o),
   ];
+}
+
+/** "Paid personally": business expenses an owner paid with their own money (owner equity, not a debt). */
+function personalAccountDoc(companyId, o = {}) {
+  return {
+    id: ids.personal(companyId),
+    data: {
+      companyId,
+      kind: 'personal',
+      name: 'Paid personally',
+      last4: '',
+      openingBalanceCents: 0,
+      openingDate: o.personalOpeningDate || o.openingDate || '2025-01-01',
+      vaultBankAccountId: null,
+      vaultCreditCardId: null,
+      archived: false,
+      sort: 4,
+    },
+  };
 }
 
 // Retired `expenses` categories (plus the Fiverr import ones) → DAL category slug.
@@ -208,6 +228,7 @@ const LEGACY_CATEGORY_MAP = Object.freeze({
 });
 
 module.exports = {
+  personalAccountDoc,
   DEFAULT_CATEGORIES,
   DEFAULT_RULES,
   defaultCategoryDocs,

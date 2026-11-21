@@ -7,7 +7,7 @@ import React, { useMemo, useState } from 'react';
 import * as core from './core';
 import { useLedger } from './LedgerContext';
 import {
-  COL, db, doc, fetchAccountRange, importRecordExists, getTxn, runPlans, saveDoc, serverTimestamp, writeBatch,
+  apiPost, COL, db, doc, fetchAccountRange, importRecordExists, getTxn, runPlans, saveDoc, serverTimestamp, writeBatch,
 } from './ledgerStore';
 import { parseStatementPdf } from './import/capOnePdf';
 import { CategorySelect, Empty, fmt, fmtDate, lineFromPick, pickFromLine } from './ui';
@@ -81,6 +81,7 @@ const STATUS_LABEL = {
 export default function ImportPanel({ onDone }) {
   const ledger = useLedger();
   const { companyId, accounts, accountsById, categoriesById, rules } = ledger;
+  const ownerCat = core.ids.category(companyId, 'owner_contribution');
   const bankish = accounts.filter((a) => a.kind === 'checking' || a.kind === 'credit_card');
   const [accountId, setAccountId] = useState('');
   const [file, setFile] = useState(null);
@@ -216,12 +217,47 @@ export default function ImportPanel({ onDone }) {
       }
       return row;
     });
+    // "Card payments on this account are paid personally": a payment is the
+    // owners' money, so it's an owner contribution, not a transfer from checking.
+    if (account.kind === 'credit_card' && account.cardPaymentsPaidPersonally && categoriesById[ownerCat]) {
+      out.forEach((row) => {
+        if ((row.status === 'new' || row.status === 'possible') && core.isLikelyCardPayment(row, 'credit_card')) {
+          row.pick = `cat:${ownerCat}`;
+          row.pairTxnId = null;
+          row.pairLabel = '';
+        }
+      });
+    }
     setRows(out);
     setStep('preview');
     setProgress('');
   }
 
   const patch = (key, p) => setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...p } : r)));
+
+  // Double-count guard (DAL card with migrated history): a payment paid
+  // personally that is bigger than what the card owes at that point is paying
+  // charges already covered by "Card payments before Books". That part is
+  // marked so the estimate shrinks instead of the owners' money counting twice
+  // (and the card going below $0.00).
+  const coverage = useMemo(() => {
+    if (!account || account.id !== core.ACCOUNT || !account.cardPaymentsPaidPersonally) return {};
+    let owed = -((ledger.balances || {})[account.id] || 0);
+    const out = {};
+    const live = rows.filter((r) => r.selected && r.status !== 'match' && r.status !== 'duplicate')
+      .sort((a, b) => a.date.localeCompare(b.date) || a.amountCents - b.amountCents);
+    for (const r of live) {
+      if (r.amountCents < 0) { owed += -r.amountCents; continue; }
+      if (r.pick === `cat:${ownerCat}`) {
+        const excess = Math.max(0, r.amountCents - Math.max(owed, 0));
+        if (excess) out[r.key] = excess;
+        owed = Math.max(owed, 0) - (r.amountCents - excess);
+      } else {
+        owed -= r.amountCents;
+      }
+    }
+    return out;
+  }, [rows, account, ledger.balances, ownerCat]);
   const selected = rows.filter((r) => r.selected);
   const counts = rows.reduce((acc, r) => ({ ...acc, [r.status]: (acc[r.status] || 0) + 1 }), {});
   const pairCount = rows.filter((r) => r.selected && r.pick.startsWith('xfer:')).length;
@@ -283,6 +319,7 @@ export default function ImportPanel({ onDone }) {
               companyId, accountId: account.id, date: r.date, payee: r.payee, memo: r.memo || '', amountCents: r.amountCents,
               ...lineFromPick(r.pick, companyId), splits: [], status: 'cleared', source: 'import',
               projectId: r.projectId && r.pick === r.rulePick ? r.projectId : null,
+              coversHistoricalCents: coverage[r.key] && r.coverAck !== false ? coverage[r.key] : null,
               fingerprint: r.fingerprint, importId: r.importId,
             }),
           };
@@ -299,6 +336,12 @@ export default function ImportPanel({ onDone }) {
       }, false);
       if (mapping && meta.kind !== 'pdf') await saveDoc(COL.accounts, account.id, { importMapping: mapping });
       recordAuditEvent('import', `ledgerImports/${meta.importId}`, { companyId, accountId: account.id, rows: work.length, fileType: meta.kind });
+      const coveredRows = selected.filter((r) => coverage[r.key] && r.coverAck !== false && r.status !== 'match');
+      if (coveredRows.length) {
+        // Recompute "Card payments before Books" now that real payments cover part of it.
+        setProgress('Updating “Card payments before Books”…');
+        await apiPost('/api/ledger/migrate', { mode: 'settle', as: account.historicalPaymentsAs || 'owner' });
+      }
       setProgress('');
       setNotice(`Imported ${work.length} transactions into ${account.name}. ${uncatCount ? `${uncatCount} need a category (Register → Review queue).` : ''}`);
       setStep('done');
@@ -418,7 +461,14 @@ export default function ImportPanel({ onDone }) {
                       {r.pairTxnId && r.pick.startsWith('xfer:') && <div className="bk-muted bk-small">Links to {r.pairLabel || 'the payment'} in {otherAcct && otherAcct.name}</div>}
                     </td>
                     <td className="bk-nowrap">{fmtDate(r.date)}</td>
-                    <td className="bk-payee" title={r.payee}>{r.payee}{r.memo ? <div className="bk-muted bk-small">{r.memo}</div> : null}</td>
+                    <td className="bk-payee" title={r.payee}>{r.payee}{r.memo ? <div className="bk-muted bk-small">{r.memo}</div> : null}
+                      {coverage[r.key] > 0 && (
+                        <label className="bk-check bk-small bk-warn-text">
+                          <input type="checkbox" checked={r.coverAck !== false} onChange={(e) => patch(r.key, { coverAck: e.target.checked })} />
+                          {fmt(coverage[r.key])} of this pays charges already counted in “Card payments before Books” — don’t count it twice
+                        </label>
+                      )}
+                    </td>
                     <td>
                       {r.status === 'match' || r.status === 'duplicate'
                         ? <span className="bk-muted">{r.status === 'match' ? 'Keeps existing booking' : '—'}</span>
@@ -442,7 +492,7 @@ export default function ImportPanel({ onDone }) {
             <li>Pick the account, choose the file, review the preview, then import. Nothing is written before you click Import.</li>
             <li>Re-importing the same statement is a no-op: the file fingerprint and each row's fingerprint are remembered.</li>
             <li>Rows that match something you already entered (or the other side of a card payment) are attached to it instead of duplicated.</li>
-            <li>Card payments become transfers between checking and the card — never expenses. Vendor rules fill categories; anything left goes to the Review queue.</li>
+            <li>Card payments become transfers between checking and the card — never expenses. On a card marked <em>Payments paid personally</em> (Setup → Accounts) they import as owner contributions instead. Vendor rules fill categories; anything left goes to the Review queue.</li>
           </ul>
         </div>
       )}

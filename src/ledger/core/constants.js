@@ -29,7 +29,9 @@ const COMPANY_META = Object.freeze({
 });
 
 // fixed_asset: one account per asset (cost in, depreciation out; balance = book value).
-const ACCOUNT_KINDS = Object.freeze(['checking', 'credit_card', 'intercompany', 'fixed_asset']);
+// personal = "Paid personally": business spending paid with an owner's own money.
+// Its expenses are normal P&L expenses; its balance is owner equity (never a liability).
+const ACCOUNT_KINDS = Object.freeze(['checking', 'credit_card', 'intercompany', 'fixed_asset', 'personal']);
 const CATEGORY_KINDS = Object.freeze(['income', 'expense', 'equity']);
 const TXN_TYPES = Object.freeze(['expense', 'income', 'transfer', 'intercompany', 'equity']);
 const STATUSES = Object.freeze(['uncleared', 'cleared', 'reconciled']);
@@ -71,6 +73,7 @@ function belongsTo(id, companyId) {
 const ids = Object.freeze({
   checking: (c) => `${assertCompany(c)}_checking`,
   card: (c) => `${assertCompany(c)}_card`,
+  personal: (c) => `${assertCompany(c)}_personal`,
   intercompany: (c) => `${assertCompany(c)}_ic_${otherCompany(c)}`,
   category: (c, slug) => `${assertCompany(c)}_cat_${slug}`,
   rule: (c, slug) => `${assertCompany(c)}_rule_${slug}`,

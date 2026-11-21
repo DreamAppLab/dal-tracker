@@ -47,6 +47,7 @@ const TXN_FIELDS = [
   'settlementId', 'fingerprint', 'importId', 'source', 'project', 'attachmentUrl',
   'checkNumber', 'legacyExpenseId', 'parentLineKey', 'attachmentPath', 'lineId',
   'projectId', 'convertedFromCategoryId', 'legacyProjectLinked', 'legacyNotesAdded',
+  'personalMovedFrom', 'coversHistoricalCents',
 ];
 
 // Fields a linked leg/mirror keeps for itself across re-plans (its own
@@ -152,6 +153,8 @@ function normalizeMain(draft, accounts, categories) {
   t.attachmentPath = t.attachmentPath || null;
   t.lineId = LINE_ID_RE.test(String(t.lineId || '')) ? t.lineId : null;
   t.projectId = t.projectId || null;
+  if (t.coversHistoricalCents != null && !(Number.isInteger(t.coversHistoricalCents) && t.coversHistoricalCents >= 0
+    && t.coversHistoricalCents <= Math.abs(Number(t.amountCents) || 0))) throw new LedgerError('The amount marked as already paid before Books is not valid.');
   t.convertedFromCategoryId = t.convertedFromCategoryId || null;
   if (t.projectId && !belongsTo(t.projectId, t.companyId)) throw new LedgerError('That project belongs to the other company.');
   for (const sp of t.splits || []) {
@@ -272,6 +275,8 @@ function buildLeg(main, line, index, existing, accounts) {
     legacyExpenseId: null,
     projectId: null,
     convertedFromCategoryId: null,
+    coversHistoricalCents: null,
+    personalMovedFrom: null,
     ...keep,
   };
   leg.type = deriveType(leg, accounts, {});
@@ -316,6 +321,8 @@ function buildMirror(main, line, index, existing, categories) {
     legacyExpenseId: null,
     projectId: null,
     convertedFromCategoryId: null,
+    coversHistoricalCents: null,
+    personalMovedFrom: null,
     ...keep,
   };
 }

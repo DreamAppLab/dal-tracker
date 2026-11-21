@@ -181,7 +181,7 @@ export default function Reports({ onOpenTxn }) {
       const totalsBefore = core.totalsAsOf({ monthly, monthTxns: rangeTxns, companyId, asOf: before });
       const totalsBeforeFyOfFrom = core.totalsAsOf({ monthly, monthTxns: [], companyId, asOf: fyBefore(range.from) });
       if (tab === 'gl') return { gl: core.generalLedger({ accounts: allAccounts, categories: categoriesById, totalsBefore, totalsBeforeFyOfFrom, txns: rangeTxns, companyId, from: range.from, to: range.to }) };
-      return { owner: core.ownerEquityReport({ categories: categoriesById, txns: rangeTxns, companyId, from: range.from, to: range.to, totalsBefore }) };
+      return { owner: core.ownerEquityReport({ accounts: ledger.raw.accountsMine, categories: categoriesById, txns: rangeTxns, companyId, from: range.from, to: range.to, totalsBefore }) };
     }
     return {};
   }, [tab, validRange, haveAll, rangeTxns, monthly, companyId, asOf, range, categoriesById, ledger.raw.accountsMine, assetSummaries, ledger.projectsById]);

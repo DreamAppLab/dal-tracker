@@ -111,7 +111,7 @@ service cloud.firestore {
       allow create, update: if isAdmin()
         && ledgerCompany(request.resource.data.companyId)
         && ownedBy(id, request.resource.data.companyId)
-        && request.resource.data.kind in ['checking', 'credit_card', 'intercompany', 'fixed_asset']
+        && request.resource.data.kind in ['checking', 'credit_card', 'intercompany', 'fixed_asset', 'personal']
         && request.resource.data.name is string && request.resource.data.name.size() <= 80
         && isCents(request.resource.data.openingBalanceCents)
         && isDate(request.resource.data.openingDate)

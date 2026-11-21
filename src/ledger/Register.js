@@ -45,6 +45,7 @@ function amountFromForm(f) {
 
 function columnLabels(kind) {
   if (kind === 'credit_card') return ['Charge', 'Payment'];
+  if (kind === 'personal') return ['Spent', 'Refund'];
   if (kind === 'intercompany' || kind === 'fixed_asset') return ['Decrease', 'Increase'];
   return ['Payment', 'Deposit'];
 }
@@ -63,6 +64,7 @@ export default function Register({ focusTxn, onFocusHandled }) {
   const [filters, setFilters] = useState({ search: '', from: '', to: '', pick: '*', status: '', min: '', max: '', project: '*' });
   const [assetModal, setAssetModal] = useState(null); // { txn, name, inService, lifeYears, salvage }
   const [menuFor, setMenuFor] = useState(null); // row id whose ⋯ menu is open
+  const [showClosed, setShowClosed] = useState(false);
   const [sort, setSort] = useState({ key: 'date', dir: 'desc' });
   const [newForm, setNewForm] = useState(blankForm());
   const [editId, setEditId] = useState(null);
@@ -473,7 +475,8 @@ export default function Register({ focusTxn, onFocusHandled }) {
   const [outLabel, inLabel] = columnLabels(account.kind);
   const sortBy = (key) => setSort((s) => ({ key, dir: s.key === key && s.dir === 'desc' ? 'asc' : 'desc' }));
   const sortMark = (key) => (sort.key === key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '');
-  const cardOwed = account.kind === 'credit_card';
+  // Cards show what is owed; "Paid personally" shows what the owners have paid.
+  const cardOwed = account.kind === 'credit_card' || account.kind === 'personal';
   const balanceText = (c) => (cardOwed ? fmt(-c) : fmt(c));
 
   const renderInputs = (f, setF, onSave, onCancel, opts = {}) => {
@@ -522,15 +525,15 @@ export default function Register({ focusTxn, onFocusHandled }) {
   return (
     <div className="bk-register" onKeyDown={onTableKey} tabIndex={-1}>
       <div className="bk-accounts" role="tablist" aria-label="Accounts">
-        {accounts.map((a) => {
+        {[...accounts, ...(showClosed ? ledger.closedAccounts : [])].map((a) => {
           const bal = balances[a.id] || 0;
-          const owed = a.kind === 'credit_card';
+          const owed = a.kind === 'credit_card' || a.kind === 'personal';
           return (
             <button key={a.id} type="button" role="tab" aria-selected={a.id === accountId && mode === 'register'}
               className={`bk-account ${a.id === accountId && mode === 'register' ? 'active' : ''}`}
               onClick={() => { setMode('register'); setAccountId(a.id); cancelEdit(); }}>
-              <span className="bk-account-name">{a.name}{a.last4 ? ` ··${a.last4}` : ''}</span>
-              <span className="bk-account-kind">{a.kind === 'credit_card' ? 'Credit card · owed' : a.kind === 'intercompany' ? (bal >= 0 ? `Due from ${ledger.otherMeta.short}` : `Due to ${ledger.otherMeta.short}`) : a.kind === 'fixed_asset' ? 'Fixed asset · book value' : 'Checking'}</span>
+              <span className="bk-account-name">{a.name}{a.last4 ? ` ··${a.last4}` : ''}{a.archived ? ' (closed)' : ''}</span>
+              <span className="bk-account-kind">{a.kind === 'personal' ? 'Owners paid (owner equity)' : a.kind === 'credit_card' ? 'Credit card · owed' : a.kind === 'intercompany' ? (bal >= 0 ? `Due from ${ledger.otherMeta.short}` : `Due to ${ledger.otherMeta.short}`) : a.kind === 'fixed_asset' ? 'Fixed asset · book value' : 'Checking'}</span>
               <span className={`bk-account-bal ${!owed && bal < 0 ? 'bk-neg' : ''}`}>{fmt(owed ? -bal : a.kind === 'intercompany' ? Math.abs(bal) : bal)}</span>
             </button>
           );
@@ -545,6 +548,9 @@ export default function Register({ focusTxn, onFocusHandled }) {
           <span className="bk-account-kind">Restore</span>
           <span className="bk-account-bal">{deletedRows ? deletedRows.length : '•'}</span>
         </button>
+        {!!ledger.closedAccounts.length && (
+          <button type="button" className="bk-link bk-small" onClick={() => setShowClosed(!showClosed)}>{showClosed ? 'Hide closed accounts' : `Closed accounts (${ledger.closedAccounts.length})`}</button>
+        )}
       </div>
 
       {loadError && <div className="bk-error">Could not load: {loadError}</div>}
@@ -593,7 +599,7 @@ export default function Register({ focusTxn, onFocusHandled }) {
                   <th className="num"><button type="button" className="bk-th" onClick={() => sortBy('amount')}>{outLabel}{sortMark('amount')}</button></th>
                   <th className="num">{inLabel}</th>
                   <th className="center"><button type="button" className="bk-th" onClick={() => sortBy('status')} title="Cleared status">C{sortMark('status')}</button></th>
-                  <th className="num">{cardOwed ? 'Owed' : 'Balance'}</th>
+                  <th className="num">{account.kind === 'personal' ? 'Owners paid' : cardOwed ? 'Owed' : 'Balance'}</th>
                   <th aria-label="Actions" />
                 </tr>
               </thead>

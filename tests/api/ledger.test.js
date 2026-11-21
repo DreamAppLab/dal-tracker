@@ -325,3 +325,68 @@ test('ledger receipt-url: old Expenses receipts get a fresh link to their own fi
   assert.equal(ledger.legacyReceiptPath('https://s/b/expenses/e1/..', 'e1'), null);
   assert.equal(ledger.legacyReceiptPath('https://s/b/expenses/e1/a%2Fb.pdf', 'e1'), null);
 });
+
+test('paid personally: hand-entered migrated card charges move off the card; card stays $0, P&L and owner contributions unchanged; undo', async () => {
+  const db = setup({
+    ...legacySeed(),
+    'expenses/e5': { vendor: 'Best Buy', amount: 752.49, date: '2026-03-28', category: 'Hardware & Equipment', source: 'manual', notes: 'Monitor' },
+  });
+  await call('migrate', { mode: 'apply' });
+  const cats = categoriesOf(db);
+  const ownerTotal = () => {
+    const accounts = [...db.store.entries()].filter(([p]) => p.startsWith('ledgerAccounts/dal_')).map(([p, d]) => ({ id: p.split('/')[1], ...d }));
+    return core.ownerEquityReport({ accounts, categories: categoriesOf(db), txns: txnsOf(db, 'dal'), companyId: 'dal', from: '2025-01-01', to: '2026-12-31', totalsBefore: { acct: {}, cat: {} } }).totals.net;
+  };
+  const pnlAll = () => core.pnlFromMonthly(monthlyOf(db), cats, 'dal', '2025-01-01', '2026-12-31');
+  const before = { owner: ownerTotal(), expense: pnlAll().totalExpense };
+  assert.equal(balanceOf(db, 'dal_card'), 0);
+
+  const pv = await call('migrate', { mode: 'personal-preview' });
+  assert.equal(pv.statusCode, 200);
+  assert.deepEqual(pv.body.summary.personal.rows.map((r) => r.id), ['dal_mig_e3', 'dal_mig_e5'], 'hand-entered, uncleared rows only');
+  assert.equal(db.store.get('ledgerTransactions/dal_mig_e5').accountId, 'dal_card', 'preview moves nothing');
+
+  const mv = await call('migrate', { mode: 'personal-move' });
+  assert.equal(mv.statusCode, 200, JSON.stringify(mv.body));
+  assert.equal(mv.body.summary.personal.moved, 2);
+  assert.equal(db.store.get('ledgerAccounts/dal_personal').kind, 'personal');
+  assert.ok(db.store.get('ledgerAccounts/dal_personal').openingDate <= '2026-02-07');
+  assert.equal(db.store.get('ledgerTransactions/dal_mig_e5').accountId, 'dal_personal');
+  assert.equal(balanceOf(db, 'dal_card'), 0, 'card still owes $0.00');
+  assert.equal(balanceOf(db, 'dal_personal'), -(999 + 75249));
+  assert.equal(pnlAll().totalExpense, before.expense, 'P&L unchanged');
+  assert.equal(ownerTotal(), before.owner, 'total owner contributions unchanged');
+  const hist = txnsOf(db, 'dal').filter((t) => t.source === 'historical_payment' && !t.deleted);
+  assert.equal(hist.reduce((s, t) => s + t.amountCents, 0), 2000 - 1550, 'card history now covers only statement charges');
+  // Balance sheet: paid personally is owner equity, not a liability; still balances.
+  const accounts = [...db.store.entries()].filter(([p]) => p.startsWith('ledgerAccounts/dal_')).map(([p, d]) => ({ id: p.split('/')[1], ...d }));
+  const totals = core.totalsAsOf({ monthly: monthlyOf(db), monthTxns: [], companyId: 'dal', asOf: '2026-12-31' });
+  const totalsBeforeFy = core.totalsAsOf({ monthly: monthlyOf(db), monthTxns: [], companyId: 'dal', asOf: '2025-12-31' });
+  const bs = core.balanceSheet({ accounts, categories: cats, totals, totalsBeforeFy, companyId: 'dal', asOf: '2026-12-31' });
+  assert.ok(bs.balanced);
+  assert.ok(!bs.liabilities.some((r) => r.accountId === 'dal_personal'));
+  assert.equal(bs.equity.find((r) => r.accountId === 'dal_personal').cents, 999 + 75249);
+  assert.ok(core.trialBalance({ accounts, categories: cats, totals, totalsBeforeFy, companyId: 'dal', asOf: '2026-12-31' }).balanced);
+  // Idempotent.
+  assert.equal((await call('migrate', { mode: 'personal-move' })).body.summary.personal.count, 0);
+  assert.ok([...db.store.values()].some((d) => d.type === 'ledger_migration' && d.meta && d.meta.mode === 'personal-move'), 'audited');
+
+  const un = await call('migrate', { mode: 'personal-undo' });
+  assert.equal(un.body.summary.personal.moved, 2);
+  assert.equal(db.store.get('ledgerTransactions/dal_mig_e5').accountId, 'dal_card');
+  assert.equal(balanceOf(db, 'dal_card'), 0);
+  assert.equal(ownerTotal(), before.owner);
+  assert.equal(pnlAll().totalExpense, before.expense);
+});
+
+test('card history: real payments marked "already paid before Books" shrink the estimate (newest month first)', () => {
+  const t = (id, date, amountCents, extra = {}) => ({ id, companyId: 'dal', accountId: 'dal_card', date, amountCents, source: 'migration', legacyExpenseId: id, role: 'main', ...extra });
+  const txns = [t('a', '2026-06-03', -10000), t('b', '2026-07-03', -5000), t('p', '2026-08-20', 12000, { source: 'import', legacyExpenseId: null, coversHistoricalCents: 7000 })];
+  const plan = core.planHistoricalPayments(txns, [], 'dal_cat_owner_contribution');
+  assert.deepEqual(plan.upserts.map((u) => [u.id, u.draft.amountCents]), [['dal_hist_2026-06', 8000]]);
+  assert.equal(plan.coveredCents, 7000);
+  assert.equal(plan.totalCents, 8000);
+  const big = core.planHistoricalPayments([...txns.slice(0, 2), { ...txns[2], coversHistoricalCents: 99999 }], [], 'x');
+  assert.equal(big.upserts.length, 0);
+  assert.equal(big.coveredCents, 15000, 'never below zero');
+});
