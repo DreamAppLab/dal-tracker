@@ -75,12 +75,13 @@ function mapLegacyExpense(expense) {
 function planMigration(expenses, existingIds) {
   const errors = [];
   const mapped = [];
+  const alreadyIds = [];
   for (const e of expenses) {
     try {
       mapped.push({ id: migratedId(e.id), draft: mapLegacyExpense(e) });
     } catch (err) {
       // Already migrated (and possibly corrected in Books since): nothing to do.
-      if (existingIds.has(migratedId(e.id))) continue;
+      if (existingIds.has(migratedId(e.id))) { alreadyIds.push(migratedId(e.id)); continue; }
       errors.push({ id: e.id, error: err.message });
     }
   }
@@ -88,7 +89,7 @@ function planMigration(expenses, existingIds) {
   mapped.sort((a, b) => a.draft.date.localeCompare(b.draft.date) || a.id.localeCompare(b.id));
   const fps = withFingerprints(ACCOUNT, mapped.map((m) => m.draft));
   mapped.forEach((m, i) => { m.draft.fingerprint = fps[i].fingerprint; });
-  const skipped = [];
+  const skipped = [...alreadyIds];
   const drafts = [];
   for (const m of mapped) {
     if (existingIds.has(m.id)) skipped.push(m.id);

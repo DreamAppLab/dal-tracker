@@ -358,12 +358,14 @@ export default function Setup() {
     ['expo_650', '650 INDUSTRIES', false, 'software', 'software', {}],
     // Vercel Pro is shared: $10 DAL, $10 Zerbiq, overage (Zerbiq builds/previews) all Zerbiq.
     ['vercel', 'VERCEL', false, 'hosting', 'hosting', { splitPlan: { planCents: 2000, ownCents: 1000, ownMemo: 'Vercel Pro: DAL half', otherMemo: 'Vercel Pro: Zerbiq half', overageMemo: 'Vercel overage: Zerbiq builds/previews' } }],
-    // St Augustine law firm: Zerbiq's legal work. "AUGUSTINE LAW" covers ST / ST. / SAINT spellings.
-    ['st_augustine_law', 'AUGUSTINE LAW', false, 'professional', 'professional', { label: 'St Augustine law rule' }],
+    // St Augustine law firm: Zerbiq's legal work. "AUGUSTINE LAW" (whole word) covers ST / ST. / SAINT
+    // spellings and never matches "ST AUGUSTINE LAWN CARE".
+    ['st_augustine_law', 'AUGUSTINE LAW', true, 'professional', 'professional', { label: 'St Augustine law rule' }],
     // State of Florida fees are Zerbiq's (per the owners). DAL is a Florida LLC too, so these
     // rows are labelled in the preview: change a DAL annual-report fee back to DAL there.
+    // "DIVISION OF CORPORATI" also catches descriptors cut off at the card's length limit.
     ...[['fl_state', 'STATE OF FLORIDA'], ['fl_dept_state', 'FL DEPT OF STATE'], ['fl_dept_state2', 'FLORIDA DEPARTMENT OF STATE'], ['fl_dept_state3', 'FLORIDA DEPT OF STATE'],
-      ['sunbiz', 'SUNBIZ'], ['fl_corps', 'DIVISION OF CORPORATIONS'], ['fl_div_corp', 'FL DIV OF CORP']]
+      ['fla_dept_state', 'FLA DEPT OF STATE'], ['sunbiz', 'SUNBIZ'], ['fl_corps', 'DIVISION OF CORPORATI'], ['fl_div_corp', 'FL DIV OF CORP']]
       .map(([slug, pattern]) => [slug, pattern, false, 'taxes_licenses', 'taxes_licenses', { label: 'State of Florida rule' }]),
   ];
   const addZerbiqRules = () => run(async () => {
