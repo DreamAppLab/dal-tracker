@@ -228,3 +228,19 @@ test('ledger: fixed-asset accounts and their depreciation entries are valid; kin
   await assertSucceeds(setDoc(doc(db, 'ledgerTransactions', 'dal_fa_mac_dep_2026-01'), txn({ accountId: 'dal_fa_mac', date: '2026-01-31', amountCents: -10000, payee: 'Depreciation', categoryId: 'dal_cat_depreciation', source: 'depreciation', status: 'cleared' })));
   await assertFails(setDoc(doc(db, 'ledgerTransactions', 'dal_fa_mac_dep_2026-02'), txn({ accountId: 'zerbiq_fa_mac', date: '2026-02-28', amountCents: -10000, categoryId: 'dal_cat_depreciation' })));
 });
+
+test('ledger: projects are company-scoped, archived not deleted; transactions and rules reference own projects only', async () => {
+  const db = admin();
+  await assertSucceeds(setDoc(doc(db, 'ledgerProjects', 'dal_proj_logabode'), { companyId: 'dal', name: 'Logabode', archived: false }));
+  await assertSucceeds(updateDoc(doc(db, 'ledgerProjects', 'dal_proj_logabode'), { archived: true }));
+  await assertFails(deleteDoc(doc(db, 'ledgerProjects', 'dal_proj_logabode')));
+  await assertFails(setDoc(doc(db, 'ledgerProjects', 'dal_proj_x'), { companyId: 'zerbiq', name: 'X' }));
+  await assertFails(setDoc(doc(db, 'ledgerProjects', 'dal_proj_y'), { companyId: 'dal', name: '' }));
+  await assertSucceeds(getDocs(query(collection(db, 'ledgerProjects'), where('companyId', '==', 'dal'))));
+  await assertFails(getDocs(collection(db, 'ledgerProjects')));
+  await assertFails(getDocs(query(collection(anon(), 'ledgerProjects'), where('companyId', '==', 'dal'))));
+  await assertSucceeds(setDoc(doc(db, 'ledgerTransactions', 'dal_p1'), txn({ projectId: 'dal_proj_logabode', memo: 'April sprint for Logabode' })));
+  await assertFails(setDoc(doc(db, 'ledgerTransactions', 'dal_p2'), txn({ projectId: 'zerbiq_proj_x' })));
+  await assertSucceeds(setDoc(doc(db, 'ledgerVendorRules', 'dal_rule_sharmin'), { companyId: 'dal', pattern: 'SHARMIN', categoryId: 'dal_cat_contractors', projectId: 'dal_proj_logabode' }));
+  await assertFails(setDoc(doc(db, 'ledgerVendorRules', 'dal_rule_bad'), { companyId: 'dal', pattern: 'X', categoryId: 'dal_cat_contractors', projectId: 'zerbiq_proj_x' }));
+});

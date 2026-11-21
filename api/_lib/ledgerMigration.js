@@ -115,7 +115,6 @@ async function settleHistory(db, opts) {
     [...(await readCompany(db, 'ledgerAccounts', 'dal')), ...(await readCompany(db, 'ledgerAccounts', 'zerbiq'))],
     [...(await readCompany(db, 'ledgerCategories', 'dal')), ...(await readCompany(db, 'ledgerCategories', 'zerbiq'))]
   );
-  const byId = Object.fromEntries(existing.map((t) => [t.id, t]));
   const ops = [];
   const errors = [];
   const applyPlan = (p) => {
@@ -148,9 +147,22 @@ async function settleHistory(db, opts) {
   return { as, months: plan.months, totalCents: plan.totalCents, removed: plan.deleteIds.length, errors };
 }
 
+/** Create projects from the migrated rows' old app tags and tag those rows (idempotent). */
+async function linkLegacyProjects(db) {
+  const txns = await readCompany(db, 'ledgerTransactions', core.COMPANY);
+  const existing = await readCompany(db, 'ledgerProjects', core.COMPANY);
+  const plan = core.planLegacyProjects(txns, existing);
+  await commitInChunks(db, [
+    ...plan.create.map(({ id, data }) => (b) => b.set(db.collection('ledgerProjects').doc(id), { ...data, createdAt: FieldValue.serverTimestamp() })),
+    ...plan.tag.map(({ id, projectId }) => (b) => b.set(db.collection('ledgerTransactions').doc(id), { projectId, legacyProjectLinked: true, updatedAt: FieldValue.serverTimestamp() }, { merge: true })),
+    ...(plan.mark || []).map((id) => (b) => b.set(db.collection('ledgerTransactions').doc(id), { legacyProjectLinked: true }, { merge: true })),
+  ]);
+  return { created: plan.create.length, tagged: plan.tag.length };
+}
+
 /**
  * @param {FirebaseFirestore.Firestore} db  Admin Firestore
- * @param {object} opts { mode: 'dry-run'|'apply'|'rollback'|'settle', as?: 'owner'|'equity', runId?: string }
+ * @param {object} opts { mode: 'dry-run'|'apply'|'rollback'|'settle'|'projects', as?: 'owner'|'equity', runId?: string }
  */
 async function migrateExpenses(db, opts) {
   const mode = (opts && opts.mode) || 'dry-run';
@@ -159,6 +171,10 @@ async function migrateExpenses(db, opts) {
   const dalTxns = await readCompany(db, 'ledgerTransactions', core.COMPANY);
   const migrated = dalTxns.filter((t) => t.source === 'migration' && t.legacyExpenseId);
   const existingIds = new Set(dalTxns.map((t) => t.id));
+
+  if (mode === 'projects') {
+    return { mode, projects: await linkLegacyProjects(db) };
+  }
 
   if (mode === 'settle') {
     const settled = await settleHistory(db, { as: opts.as });
@@ -254,6 +270,8 @@ async function migrateExpenses(db, opts) {
 
   // 4) The migrated charges were paid long ago: clear the card for that history.
   summary.settled = await settleHistory(db, {});
+  // 4b) Old app tags become projects (Sharmin's work per app, etc.).
+  summary.projects = await linkLegacyProjects(db);
 
   // 5) Aggregates from scratch (self-healing, idempotent).
   summary.rebuilt = await rebuildMonthly(db, 'dal');
@@ -271,4 +289,4 @@ async function migrateExpenses(db, opts) {
   return summary;
 }
 
-module.exports = { migrateExpenses, rebuildMonthly, seedDefaults, settleHistory };
+module.exports = { migrateExpenses, rebuildMonthly, seedDefaults, settleHistory, linkLegacyProjects };

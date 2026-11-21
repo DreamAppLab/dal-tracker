@@ -257,4 +257,39 @@ function ownerEquityReport(p) {
   return { lines, months, totals: { contributions, distributions, net: contributions - distributions }, openingNetCents: openingNet, closingNetCents: openingNet + contributions - distributions };
 }
 
-module.exports = { totalsAsOf, needsMonthTxns, balanceSheet, trialBalance, generalLedger, ownerEquityReport, catTotalsFromMonthly };
+const NO_PROJECT = '_none';
+
+/**
+ * Income and expense by project/app for [from, to] (cash basis, category
+ * lines only — transfers and equity excluded). A line's project is its own
+ * projectId, else its transaction's; untagged lines go to "No project".
+ */
+function projectReport({ txns, categories, projects, companyId, from, to }) {
+  // eslint-disable-next-line global-require
+  const { linesOf } = require('./transactions');
+  const rows = {};
+  const row = (id) => {
+    if (!rows[id]) {
+      const p = projects[id];
+      rows[id] = { projectId: id, name: id === NO_PROJECT ? 'No project' : p ? p.name : 'Unknown project', archived: !!(p && p.archived), income: 0, expense: 0, lines: [] };
+    }
+    return rows[id];
+  };
+  for (const t of txns) {
+    if (t.companyId !== companyId || t.deleted || t.role === 'leg' || t.date < from || t.date > to) continue;
+    linesOf(t).forEach((line, lineIndex) => {
+      const c = line.categoryId && categories[line.categoryId];
+      if (!c || (c.kind !== 'income' && c.kind !== 'expense')) return;
+      const pid = line.projectId || t.projectId || NO_PROJECT;
+      const r = row(pid);
+      if (c.kind === 'income') r.income += line.amountCents; else r.expense += -line.amountCents;
+      r.lines.push({ txnId: t.id, line: lineIndex, split: !!(t.splits && t.splits.length), date: t.date, payee: t.payee, memo: line.memo || t.memo, accountId: t.accountId, categoryId: line.categoryId, category: c.name, cents: line.amountCents });
+    });
+  }
+  const list = Object.values(rows).map((r) => ({ ...r, net: r.income - r.expense, lines: r.lines.sort((a, b) => a.date.localeCompare(b.date)) }))
+    .sort((a, b) => (a.projectId === NO_PROJECT) - (b.projectId === NO_PROJECT) || b.expense - a.expense || b.income - a.income || a.name.localeCompare(b.name));
+  const totals = list.reduce((acc, r) => ({ income: acc.income + r.income, expense: acc.expense + r.expense }), { income: 0, expense: 0 });
+  return { rows: list, totals: { ...totals, net: totals.income - totals.expense } };
+}
+
+module.exports = { NO_PROJECT, projectReport, totalsAsOf, needsMonthTxns, balanceSheet, trialBalance, generalLedger, ownerEquityReport, catTotalsFromMonthly };

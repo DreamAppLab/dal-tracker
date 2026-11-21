@@ -183,7 +183,7 @@ export function OwnerEquityView({ report, onOpenTxn }) {
       <div className="bk-chart-title bk-mt">Transactions</div>
       <div className="bk-table-wrap">
         <table className="bk-table">
-          <thead><tr><th>Date</th><th>Payee</th><th>Category</th><th>Memo</th><th className="num">Amount</th></tr></thead>
+          <thead><tr><th>Date</th><th>Payee</th><th>Category</th><th>Notes</th><th className="num">Amount</th></tr></thead>
           <tbody>
             {!report.lines.length && <tr><td colSpan={5}><Empty>No owner contributions or draws in this period.</Empty></td></tr>}
             {report.lines.map((l) => (
@@ -196,6 +196,33 @@ export function OwnerEquityView({ report, onOpenTxn }) {
         </table>
       </div>
       <div className="bk-muted bk-small">Uses the owner equity categories (Owner contribution, Owner draw). These never affect profit and loss.</div>
+    </>
+  );
+}
+
+export function ProjectReportView({ report, onPick }) {
+  if (!report) return <Empty>Loading…</Empty>;
+  if (!report.rows.length) return <Empty>No income or expense in this period.</Empty>;
+  return (
+    <>
+      <div className="bk-table-wrap">
+        <table className="bk-table bk-statement">
+          <thead><tr><th>Project / app</th><th className="num">Income</th><th className="num">Expenses</th><th className="num">Net</th><th className="num">Entries</th></tr></thead>
+          <tbody>
+            {report.rows.map((r) => (
+              <tr key={r.projectId} className="bk-row bk-click" onClick={() => onPick(r)} title="Show transactions">
+                <td>{r.name}{r.archived ? <span className="bk-muted"> (archived)</span> : ''}</td>
+                <td className="num">{r.income ? fmt(r.income) : ''}</td>
+                <td className="num">{r.expense ? fmt(r.expense) : ''}</td>
+                <td className={`num ${r.net < 0 ? 'bk-neg' : ''}`}>{fmt(r.net)}</td>
+                <td className="num bk-muted">{r.lines.length}</td>
+              </tr>
+            ))}
+            <tr className="bk-total"><td>Total</td><td className="num">{fmt(report.totals.income)}</td><td className="num">{fmt(report.totals.expense)}</td><td className="num">{fmt(report.totals.net)}</td><td /></tr>
+          </tbody>
+        </table>
+      </div>
+      <div className="bk-muted bk-small">Cash basis: income and expense lines only (transfers and owner equity excluded). A split line's own project wins over the transaction's. Click a project to see its transactions.</div>
     </>
   );
 }
@@ -217,7 +244,7 @@ export function statementCsvRows(tab, d) {
     d.tb.rows.forEach((r) => rows.push([r.name, r.group, r.debit ? money(r.debit) : '', r.credit ? money(r.credit) : '']));
     rows.push(['Totals', '', money(d.tb.totals.debit), money(d.tb.totals.credit)]);
   } else if (tab === 'gl' && d.gl) {
-    rows.push(['Section', 'Name', 'Date', 'Payee', 'Memo', 'Amount', 'Balance']);
+    rows.push(['Section', 'Name', 'Date', 'Payee', 'Description / notes', 'Amount', 'Balance']);
     const add = (kind, s) => {
       rows.push([kind, s.name, '', 'Opening balance', '', '', money(s.opening)]);
       s.lines.forEach((l) => rows.push([kind, s.name, l.date, l.payee, l.memo || '', money(l.cents), money(l.balance)]));
@@ -228,12 +255,19 @@ export function statementCsvRows(tab, d) {
   } else if (tab === 'assets' && d.assets) {
     rows.push(['Asset', 'In service', 'Life (months)', 'Cost', 'Salvage', 'Accumulated depreciation', 'Book value']);
     d.assets.forEach((s) => rows.push([s.name, s.inServiceDate, s.lifeMonths, money(s.costCents), money(s.salvageCents), money(s.accumulatedCents), money(s.bookValueCents)]));
+  } else if (tab === 'projects' && d.projects) {
+    rows.push(['Project / app', 'Income', 'Expenses', 'Net']);
+    d.projects.rows.forEach((r) => rows.push([r.name, money(r.income), money(r.expense), money(r.net)]));
+    rows.push(['Total', money(d.projects.totals.income), money(d.projects.totals.expense), money(d.projects.totals.net)]);
+    rows.push([]);
+    rows.push(['Project / app', 'Date', 'Payee', 'Category', 'Description / notes', 'Amount']);
+    d.projects.rows.forEach((r) => r.lines.forEach((l) => rows.push([r.name, l.date, l.payee, l.category, l.memo || '', money(l.cents)])));
   } else if (tab === 'owner' && d.owner) {
     rows.push(['Month', 'Contributions', 'Distributions', 'Net']);
     d.owner.months.forEach((m) => rows.push([m.month, money(m.contributions), money(m.distributions), money(m.net)]));
     rows.push(['Total', money(d.owner.totals.contributions), money(d.owner.totals.distributions), money(d.owner.totals.net)]);
     rows.push([]);
-    rows.push(['Date', 'Payee', 'Category', 'Memo', 'Amount']);
+    rows.push(['Date', 'Payee', 'Category', 'Description / notes', 'Amount']);
     d.owner.lines.forEach((l) => rows.push([l.date, l.payee, l.category, l.memo || '', money(l.cents)]));
   }
   return rows;

@@ -42,7 +42,7 @@ const ReceiptSchema = z
   })
   .strict();
 
-const MigrateSchema = z.object({ mode: z.enum(['dry-run', 'apply', 'rollback', 'settle']), as: z.enum(['equity', 'owner']).optional() }).strict();
+const MigrateSchema = z.object({ mode: z.enum(['dry-run', 'apply', 'rollback', 'settle', 'projects']), as: z.enum(['equity', 'owner']).optional() }).strict();
 const RebuildSchema = z.object({ companyId }).strict();
 
 async function migrate(req, res) {

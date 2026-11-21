@@ -76,8 +76,9 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
 |---|---|
 | `ledgerAccounts` | `checking`, `credit_card`, `fixed_asset` (one per asset: life, salvage, in-service date) and one `intercompany` account per company (`dal_checking`, `dal_card`, `dal_ic_zerbiq`, …). Each has an opening balance (cents) and opening date, plus an optional link to the vault's `bankAccounts` / `creditCards` record and its last 4 digits. |
 | `ledgerCategories` | Per-company `income` / `expense` / `equity` categories. These are archived, never deleted. |
-| `ledgerTransactions` | `date`, `amountCents` (integer, signed), `payee`, `memo`, `status` (`uncleared` / `cleared` / `reconciled`), `type`, `categoryId` or `transferAccountId`, `splits[]`, `fingerprint`, `deleted` (soft delete). `role` is `main`, `leg` or `mirror`. |
-| `ledgerVendorRules` | "Payee contains X" → category, applied on entry and import (the longest match wins). |
+| `ledgerTransactions` | `date`, `amountCents` (integer, signed), `payee`, `memo` (shown as **Description / notes**), `projectId` (optional), `status` (`uncleared` / `cleared` / `reconciled`), `type`, `categoryId` or `transferAccountId`, `splits[]`, `fingerprint`, `deleted` (soft delete). `role` is `main`, `leg` or `mirror`. `convertedFromCategoryId` is set when an expense was turned into a fixed asset. |
+| `ledgerProjects` | Per-company projects / apps (`name`, `archived`). Ids are `<companyId>_proj_<slug>`. They are archived, never deleted. |
+| `ledgerVendorRules` | "Payee contains X" → category, plus an optional default project. Applied on entry and import (the longest match wins). |
 | `ledgerReconciliations` | Finished statements (`startingBalanceCents`, `endingBalanceCents`, `statementDate`, `status`). |
 | `ledgerMonthly` | Cached totals per company per month (`acct` and `cat` maps), kept up to date with atomic increments. |
 | `ledgerImports` | Fingerprints of imported statement files. |
@@ -108,7 +109,7 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
    receivables and uncategorized lines are excluded; uncategorized lines are flagged so they get fixed.
    **Reports** are grouped into three sets:
    - *Statements:* P&L, balance sheet, trial balance, general ledger.
-   - *Analysis:* income vs expense, category breakdown, category trends, income by source.
+   - *Analysis:* income vs expense, category breakdown, category trends, income by source, by project.
    - *Schedules:* fixed assets, owner contributions & distributions, intercompany.
 
    All of them export to CSV and PDF. On the balance sheet, equity is opening-balance equity + owner
@@ -127,6 +128,18 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
      have ended. Reports → Fixed assets posts
      one entry per month (category Depreciation, id `<assetId>_dep_<YYYY-MM>`), so posting is idempotent.
    - The asset's balance is its book value.
+   - **Make this a fixed asset** (register row ⋯ menu, on a single-category expense) creates the asset
+     from that purchase and re-books the same transaction as a transfer into it. The original category is
+     kept in `convertedFromCategoryId`. **Undo fixed asset** removes the auto depreciation, puts the
+     category back and archives the asset; it refuses once the asset is disposed or has other entries.
+     Both are audit-logged (`ledger_update` with action `converted_to_fixed_asset` / `fixed_asset_undone`).
+6b. **Projects / apps and notes.** Any transaction, or any split line, can be tagged with a project
+   (Setup → Projects / apps; DAL can also create them from the old Expenses app tags, migrate mode
+   `projects`). A split line's own project wins over the transaction's. Reports → By project uses the
+   same cash-basis lines as the P&L; untagged amounts show as *No project*, and transfers and equity are
+   left out. The project and the notes are optional, searchable in the register, and included in the
+   CSV/PDF exports and the general ledger. The rules check that a `projectId` on a transaction or vendor
+   rule belongs to the same company.
 7. **Reconciled rows are locked by the rules.** Their amount, date, account, status and delete flag can't
    change. **Undo reconcile** is server-side (`/api/ledger/unreconcile`), requires a sign-in within the last
    15 minutes, is written to the audit log first, and works on the latest statement only.
@@ -136,7 +149,7 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
    **Chase is the primary bank**: in Download account activity, pick *Quicken Web Connect (.QFX)* (best)
    or *CSV*. Capital One PDF / CSV and Excel (including the Fiverr export) are also supported.
 9. **Destructive actions are audited** through `recordAuditEvent()` (`ledger_delete`, `ledger_restore`,
-   `ledger_update`) and on the server (`ledger_unreconcile`, `ledger_migration`).
+   `ledger_update`, whose `action` says what changed, e.g. `converted_to_fixed_asset`) and on the server (`ledger_unreconcile`, `ledger_migration`).
 10. **Maintenance.** Books → Setup → *Rebuild totals* recomputes `ledgerMonthly` for a company from its
    transactions. The Expenses migration runs from Books → Setup (Dry run / Migrate / Roll back), or with
    `node scripts/migrate-expenses-to-ledger.js [--apply|--rollback]` where the service account is in the

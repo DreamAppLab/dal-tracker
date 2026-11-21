@@ -80,7 +80,7 @@ service cloud.firestore {
     function ledgerCollection(collection) {
       return collection in ['ledgerAccounts', 'ledgerCategories', 'ledgerTransactions',
         'ledgerVendorRules', 'ledgerReconciliations', 'ledgerMonthly', 'ledgerImports',
-        'ledgerPrefs', 'ledgerMigrationBackups'];
+        'ledgerPrefs', 'ledgerMigrationBackups', 'ledgerProjects'];
     }
     function ledgerCompany(c) {
       return c is string && c in ['dal', 'zerbiq'];
@@ -131,12 +131,25 @@ service cloud.firestore {
       allow delete: if false; // archive instead: history keeps its category
     }
 
+    // Projects / apps for tagging transactions (archived, never deleted).
+    match /ledgerProjects/{id} {
+      allow read: if ledgerReadable();
+      allow create, update: if isAdmin()
+        && ledgerCompany(request.resource.data.companyId)
+        && ownedBy(id, request.resource.data.companyId)
+        && request.resource.data.name is string && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 80
+        && (resource == null || sameCompany());
+      allow delete: if false;
+    }
+
     match /ledgerVendorRules/{id} {
       allow read: if ledgerReadable();
       allow create, update: if isAdmin()
         && ledgerCompany(request.resource.data.companyId)
         && ownedBy(id, request.resource.data.companyId)
         && ownedBy(request.resource.data.categoryId, request.resource.data.companyId)
+        && optOwnedBy(request.resource.data, 'projectId', request.resource.data.companyId)
         && request.resource.data.pattern is string && request.resource.data.pattern.size() > 0
         && request.resource.data.pattern.size() <= 100
         && (resource == null || sameCompany());
@@ -156,6 +169,7 @@ service cloud.firestore {
         && d.payee is string && d.payee.size() <= 200
         && optOwnedBy(d, 'categoryId', d.companyId)
         && optOwnedBy(d, 'transferAccountId', d.companyId)
+        && optOwnedBy(d, 'projectId', d.companyId)
         && d.splits is list && d.splits.size() <= 50
         && (d.status != 'reconciled' || ownedBy(d.reconciliationId, d.companyId));
     }

@@ -46,6 +46,7 @@ const TXN_FIELDS = [
   'splits', 'needsCategory', 'deleted', 'parentId', 'parentLine', 'role',
   'settlementId', 'fingerprint', 'importId', 'source', 'project', 'attachmentUrl',
   'checkNumber', 'legacyExpenseId', 'parentLineKey', 'attachmentPath', 'lineId',
+  'projectId', 'convertedFromCategoryId', 'legacyProjectLinked',
 ];
 
 // Fields a linked leg/mirror keeps for itself across re-plans (its own
@@ -76,6 +77,7 @@ function cleanLine(line) {
     memo: String(line.memo || '').slice(0, 300),
   };
   if (LINE_ID_RE.test(String(line.lineId || ''))) out.lineId = line.lineId;
+  if (line.projectId) out.projectId = line.projectId;
   return out;
 }
 
@@ -90,6 +92,7 @@ function linesOf(txn) {
       amountCents: txn.amountCents,
       memo: '',
       lineId: txn.lineId,
+      projectId: txn.projectId,
     }),
   ];
 }
@@ -148,6 +151,12 @@ function normalizeMain(draft, accounts, categories) {
   t.parentLineKey = t.parentLineKey || null;
   t.attachmentPath = t.attachmentPath || null;
   t.lineId = LINE_ID_RE.test(String(t.lineId || '')) ? t.lineId : null;
+  t.projectId = t.projectId || null;
+  t.convertedFromCategoryId = t.convertedFromCategoryId || null;
+  if (t.projectId && !belongsTo(t.projectId, t.companyId)) throw new LedgerError('That project belongs to the other company.');
+  for (const sp of t.splits || []) {
+    if (sp.projectId && !belongsTo(sp.projectId, t.companyId)) throw new LedgerError('A split line uses a project of the other company.');
+  }
 
   const c = t.companyId;
   if (!COMPANY_IDS.includes(c)) throw new LedgerError('Pick a company.');
@@ -163,6 +172,7 @@ function normalizeMain(draft, accounts, categories) {
     t.categoryId = only.categoryId;
     t.transferAccountId = only.transferAccountId;
     t.icCategoryId = only.icCategoryId;
+    t.projectId = only.projectId || t.projectId || null;
     // Keep the surviving line's key so its leg/mirror (and their cleared /
     // reconciled state) are not recreated under a different id.
     t.lineId = only.lineId;
@@ -260,6 +270,8 @@ function buildLeg(main, line, index, existing, accounts) {
     attachmentPath: null,
     checkNumber: null,
     legacyExpenseId: null,
+    projectId: null,
+    convertedFromCategoryId: null,
     ...keep,
   };
   leg.type = deriveType(leg, accounts, {});
@@ -302,6 +314,8 @@ function buildMirror(main, line, index, existing, categories) {
     attachmentPath: null,
     checkNumber: null,
     legacyExpenseId: null,
+    projectId: null,
+    convertedFromCategoryId: null,
     ...keep,
   };
 }

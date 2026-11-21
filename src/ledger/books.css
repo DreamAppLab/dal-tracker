@@ -142,14 +142,13 @@ select.bk-input { cursor: pointer; padding-right: 4px; }
 .bk-account-bal { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-variant-numeric: tabular-nums; font-weight: 700; font-size: 15px; }
 .bk-account-queue .bk-account-bal { color: var(--text-secondary); font-size: 14px; }
 .bk-reg-table { table-layout: fixed; min-width: 860px; }
-.bk-reg-table col.c-date { width: 124px; }
-.bk-reg-table col.c-payee { width: 23%; }
-.bk-reg-table col.c-cat { width: 25%; }
-.bk-reg-table col.c-memo { width: auto; }
-.bk-reg-table col.c-amt { width: 94px; }
-.bk-reg-table col.c-flag { width: 36px; }
-.bk-reg-table col.c-bal { width: 104px; }
-.bk-reg-table col.c-act { width: 132px; }
+.bk-reg-table col.c-date { width: 120px; }
+.bk-reg-table col.c-payee { width: auto; }
+.bk-reg-table col.c-cat { width: 24%; }
+.bk-reg-table col.c-amt { width: 88px; }
+.bk-reg-table col.c-flag { width: 40px; }
+.bk-reg-table col.c-bal { width: 100px; }
+.bk-reg-table col.c-act { width: 112px; }
 .bk-reg-table th, .bk-reg-table td { padding-left: 8px; padding-right: 8px; }
 .bk-reg-table td { overflow: hidden; text-overflow: ellipsis; }
 .bk-reg-table .bk-payee, .bk-reg-table .bk-cat, .bk-reg-table .bk-memo { max-width: none; }
@@ -169,9 +168,9 @@ select.bk-input { cursor: pointer; padding-right: 4px; }
 }
 
 /* ── Split editor / modals ──────────────────────────────────── */
-.bk-modal { max-width: 640px; }
-.bk-split-modal { max-width: 820px; }
-.bk-drill { max-width: 960px; }
+.modal.bk-modal { max-width: 640px; }
+.modal.bk-split-modal { max-width: 820px; }
+.modal.bk-drill { max-width: 960px; }
 .bk-split-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
 .bk-split-top .bk-field { width: 160px; }
 .bk-split-table td { padding: 6px; }
@@ -287,3 +286,20 @@ select.bk-input { cursor: pointer; padding-right: 4px; }
 .bk-gl-section { margin-bottom: 14px; }
 .bk-gl-head td { font-weight: 800; background: rgba(255,255,255,0.03); }
 .bk-dc { width: 140px; }
+
+/* Notes under the payee, project under the category (fits laptop width). */
+.bk-stack { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.bk-notes-input { font-size: 12px; min-height: 28px; color: var(--text-secondary); }
+.bk-proj-select { font-size: 12px; min-height: 28px; }
+.bk-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bk-row-note { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.bk-proj-chip { display: inline-block; margin-top: 3px; font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: rgba(155,123,255,0.14); color: #c4b5fd; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bk-split-lines span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.bk-icon-btn { padding: 4px 7px !important; font-size: 13px; }
+.bk-menu-wrap { position: relative; display: inline-block; }
+.bk-menu { position: absolute; right: 0; top: 100%; z-index: 30; display: flex; flex-direction: column; min-width: 230px; background: #0f172a; border: 1px solid var(--border-active); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.45); padding: 4px; }
+.bk-menu button { text-align: left; background: none; border: 0; color: var(--text-primary); padding: 8px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; font-family: var(--font-body); white-space: normal; }
+.bk-menu button:hover { background: var(--bg-card-hover); }
+.bk-reg-table td.bk-actions { overflow: visible; }
+.bk-reg-table td.center { padding-left: 2px; padding-right: 2px; text-overflow: clip; }
