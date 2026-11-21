@@ -409,6 +409,9 @@ export default function Reports({ onOpenTxn }) {
 
       {error && <div className="bk-error" role="alert">{error}</div>}
       {!validRange && <div className="bk-error">Pick a valid date range.</div>}
+      {kind === 'custom' && !core.isValidRange(custom.from, custom.to) && (
+        <div className="bk-muted bk-small">Showing {fmtDate(range.from)} – {fmtDate(range.to)} until the custom dates are complete and in order.</div>
+      )}
 
       <div ref={reportRef} data-report-root className="bk-report-body">
         <div className="bk-report-head">
