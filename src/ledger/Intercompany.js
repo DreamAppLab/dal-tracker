@@ -26,6 +26,7 @@ export default function Intercompany({ onOpenTxn }) {
   }, [companyId, icId, accountsById]);
 
   const result = useMemo(() => core.openItems(entries || []), [entries]);
+  const t = result.totals;
   const settlements = useMemo(() => (entries || []).filter((e) => e.settlementId && !e.deleted).sort((a, b) => b.date.localeCompare(a.date)), [entries]);
   const charges = useMemo(() => (entries || []).filter((e) => !e.settlementId && !e.deleted).sort((a, b) => b.date.localeCompare(a.date)), [entries]);
 
@@ -122,10 +123,13 @@ export default function Intercompany({ onOpenTxn }) {
           </div>
         </div>
         <div className="bk-panel bk-ic-totals">
-          <div className="bk-sum-row"><span><CompanyBadge meta={meta} /> paid for <CompanyBadge meta={otherMeta} /></span><span className="num">{fmt(result.totals.paidForThem)}</span></div>
-          <div className="bk-sum-row"><span><CompanyBadge meta={otherMeta} /> paid for <CompanyBadge meta={meta} /></span><span className="num">{fmt(result.totals.paidForUs)}</span></div>
-          <div className="bk-sum-row"><span>Reimbursed to {meta.short}</span><span className="num">{fmt(result.totals.settledIn)}</span></div>
-          <div className="bk-sum-row"><span>Reimbursed to {otherMeta.short}</span><span className="num">{fmt(result.totals.settledOut)}</span></div>
+          {/* When the owners paid it personally (settled through owners, no money moved), say so rather than "X paid for Y". */}
+          {!!t.paidForThem && <div className="bk-sum-row"><span>{t.ownersIn && !t.settledIn ? <>{otherMeta.short} costs on {meta.short}’s accounts (paid personally)</> : <><CompanyBadge meta={meta} /> paid for <CompanyBadge meta={otherMeta} /></>}</span><span className="num">{fmt(t.paidForThem)}</span></div>}
+          {!!t.paidForUs && <div className="bk-sum-row"><span>{t.ownersOut && !t.settledOut ? <>{meta.short} costs on {otherMeta.short}’s accounts (paid personally)</> : <><CompanyBadge meta={otherMeta} /> paid for <CompanyBadge meta={meta} /></>}</span><span className="num">{fmt(t.paidForUs)}</span></div>}
+          {!!(t.ownersIn + t.ownersOut) && <div className="bk-sum-row"><span>Settled through the owners (no repayment)</span><span className="num">{fmt(t.ownersIn + t.ownersOut)}</span></div>}
+          {!!t.settledIn && <div className="bk-sum-row"><span>Reimbursed to {meta.short} (money moved)</span><span className="num">{fmt(t.settledIn)}</span></div>}
+          {!!t.settledOut && <div className="bk-sum-row"><span>Reimbursed to {otherMeta.short} (money moved)</span><span className="num">{fmt(t.settledOut)}</span></div>}
+          {!(t.paidForThem || t.paidForUs) && <div className="bk-muted bk-small">Nothing booked between the companies yet.</div>}
         </div>
         <div className="bk-panel bk-ic-form">
           <div className="bk-kicker">Record a reimbursement</div>

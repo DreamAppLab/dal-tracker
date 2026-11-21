@@ -209,6 +209,17 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
      newer build is deployed than the one the tab is running, it shows a "Reload now" banner. A tab left open
      across deploys keeps running the old code, and that is how hand-picked "Paid for Zerbiq" charges once
      skipped their owners settlement (`useNewVersion`).
+   - **Owner money through "Paid personally"** (Setup → Maintenance, both companies; `migrate` modes
+     `owner-money-preview` / `owner-money` / `owner-money-undo`, audited). Rows booked to Owner contribution,
+     Owner draw or Personal (not business), such as card payments paid personally and owner deposits in checking,
+     become transfers to/from "Paid personally" (marked `ownerMoneyFromCategoryId` for undo). "Card payments
+     before Books" follow (`ownerMoneyVia: 'personal'` on the DAL card). The tile then shows everything the
+     owners put in, and equity, P&L and all other balances are unchanged. Reconciled rows convert too (only
+     the category/transfer changes, never the money). The switch is per company (`ownerMoneyVia: 'personal'`
+     on its Paid personally account) and flips only when every row converted. Once it's on, a card paid personally
+     imports its payments as "Transfer · Paid personally". Record new owner money the same way, e.g. an owner
+     deposit as a transfer from Paid personally, or a payback as a transfer to it, so the tile stays complete.
+     The owner report counts a transfer into Paid personally as a distribution (money paid back to the owners).
 7. **Reconciled rows are locked by the rules.** Their amount, date, account, status and delete flag can't
    change. **Undo reconcile** is server-side (`/api/ledger/unreconcile`), requires a sign-in within the last
    15 minutes, is written to the audit log first, and works on the latest statement only.

@@ -112,7 +112,11 @@ async function settleHistory(db, opts) {
   const zerbiqTxns = await readCompany(db, 'ledgerTransactions', 'zerbiq');
   // Only the main entries are ours; legs/mirrors (if a user re-booked one) are derived.
   const existing = dalTxns.filter((t) => t.source === core.HISTORICAL_SOURCE && (t.role || 'main') === 'main');
-  const plan = core.planHistoricalPayments(dalTxns, existing, categoryId, cutoff);
+  // Owner contributions go through "Paid personally" once the owner-money
+  // switch is on (card.ownerMoneyVia === 'personal'); opening equity never does.
+  const via = as === 'owner' && card.ownerMoneyVia === 'personal' ? core.ids.personal(core.COMPANY) : null;
+  const plan = core.planHistoricalPayments(dalTxns, existing, categoryId, cutoff, via);
+  if (via && plan.upserts.length) await ensurePersonalOpen(db, core.COMPANY, plan.upserts.map((u) => u.draft.date).sort()[0]);
   const allById = Object.fromEntries([...dalTxns, ...zerbiqTxns].map(({ id, ...d }) => [id, d]));
   const { accounts, categories } = accountsAndCategories(
     [...(await readCompany(db, 'ledgerAccounts', 'dal')), ...(await readCompany(db, 'ledgerAccounts', 'zerbiq'))],
@@ -131,7 +135,7 @@ async function settleHistory(db, opts) {
       // and resets a category/transfer someone edited), keeping only their
       // cleared/reconciled state. Linked legs/mirrors are removed by the planner.
       const full = before
-        ? { ...before, ...draft, transferAccountId: null, icCategoryId: null, splits: [], deleted: false, status: before.status, reconciliationId: before.reconciliationId || null }
+        ? { ...before, ...draft, transferAccountId: draft.transferAccountId || null, categoryId: draft.categoryId || null, icCategoryId: null, splits: [], deleted: false, status: before.status, reconciliationId: before.reconciliationId || null }
         : draft;
       applyPlan(core.planTransactionWrite({ id, draft: full, before, existing: allById, accounts, categories }));
     } catch (e) {
@@ -312,6 +316,99 @@ async function mergeCardDuplicates(db, mode, onlyIds) {
   return { count: done, totalCents, errors, settled, rebuilt, cardBalanceCents, ids: merged };
 }
 
+/** Make sure a company's "Paid personally" account exists and is open by `date` (only ever moves earlier). */
+async function ensurePersonalOpen(db, companyId, date) {
+  const id = core.ids.personal(companyId);
+  const ref = db.collection('ledgerAccounts').doc(id);
+  const snap = await ref.get();
+  const cur = snap.exists ? snap.data() : null;
+  if (cur && !cur.archived && cur.openingDate <= date) return;
+  const base = cur || core.personalAccountDoc(companyId).data;
+  await ref.set({ ...base, archived: false, openingDate: cur && cur.openingDate < date ? cur.openingDate : date, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+}
+
+/**
+ * All owner money through "Paid personally" (both companies): owner
+ * contributions, draws and personal spending become transfers to/from that
+ * account, and "Card payments before Books" follow (card.ownerMoneyVia).
+ * Equity, P&L and every other balance are unchanged. Reconciled rows keep
+ * their amount, date and account, so they convert too. Undo reverses it.
+ */
+async function ownerMoney(db, mode, onlyIds) {
+  const direction = mode === 'owner-money-undo' ? 'undo' : 'apply';
+  const pick = (rows) => (onlyIds && direction === 'apply' ? rows.filter((r) => onlyIds.includes(r.id)) : rows);
+  const result = { companies: {} };
+  const txByCo = {};
+  for (const c of core.COMPANY_IDS) {
+    // eslint-disable-next-line no-await-in-loop
+    txByCo[c] = await readCompany(db, 'ledgerTransactions', c);
+    const rows = pick(core.planOwnerMoney(txByCo[c], c, direction));
+    result.companies[c] = { count: rows.length, totalCents: rows.reduce((s, r) => s + r.before.amountCents, 0), rows: rows.slice(0, 200).map((r) => ({ id: r.id, date: r.before.date, payee: r.before.payee, accountId: r.before.accountId, cents: r.before.amountCents })) };
+  }
+  if (mode === 'owner-money-preview') return result;
+  for (const c of core.COMPANY_IDS) {
+    const rows = pick(core.planOwnerMoney(txByCo[c], c, direction));
+    // eslint-disable-next-line no-await-in-loop
+    if (direction === 'apply' && rows.length) await ensurePersonalOpen(db, c, rows.map((r) => r.before.date).sort()[0]);
+  }
+  // Read after the "Paid personally" accounts were opened early enough.
+  const { accounts, categories } = accountsAndCategories(
+    [...(await readCompany(db, 'ledgerAccounts', 'dal')), ...(await readCompany(db, 'ledgerAccounts', 'zerbiq'))],
+    [...(await readCompany(db, 'ledgerCategories', 'dal')), ...(await readCompany(db, 'ledgerCategories', 'zerbiq'))]
+  );
+  const allById = Object.fromEntries([...txByCo.dal, ...txByCo.zerbiq].map(({ id, ...d }) => [id, d]));
+  const ops = [];
+  const errors = [];
+  for (const c of core.COMPANY_IDS) {
+    for (const r of pick(core.planOwnerMoney(txByCo[c], c, direction))) {
+      const { id: _i, ...before } = r.before; // eslint-disable-line no-unused-vars
+      const { id: _j, ...draft } = r.draft; // eslint-disable-line no-unused-vars
+      try {
+        const plan = core.planTransactionWrite({ id: r.id, draft, before, existing: allById, accounts, categories });
+        plan.sets.forEach(({ id: docId, data }) => ops.push((b) => b.set(db.collection('ledgerTransactions').doc(docId), { ...data, updatedAt: FieldValue.serverTimestamp() }, { merge: true })));
+        plan.deletes.forEach(({ id: docId }) => ops.push((b) => b.delete(db.collection('ledgerTransactions').doc(docId))));
+      } catch (e) {
+        errors.push({ id: r.id, error: e.message });
+      }
+    }
+  }
+  try {
+    await commitInChunks(db, ops);
+    // The switch (per company, on its Paid personally account; "Card payments
+    // before Books" read it from the DAL card) only flips when every row converted.
+    if (!errors.length) {
+      const via = direction === 'undo' ? 'category' : 'personal';
+      for (const c of core.COMPANY_IDS) {
+        // eslint-disable-next-line no-await-in-loop
+        const pref = db.collection('ledgerAccounts').doc(core.ids.personal(c));
+        // eslint-disable-next-line no-await-in-loop
+        if ((await pref.get()).exists) await pref.set({ ownerMoneyVia: via }, { merge: true });
+      }
+      const cardRef = db.collection('ledgerAccounts').doc(core.ACCOUNT);
+      if ((await cardRef.get()).exists) await cardRef.set({ ownerMoneyVia: via }, { merge: true });
+    }
+    result.settled = await settleHistory(db, {});
+  } finally {
+    // Cached totals are recomputed even if something above failed part-way.
+    for (const c of core.COMPANY_IDS) {
+      // eslint-disable-next-line no-await-in-loop
+      result.companies[c].rebuilt = await rebuildMonthly(db, c);
+    }
+  }
+  for (const c of core.COMPANY_IDS) {
+    // eslint-disable-next-line no-await-in-loop
+    const after = await readCompany(db, 'ledgerTransactions', c);
+    const acctBal = (id) => after.filter((t) => t.accountId === id && !t.deleted).reduce((s, t) => s + t.amountCents, 0);
+    result.companies[c].personalCents = acctBal(core.ids.personal(c));
+    if (c === core.COMPANY) {
+      const card = (await db.collection('ledgerAccounts').doc(core.ACCOUNT).get()).data() || {}; // eslint-disable-line no-await-in-loop
+      result.companies[c].cardBalanceCents = (card.openingBalanceCents || 0) + acctBal(core.ACCOUNT);
+    }
+  }
+  result.errors = errors;
+  return result;
+}
+
 /** Create projects from the migrated rows' old app tags and tag those rows (idempotent). */
 async function linkLegacyProjects(db) {
   const txns = await readCompany(db, 'ledgerTransactions', core.COMPANY);
@@ -356,6 +453,7 @@ async function migrateExpenses(db, opts) {
     return { mode, projects: await linkLegacyProjects(db) };
   }
 
+  if (mode === 'owner-money-preview' || mode === 'owner-money' || mode === 'owner-money-undo') return { mode, ownerMoney: await ownerMoney(db, mode, opts.ids || null) };
   if (mode === 'dupes-preview' || mode === 'dupes-merge' || mode === 'dupes-undo') return { mode, dupes: await mergeCardDuplicates(db, mode, opts.ids || null) };
   if (mode === 'personal-preview') return { mode, personal: await movePersonal(db, 'apply', true) };
   if (mode === 'personal-move') return { mode, personal: await movePersonal(db, 'apply', false, opts.ids || null) };

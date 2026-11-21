@@ -25,15 +25,18 @@ function openItems(entries) {
   let balance = 0;
   let paidForThem = 0; // receivable created
   let paidForUs = 0; // payable created
-  let settledIn = 0;
+  let settledIn = 0; // money actually moved
   let settledOut = 0;
+  let ownersIn = 0; // settled through the owners (no money moved)
+  let ownersOut = 0;
   for (const e of sorted) {
     const amt = e.amountCents;
     balance += amt;
     const kind = entryKind(e);
     if (kind === 'settlement') {
-      if (amt < 0) settledIn += -amt; // they paid us → our receivable went down
-      else settledOut += amt; // we paid them → our payable went down
+      const owners = e.settlementKind === 'owners' || /^set_own/.test(String(e.settlementId || ''));
+      if (amt < 0) { if (owners) ownersIn += -amt; else settledIn += -amt; } // our receivable went down
+      else if (owners) ownersOut += amt; else settledOut += amt; // our payable went down
     } else if (amt > 0) paidForThem += amt;
     else paidForUs += -amt;
 
@@ -50,7 +53,7 @@ function openItems(entries) {
   return {
     balance,
     open: queue.map((q) => ({ ...q.entry, remainingCents: q.remaining, kind: entryKind(q.entry) })),
-    totals: { paidForThem, paidForUs, settledIn, settledOut },
+    totals: { paidForThem, paidForUs, settledIn, settledOut, ownersIn, ownersOut },
   };
 }
 

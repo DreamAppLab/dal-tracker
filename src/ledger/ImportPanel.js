@@ -245,10 +245,13 @@ export default function ImportPanel({ onDone }) {
     });
     // "Card payments on this account are paid personally": a payment is the
     // owners' money, so it's an owner contribution, not a transfer from checking.
-    if (account.kind === 'credit_card' && account.cardPaymentsPaidPersonally && categoriesById[ownerCat]) {
+    // Owner money goes through "Paid personally" when that account exists (so it
+    // shows everything the owners paid); otherwise the Owner contribution category.
+    const personalPick = core.ownerMoneyViaPersonal(accountsById, companyId) ? `xfer:${core.ids.personal(companyId)}` : null;
+    if (account.kind === 'credit_card' && account.cardPaymentsPaidPersonally && (personalPick || categoriesById[ownerCat])) {
       out.forEach((row) => {
         if ((row.status === 'new' || row.status === 'possible') && core.isLikelyCardPayment(row, 'credit_card')) {
-          row.pick = `cat:${ownerCat}`;
+          row.pick = personalPick || `cat:${ownerCat}`;
           row.pairTxnId = null;
           row.pairLabel = '';
         }
@@ -299,7 +302,7 @@ export default function ImportPanel({ onDone }) {
       .sort((a, b) => a.date.localeCompare(b.date) || a.amountCents - b.amountCents);
     for (const r of live) {
       if (r.amountCents < 0) { owed += -r.amountCents; continue; }
-      if (r.pick === `cat:${ownerCat}`) {
+      if (r.pick === `cat:${ownerCat}` || r.pick === `xfer:${core.ids.personal(companyId)}`) {
         const excess = Math.max(0, r.amountCents - Math.max(owed, 0));
         if (excess) out[r.key] = excess;
         owed -= r.amountCents - excess;
@@ -308,7 +311,7 @@ export default function ImportPanel({ onDone }) {
       }
     }
     return out;
-  }, [rows, account, ledger.balances, ownerCat]);
+  }, [rows, account, ledger.balances, ownerCat, companyId]);
   const selected = rows.filter((r) => r.selected);
   const counts = rows.reduce((acc, r) => ({ ...acc, [r.status]: (acc[r.status] || 0) + 1 }), {});
   const pairCount = rows.filter((r) => r.selected && r.pick.startsWith('xfer:')).length;
@@ -338,9 +341,11 @@ export default function ImportPanel({ onDone }) {
       // Rules marked "settle through owners", and any "Paid for" pick on a card paid personally.
       const settles = (r) => (r.ownerSettle || (account.kind === 'credit_card' && account.cardPaymentsPaidPersonally)) && r.status !== 'match' && icShare(r) !== 0;
       const ownerRows = work.filter((w) => w.kind === 'new' && settles(w.r));
-      const accts = ownerRows.length
-        ? await ensureOwnerSettlementAccounts(ownerRows.map((w) => w.r.date).sort()[0], accountsById)
-        : accountsById;
+      // Rows going to/through "Paid personally" (owners settlements, payments paid
+      // personally) need it (and the intercompany accounts) open by their dates.
+      const personalRows = work.filter((w) => w.kind === 'new' && w.r.pick === `xfer:${core.ids.personal(companyId)}`);
+      const needOpen = [...ownerRows, ...personalRows].map((w) => w.r.date).sort()[0];
+      const accts = needOpen ? await ensureOwnerSettlementAccounts(needOpen, accountsById) : accountsById;
       let done = 0;
       // Settlements add 4 writes per row; keep each transaction well under Firestore's limit.
       const CHUNK = ownerRows.length ? 25 : 60;

@@ -243,7 +243,11 @@ function ownerEquityReport(p) {
     // Spending from "Paid personally" is an owner contribution (a refund or a
     // transfer back into it reduces it).
     if (personal.has(t.accountId) && t.amountCents) {
-      lines.push({ txnId: t.id, date: t.date, payee: t.payee, memo: t.memo, accountId: t.accountId, categoryId: null, category: 'Paid personally', cents: -t.amountCents, personal: true });
+      // Money the business paid back to the owners (a transfer INTO Paid
+      // personally, e.g. a payback from checking) is a distribution; the
+      // account's own refunds reduce the contribution.
+      const payback = t.role === 'leg' && t.amountCents > 0;
+      lines.push({ txnId: t.id, date: t.date, payee: t.payee, memo: t.memo, accountId: t.accountId, categoryId: null, category: payback ? 'Paid back to the owners' : 'Paid personally', cents: -t.amountCents, personal: !payback });
     }
     if (t.role === 'leg') continue;
     linesOf(t).forEach((line) => {

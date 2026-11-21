@@ -466,3 +466,47 @@ test('card duplicates: receipt rows merge into statement rows; off-card rows mov
   const back = db.store.get('ledgerTransactions/dal_card_fpaso');
   assert.deepEqual([back.categoryId, back.attachmentUrl, back.memo], [null, null, '']);
 });
+
+test('owner money through Paid personally: tile = all owner money; balances, equity and owner report unchanged; undo', async () => {
+  const db = setup({
+    ...legacySeed(),
+    'expenses/e5': { vendor: 'Best Buy', amount: 100, date: '2026-02-20', category: 'Hardware & Equipment', source: 'manual' },
+  });
+  await call('migrate', { mode: 'apply' });
+  await call('migrate', { mode: 'personal-move' });
+  // A real card payment paid personally and an owner deposit in checking, both booked to Owner contribution.
+  const base = { role: 'main', status: 'cleared', transferAccountId: null, icCategoryId: null, splits: [], deleted: false, source: 'import' };
+  db.store.set('ledgerTransactions/dal_card_pay1', { ...base, companyId: 'dal', accountId: 'dal_card', date: '2026-03-01', amountCents: 5000, payee: 'ELECTRONIC PAYMENT', categoryId: 'dal_cat_owner_contribution', status: 'reconciled', reconciliationId: 'dal_rec_1' });
+  db.store.set('ledgerTransactions/dal_dep1', { ...base, companyId: 'dal', accountId: 'dal_checking', date: '2026-03-05', amountCents: 500000, payee: 'Eddie', categoryId: 'dal_cat_owner_contribution' });
+  db.store.set('ledgerTransactions/dal_draw1', { ...base, companyId: 'dal', accountId: 'dal_checking', date: '2026-03-10', amountCents: -20000, payee: 'Eddie (payback)', categoryId: 'dal_cat_owner_draw' });
+  const cats = categoriesOf(db);
+  const accts = () => [...db.store.entries()].filter(([p]) => p.startsWith('ledgerAccounts/dal_')).map(([p, d]) => ({ id: p.split('/')[1], ...d }));
+  const ownerTotals = () => core.ownerEquityReport({ accounts: accts(), categories: categoriesOf(db), txns: txnsOf(db, 'dal'), companyId: 'dal', from: '2025-01-01', to: '2026-12-31', totalsBefore: { acct: {}, cat: {} } }).totals;
+  const ownerNet = () => ownerTotals().net;
+  const before = { card: balanceOf(db, 'dal_card'), checking: balanceOf(db, 'dal_checking'), owner: ownerNet(), split: ownerTotals() };
+  const pv = await call('migrate', { mode: 'owner-money-preview' });
+  assert.equal(pv.statusCode, 200, JSON.stringify(pv.body));
+  assert.equal(pv.body.summary.ownerMoney.companies.dal.count, 3);
+  const r = await call('migrate', { mode: 'owner-money' });
+  assert.equal(r.statusCode, 200, JSON.stringify(r.body));
+  assert.equal(balanceOf(db, 'dal_card'), before.card, 'card unchanged');
+  assert.equal(balanceOf(db, 'dal_checking'), before.checking, 'checking unchanged');
+  assert.equal(ownerNet(), before.owner, 'owner report unchanged');
+  assert.deepEqual([ownerTotals().contributions, ownerTotals().distributions], [before.split.contributions, before.split.distributions], 'contributions/distributions split unchanged (payback is still a distribution)');
+  assert.equal(db.store.get('ledgerAccounts/dal_personal').ownerMoneyVia, 'personal', 'per-company switch');
+  assert.equal(-balanceOf(db, 'dal_personal'), before.owner, 'Paid personally = all owner money in');
+  const pay = db.store.get('ledgerTransactions/dal_card_pay1');
+  assert.deepEqual([pay.transferAccountId, pay.categoryId, pay.status], ['dal_personal', null, 'reconciled'], 'reconciled payment converted, still reconciled');
+  assert.ok(txnsOf(db, 'dal').filter((t) => t.source === 'historical_payment' && !t.deleted && t.role === 'main').every((t) => t.transferAccountId === 'dal_personal'), '"Card payments before Books" via Paid personally');
+  const totals = core.totalsAsOf({ monthly: monthlyOf(db), monthTxns: [], companyId: 'dal', asOf: '2026-12-31' });
+  const totalsBeforeFy = core.totalsAsOf({ monthly: monthlyOf(db), monthTxns: [], companyId: 'dal', asOf: '2025-12-31' });
+  assert.ok(core.balanceSheet({ accounts: accts(), categories: cats, totals, totalsBeforeFy, companyId: 'dal', asOf: '2026-12-31' }).balanced);
+  // Re-running settle keeps them as transfers; undo restores categories.
+  await call('migrate', { mode: 'settle' });
+  assert.ok(txnsOf(db, 'dal').filter((t) => t.source === 'historical_payment' && !t.deleted && t.role === 'main').every((t) => t.transferAccountId === 'dal_personal'));
+  await call('migrate', { mode: 'owner-money-undo' });
+  assert.equal(db.store.get('ledgerTransactions/dal_dep1').categoryId, 'dal_cat_owner_contribution');
+  assert.ok(txnsOf(db, 'dal').filter((t) => t.source === 'historical_payment' && !t.deleted && t.role === 'main').every((t) => t.categoryId === 'dal_cat_owner_contribution' && !t.transferAccountId));
+  assert.equal(balanceOf(db, 'dal_card'), before.card);
+  assert.equal(ownerNet(), before.owner);
+});

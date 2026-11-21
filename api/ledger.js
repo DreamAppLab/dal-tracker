@@ -42,10 +42,10 @@ const ReceiptSchema = z
   })
   .strict();
 
-const MigrateSchema = z.object({ mode: z.enum(['dry-run', 'apply', 'rollback', 'settle', 'projects', 'legacy-report', 'legacy-notes', 'legacy-notes-undo', 'personal-preview', 'personal-move', 'personal-undo', 'dupes-preview', 'dupes-merge', 'dupes-undo']), as: z.enum(['equity', 'owner']).optional(),
+const MigrateSchema = z.object({ mode: z.enum(['dry-run', 'apply', 'rollback', 'settle', 'projects', 'legacy-report', 'legacy-notes', 'legacy-notes-undo', 'personal-preview', 'personal-move', 'personal-undo', 'dupes-preview', 'dupes-merge', 'dupes-undo', 'owner-money-preview', 'owner-money', 'owner-money-undo']), as: z.enum(['equity', 'owner']).optional(),
   // Card-statement cut-over for "Card payments before Books" (null clears it).
   // Ids the user previewed (personal-move, dupes-merge): only those are touched.
-  ids: z.array(z.string().regex(/^dal_[A-Za-z0-9_-]{1,150}$/)).max(1000).optional(),
+  ids: z.array(z.string().regex(/^(dal|zerbiq)_[A-Za-z0-9_-]{1,150}$/)).max(2000).optional(),
   cutoff: z.union([z.null(), z.object({ date: z.string().regex(/^(20\d{2})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).refine((d) => !Number.isNaN(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d, 'Invalid date'), owedCents: z.number().int().min(0).max(1e10) }).strict()]).optional() }).strict();
 const RebuildSchema = z.object({ companyId }).strict();
 
@@ -54,14 +54,16 @@ async function migrate(req, res) {
   // Apply is additive, backed up and idempotent; rollback removes rows.
   if (mode === 'rollback') requireRecentAuth(req.auth, RECENT_AUTH_SECONDS);
   const db = getMcDb();
-  if (mode !== 'dry-run' && mode !== 'legacy-report' && mode !== 'personal-preview' && mode !== 'dupes-preview') {
+  if (mode !== 'dry-run' && mode !== 'legacy-report' && mode !== 'personal-preview' && mode !== 'dupes-preview' && mode !== 'owner-money-preview') {
     // Strict audit before any write.
     await writeAudit({ type: 'ledger_migration', actor: req.auth, target: 'expenses', meta: { mode, ...(as ? { as } : {}), ...(cutoff !== undefined ? { cutoffDate: cutoff ? cutoff.date : 'none', cutoffOwedCents: cutoff ? cutoff.owedCents : 0 } : {}) } }, req);
   }
   try {
     const summary = await migrateExpenses(db, { mode, as, cutoff, ids, getBucket: getMcBucket });
-    const done = summary.dupes || summary.personal;
-    if (done && (mode === 'dupes-merge' || mode === 'dupes-undo' || mode === 'personal-move' || mode === 'personal-undo')) {
+    const om = summary.ownerMoney;
+    const done = summary.dupes || summary.personal
+      || (om && om.settled !== undefined ? { count: Object.values(om.companies).reduce((s, c) => s + c.count, 0), errors: om.errors } : null);
+    if (done && (mode === 'dupes-merge' || mode === 'dupes-undo' || mode === 'personal-move' || mode === 'personal-undo' || mode === 'owner-money' || mode === 'owner-money-undo')) {
       // What actually changed (the first audit entry, written before any change, has only the request).
       await writeAudit({ type: 'ledger_migration', actor: req.auth, target: 'ledgerTransactions', meta: { mode, phase: 'done', count: done.count || done.moved || 0, totalCents: done.totalCents || 0, errors: (done.errors || []).length } }, req).catch(() => null);
     }
