@@ -22,6 +22,7 @@ const SHARED_EXPENSE = [
   ['taxes_licenses', 'Taxes & licenses', 'expense'],
   ['insurance', 'Insurance', 'expense'],
   ['interest_expense', 'Interest expense', 'expense'],
+  ['depreciation', 'Depreciation', 'expense'],
   ['other_expense', 'Other expense', 'expense'],
 ];
 
@@ -38,6 +39,7 @@ const DEFAULT_CATEGORIES = Object.freeze({
     ['interest_income', 'Interest income', 'income'],
     ['refunds_income', 'Refunds & credits', 'income'],
     ['other_income', 'Other income', 'income'],
+    ['asset_gain_loss', 'Gain (loss) on asset sales', 'income'],
     ...SHARED_EXPENSE,
     ['stripe_fees', 'Stripe fees', 'expense'],
     ...EQUITY,
@@ -48,6 +50,7 @@ const DEFAULT_CATEGORIES = Object.freeze({
     ['interest_income', 'Interest income', 'income'],
     ['refunds_income', 'Refunds & credits', 'income'],
     ['other_income', 'Other income', 'income'],
+    ['asset_gain_loss', 'Gain (loss) on asset sales', 'income'],
     ...SHARED_EXPENSE,
     ['stripe_fees', 'Stripe fees', 'expense'],
     ['sms_telnyx', 'SMS / Telnyx', 'expense'],

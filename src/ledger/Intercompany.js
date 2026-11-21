@@ -34,8 +34,8 @@ export default function Intercompany({ onOpenTxn }) {
   const [form, setForm] = useState({ payer: '', amount: '', date: todayISO(), from: '', to: '', memo: '' });
   const payer = form.payer || defaultPayer;
   const receiver = core.otherCompany(payer);
-  const payerAccounts = (payer === companyId ? accounts : otherAccounts).filter((a) => a.kind !== 'intercompany');
-  const receiverAccounts = (receiver === companyId ? accounts : otherAccounts).filter((a) => a.kind !== 'intercompany');
+  const payerAccounts = (payer === companyId ? accounts : otherAccounts).filter((a) => a.kind === 'checking' || a.kind === 'credit_card');
+  const receiverAccounts = (receiver === companyId ? accounts : otherAccounts).filter((a) => a.kind === 'checking' || a.kind === 'credit_card');
   const fromId = form.from && payerAccounts.some((a) => a.id === form.from) ? form.from : (payerAccounts.find((a) => a.kind === 'checking') || payerAccounts[0] || {}).id;
   const toId = form.to && receiverAccounts.some((a) => a.id === form.to) ? form.to : (receiverAccounts.find((a) => a.kind === 'checking') || receiverAccounts[0] || {}).id;
 

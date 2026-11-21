@@ -1,7 +1,7 @@
 // Firestore data layer for Books. Every query is scoped by companyId (the
 // rules refuse unscoped ledger queries) and date-bounded where it can grow.
 import {
-  collection, doc, getDoc, getDocs, increment, onSnapshot, query, runTransaction, serverTimestamp,
+  arrayUnion, collection, doc, getDoc, getDocs, increment, onSnapshot, query, runTransaction, serverTimestamp,
   setDoc, where, writeBatch,
 } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -236,6 +236,11 @@ export async function purgeDeleted({ txn, accounts, categories }) {
     },
   }));
   const { plan } = await runPlans(entries, accounts, categories);
+  // A purged auto-depreciation month stays skipped (it is not re-posted later).
+  const depMatch = /^(.+)_dep_(\d{4}-\d{2})$/.exec(txn.id);
+  if (txn.source === 'depreciation' && depMatch && accounts[depMatch[1]]) {
+    await setDoc(doc(db, COL.accounts, depMatch[1]), { depreciationSkipMonths: arrayUnion(depMatch[2]), updatedAt: serverTimestamp() }, { merge: true });
+  }
   recordAuditEvent('ledger_delete', `ledgerTransactions/${txn.id}`, {
     companyId: txn.companyId, accountId: txn.accountId, date: txn.date, amountCents: txn.amountCents, permanent: true,
   });
@@ -358,6 +363,89 @@ export async function openReceipt(txn) {
     if (win) win.close();
     throw e;
   }
+}
+
+/** Make sure a default category exists (books set up before it was a default). */
+async function ensureCategory(companyId, categories, slug, name, kind) {
+  const id = core.ids.category(companyId, slug);
+  if (categories[id]) return id;
+  const snap = await getDoc(doc(db, COL.categories, id));
+  if (!snap.exists()) {
+    await setDoc(doc(db, COL.categories, id), { companyId, name, kind, slug, sort: 30, archived: false, isDefault: true, createdAt: serverTimestamp() });
+  }
+  return id;
+}
+const ensureDepreciationCategory = (companyId, categories) => ensureCategory(companyId, categories, 'depreciation', 'Depreciation', 'expense');
+
+/** New fixed-asset account (one per asset). Cost comes from its opening balance and/or transfers in. */
+export async function createFixedAsset(companyId, f, categories) {
+  const depId = await ensureDepreciationCategory(companyId, categories);
+  const id = newId(companyId, 'fa');
+  await setDoc(doc(db, COL.accounts, id), {
+    companyId,
+    kind: 'fixed_asset',
+    name: f.name,
+    last4: '',
+    // Owned before the books: opens at book value (cost − depreciation already taken).
+    openingBalanceCents: (f.openingCostCents || 0) - (f.openingAccumulatedCents || 0),
+    openingCostCents: f.openingCostCents || 0,
+    openingAccumulatedCents: f.openingAccumulatedCents || 0,
+    openingDate: f.openingDate,
+    inServiceDate: f.inServiceDate,
+    lifeMonths: f.lifeMonths,
+    salvageCents: f.salvageCents || 0,
+    method: 'straight_line',
+    depreciationCategoryId: depId,
+    vaultBankAccountId: null,
+    vaultCreditCardId: null,
+    archived: false,
+    sort: 10,
+    createdAt: serverTimestamp(),
+  });
+  recordAuditEvent('ledger_update', `ledgerAccounts/${id}`, { action: 'fixed_asset_created', companyId, costCents: f.openingCostCents || 0 });
+  return id;
+}
+
+/** Sell or write off an asset: depreciation through the date, then one disposal entry, then archive. */
+export async function disposeAsset(asset, { date, proceedsCents, proceedsAccountId, memo, today }, accounts, categories) {
+  const pre = core.disposalPreflight(asset, await fetchAccountAll(asset.companyId, asset.id), date, today);
+  if (pre.error) throw new Error(pre.error);
+  // Auto depreciation already posted for months after the disposal is removed first.
+  for (const id of pre.deleteIds) {
+    // eslint-disable-next-line no-await-in-loop
+    await runPlans([{ id, makeDraft: (before) => (before && !before.deleted ? { ...before, deleted: true } : undefined) }], accounts, categories);
+  }
+  await postDepreciation(asset, date, accounts, categories);
+  const glId = await ensureCategory(asset.companyId, categories, 'asset_gain_loss', 'Gain (loss) on asset sales', 'income');
+  const cats = categories[glId] ? categories : { ...categories, [glId]: { companyId: asset.companyId, name: 'Gain (loss) on asset sales', kind: 'income' } };
+  const txns = await fetchAccountAll(asset.companyId, asset.id);
+  const s = core.assetSummary(asset, txns, date);
+  const draft = core.disposalDraft({ account: asset, bookValueCents: s.bookValueCents, date, proceedsCents, proceedsAccountId, gainLossCategoryId: glId, memo });
+  await runPlans([{ id: `${asset.id}_disposal`, makeDraft: (before) => (before && !before.deleted ? undefined : draft) }], accounts, cats);
+  await setDoc(doc(db, COL.accounts, asset.id), { archived: true, disposedDate: date, updatedAt: serverTimestamp() }, { merge: true });
+  recordAuditEvent('ledger_update', `ledgerAccounts/${asset.id}`, { action: 'fixed_asset_disposed', companyId: asset.companyId, bookValueCents: s.bookValueCents, proceedsCents });
+  return { bookValueCents: s.bookValueCents, gainCents: proceedsCents - s.bookValueCents };
+}
+
+/** All transactions of one account (fixed assets and intercompany accounts are small). */
+export async function fetchAccountAll(companyId, accountId, through) {
+  return fetchAccountRange(companyId, accountId, '1900-01-01', through || '2999-12-31');
+}
+
+/** Post straight-line depreciation for one asset through a date (idempotent ids). */
+export async function postDepreciation(asset, throughDate, accounts, categories) {
+  const depId = await ensureDepreciationCategory(asset.companyId, categories);
+  const cats = categories[depId] ? categories : { ...categories, [depId]: { companyId: asset.companyId, name: 'Depreciation', kind: 'expense' } };
+  const txns = await fetchAccountAll(asset.companyId, asset.id);
+  // Posted / deleted months come from the entry ids inside depreciationToPost.
+  const entries = core.depreciationToPost({ ...asset, depreciationCategoryId: asset.depreciationCategoryId || depId }, txns, throughDate);
+  for (let i = 0; i < entries.length; i += 100) {
+    await runPlans(entries.slice(i, i + 100).map((e) => ({ id: e.id, makeDraft: (before) => (before ? undefined : e.draft) })), accounts, cats);
+  }
+  if (entries.length) {
+    recordAuditEvent('ledger_update', `ledgerAccounts/${asset.id}`, { action: 'depreciation_posted', companyId: asset.companyId, months: entries.length, through: throughDate });
+  }
+  return entries.length;
 }
 
 export async function prefsGet(uid) {

@@ -12,4 +12,6 @@ module.exports = {
   ...require('./intercompany'),
   ...require('./importer'),
   ...require('./migration'),
+  ...require('./fixedAssets'),
+  ...require('./statements'),
 };

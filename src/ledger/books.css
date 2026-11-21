@@ -191,7 +191,11 @@ select.bk-input { cursor: pointer; padding-right: 4px; }
 .bk-sum-row { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--text-secondary); align-items: center; }
 .bk-sum-row .num { color: var(--text-primary); }
 .bk-sum-strong { color: var(--text-primary); font-weight: 700; border-top: 1px solid var(--border); padding-top: 8px; }
-.bk-sum-diff { display: flex; justify-content: space-between; font-size: 18px; font-weight: 800; padding: 10px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin: 4px 0 6px; }
+.bk-sum-diff { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; font-size: 18px; font-weight: 800; padding: 10px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin: 4px 0 6px; min-width: 0; }
+.bk-sum-diff .num { overflow-wrap: anywhere; }
+.bk-sum-hint { margin: -2px 0 6px; }
+.bk-later-note { text-align: center; padding: 10px; }
+.bk-rec-summary { min-width: 0; }
 
 /* ── Intercompany ───────────────────────────────────────────── */
 .bk-ic-cards { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.3fr); gap: 14px; }
@@ -273,3 +277,13 @@ select.bk-input { cursor: pointer; padding-right: 4px; }
 }
 .bk-page button.bk-clip { background: none; border: 0; cursor: pointer; padding: 0 2px; font-size: 13px; }
 .bk-attach { cursor: pointer; }
+.bk-mb { margin-bottom: 10px; }
+.bk-fa-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.bk-subtab-group { display: inline-flex; align-items: center; gap: 2px; margin-right: 10px; }
+.bk-subtab-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); font-weight: 800; padding: 0 6px 0 4px; }
+.bk-subtabs { flex-wrap: wrap; row-gap: 2px; }
+.bk-statement td.bk-indent2 { padding-left: 40px !important; }
+.bk-balanced { font-size: 12px; margin-top: 8px; }
+.bk-gl-section { margin-bottom: 14px; }
+.bk-gl-head td { font-weight: 800; background: rgba(255,255,255,0.03); }
+.bk-dc { width: 140px; }

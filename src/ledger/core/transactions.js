@@ -64,12 +64,15 @@ function lineKey(line, index) {
   return line && LINE_ID_RE.test(String(line.lineId || '')) ? line.lineId : String(index);
 }
 
+// -0 would be stored as a double (rules require an int); always write +0.
+const noNegZero = (v) => (v === 0 ? 0 : v);
+
 function cleanLine(line) {
   const out = {
     categoryId: line.categoryId || null,
     transferAccountId: line.transferAccountId || null,
     icCategoryId: line.icCategoryId || null,
-    amountCents: line.amountCents,
+    amountCents: noNegZero(line.amountCents),
     memo: String(line.memo || '').slice(0, 300),
   };
   if (LINE_ID_RE.test(String(line.lineId || ''))) out.lineId = line.lineId;
@@ -152,6 +155,7 @@ function normalizeMain(draft, accounts, categories) {
   if (!belongsTo(t.accountId, c) || !accounts[t.accountId]) throw new LedgerError('Pick an account in this company.');
   if (!DATE_RE.test(String(t.date || ''))) throw new LedgerError('Enter a valid date (YYYY-MM-DD).');
   assertCents(t.amountCents, 'Amount');
+  t.amountCents = noNegZero(t.amountCents);
   if (!STATUSES.includes(t.status)) throw new LedgerError('Invalid status.');
   if (t.splits.length === 1) {
     // A single split is just a category.
@@ -232,7 +236,7 @@ function buildLeg(main, line, index, existing, accounts) {
     companyId: main.companyId,
     accountId: line.transferAccountId,
     date: main.date,
-    amountCents: -line.amountCents,
+    amountCents: noNegZero(-line.amountCents),
     payee: main.payee,
     memo: line.memo || main.memo,
     status: 'uncleared',

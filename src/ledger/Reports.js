@@ -9,7 +9,10 @@ import {
 } from 'recharts';
 import * as core from './core';
 import { useLedger } from './LedgerContext';
-import { fetchRange } from './ledgerStore';
+import { fetchAccountAll, fetchRange, postDepreciation } from './ledgerStore';
+import {
+  BalanceSheetView, FixedAssetsView, GeneralLedgerView, OwnerEquityView, TrialBalanceView, statementCsvRows,
+} from './ReportsStatements';
 import { csvCell, downloadText, Empty, fmt, fmtDate, monthLabel, todayISO } from './ui';
 
 // Validated categorical palette (dark surface #1A2234): fixed order, never cycled.
@@ -30,13 +33,19 @@ const tickMoney = (v) => {
 const tipMoney = (v) => fmt(Math.round(v * 100));
 
 const TABS = [
-  ['pnl', 'Profit & loss'],
-  ['monthly', 'Income vs expense'],
-  ['categories', 'Category breakdown'],
-  ['trends', 'Category trends'],
-  ['income', 'Income by source'],
-  ['ic', 'Intercompany'],
+  ['pnl', 'Profit & loss', 'Statements'],
+  ['bs', 'Balance sheet', 'Statements'],
+  ['tb', 'Trial balance', 'Statements'],
+  ['gl', 'General ledger', 'Statements'],
+  ['monthly', 'Income vs expense', 'Analysis'],
+  ['categories', 'Category breakdown', 'Analysis'],
+  ['trends', 'Category trends', 'Analysis'],
+  ['income', 'Income by source', 'Analysis'],
+  ['assets', 'Fixed assets', 'Schedules'],
+  ['owner', 'Owner contributions & distributions', 'Schedules'],
+  ['ic', 'Intercompany', 'Schedules'],
 ];
+const AS_OF_TABS = ['bs', 'tb', 'assets'];
 
 function ChartTip({ active, payload, label, labelFmt }) {
   if (!active || !payload || !payload.length) return null;
@@ -71,22 +80,125 @@ export default function Reports({ onOpenTxn }) {
   const validRange = core.DATE_RE.test(range.from) && core.DATE_RE.test(range.to) && range.from <= range.to;
   const needsTx = (r) => !core.isMonthAligned(r.from, r.to);
   // Cached transactions are keyed by the aggregates' state, so any edit refreshes them.
-  const sig = useMemo(() => monthly.map((m) => `${m.id}:${m.count}:${JSON.stringify(m.cat)}`).sort().join('|'), [monthly]);
+  const sig = useMemo(() => monthly.map((m) => `${m.id}:${m.count}:${JSON.stringify(m.cat)}:${JSON.stringify(m.acct)}`).sort().join('|'), [monthly]);
   const key = (r) => `${companyId}|${r.from}|${r.to}|${sig}`;
 
   // Load transactions only for non month-aligned ranges (and for drill-downs).
+  const inFlight = useRef(new Set());
+  const PNL_TABS = ['pnl', 'categories', 'income', 'trends'];
   useEffect(() => {
-    if (!validRange) return;
-    const wanted = [range, ...(compare ? [prior] : [])].filter(needsTx).filter((r) => !txCache[key(r)]);
+    if (!validRange || !PNL_TABS.includes(tab)) return;
+    const wanted = [range, ...(compare && tab === 'pnl' ? [prior] : [])].filter(needsTx).filter((r) => !txCache[key(r)] && !inFlight.current.has(key(r)));
     if (!wanted.length) return;
     let cancelled = false;
     setLoading(true);
-    Promise.all(wanted.map((r) => fetchRange(companyId, r.from, r.to).then((rows) => [key(r), rows])))
-      .then((pairs) => { if (!cancelled) setTxCache((c) => ({ ...c, ...Object.fromEntries(pairs) })); })
-      .catch((e) => setError(e.message))
-      .finally(() => { if (!cancelled) setLoading(false); });
+    loadInto(wanted, () => cancelled);
     return () => { cancelled = true; };
-  }, [range, prior, compare, companyId, validRange, sig]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [range, prior, compare, companyId, validRange, sig, tab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Statements: balance sheet, trial balance, general ledger, owner equity, fixed assets ──
+  const asOf = range.to;
+  // Depreciation is only ever posted for months that have ended (never future-dated).
+  const postThrough = asOf < todayISO() ? asOf : todayISO();
+  const statementRanges = useMemo(() => {
+    const list = [];
+    if (['bs', 'tb'].includes(tab) && core.needsMonthTxns(asOf)) list.push({ from: core.monthStart(asOf), to: asOf });
+    if (['gl', 'owner'].includes(tab)) {
+      list.push({ from: range.from, to: range.to });
+      if (range.from !== core.monthStart(range.from)) list.push({ from: core.monthStart(range.from), to: core.addDays(range.from, -1) });
+    }
+    return list;
+  }, [tab, asOf, range]);
+  useEffect(() => {
+    if (!validRange) return undefined;
+    const wanted = statementRanges.filter((r) => !txCache[key(r)] && !inFlight.current.has(key(r)));
+    if (!wanted.length) return undefined;
+    let cancelled = false;
+    loadInto(wanted, () => cancelled);
+    return () => { cancelled = true; };
+  }, [statementRanges, companyId, validRange, sig]); // eslint-disable-line react-hooks/exhaustive-deps
+  const haveAll = statementRanges.every((r) => txCache[key(r)]);
+  const rangeTxns = useMemo(() => statementRanges.flatMap((r) => txCache[key(r)] || []), [statementRanges, txCache, sig]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Include disposed (archived) assets so the schedule still shows them.
+  const assetAccounts = useMemo(() => ledger.raw.accountsMine.filter((a) => a.kind === 'fixed_asset').sort((a, b) => a.name.localeCompare(b.name)), [ledger.raw.accountsMine]);
+  const [assetTx, setAssetTx] = useState(null); // { key, byId }
+  const assetKey = `${companyId}|${sig}|${assetAccounts.map((a) => a.id).join(',')}`;
+  useEffect(() => {
+    if (!['assets', 'bs'].includes(tab) || !validRange) return undefined;
+    if (assetTx && assetTx.key === assetKey) return undefined;
+    let cancelled = false;
+    Promise.all(assetAccounts.map((a) => fetchAccountAll(companyId, a.id).then((rows) => [a.id, rows])))
+      .then((pairs) => { if (!cancelled) setAssetTx({ key: assetKey, byId: Object.fromEntries(pairs) }); })
+      .catch((e) => setError(e.message));
+    return () => { cancelled = true; };
+  }, [tab, assetKey, validRange]); // eslint-disable-line react-hooks/exhaustive-deps
+  const assetsReady = !!(assetTx && assetTx.key === assetKey);
+  const assetSummaries = useMemo(() => (assetsReady ? assetAccounts.map((a) => core.assetSummary(a, assetTx.byId[a.id] || [], asOf)) : null), [assetsReady, assetAccounts, assetTx, asOf]);
+  const depreciationDue = useMemo(() => {
+    if (!assetsReady) return 0;
+    return assetAccounts.reduce((n, a) => {
+      const rows = assetTx.byId[a.id] || [];
+      const skip = rows.filter((t) => t.deleted && t.source === 'depreciation').map((t) => t.date.slice(0, 7));
+      return n + core.depreciationToPost(a, rows, postThrough, skip).length;
+    }, 0);
+  }, [assetsReady, assetAccounts, assetTx, postThrough]);
+  const [posting, setPosting] = useState(false);
+  const [notice, setNotice] = useState('');
+  const postAll = async () => {
+    setPosting(true);
+    setError('');
+    try {
+      let n = 0;
+      for (const a of assetAccounts) n += await postDepreciation(a, postThrough, accountsById, categoriesById);
+      setNotice(`Posted ${n} monthly depreciation entr${n === 1 ? 'y' : 'ies'} through ${fmtDate(postThrough)}.`);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  const statements = useMemo(() => {
+    if (!validRange || !haveAll) return {};
+    const fyBefore = (date) => `${Number(date.slice(0, 4)) - 1}-12-31`;
+    const allAccounts = ledger.raw.accountsMine;
+    if (['bs', 'tb'].includes(tab)) {
+      const totals = core.totalsAsOf({ monthly, monthTxns: rangeTxns, companyId, asOf });
+      const totalsBeforeFy = core.totalsAsOf({ monthly, monthTxns: [], companyId, asOf: fyBefore(asOf) });
+      const fixedAssets = assetSummaries ? Object.fromEntries(assetSummaries.map((x) => [x.accountId, x])) : null;
+      return {
+        bs: core.balanceSheet({ accounts: allAccounts, categories: categoriesById, totals, totalsBeforeFy, companyId, asOf, fixedAssets }),
+        tb: core.trialBalance({ accounts: allAccounts, categories: categoriesById, totals, totalsBeforeFy, companyId, asOf }),
+      };
+    }
+    if (['gl', 'owner'].includes(tab)) {
+      const before = core.addDays(range.from, -1);
+      const totalsBefore = core.totalsAsOf({ monthly, monthTxns: rangeTxns, companyId, asOf: before });
+      const totalsBeforeFyOfFrom = core.totalsAsOf({ monthly, monthTxns: [], companyId, asOf: fyBefore(range.from) });
+      if (tab === 'gl') return { gl: core.generalLedger({ accounts: allAccounts, categories: categoriesById, totalsBefore, totalsBeforeFyOfFrom, txns: rangeTxns, companyId, from: range.from, to: range.to }) };
+      return { owner: core.ownerEquityReport({ categories: categoriesById, txns: rangeTxns, companyId, from: range.from, to: range.to, totalsBefore }) };
+    }
+    return {};
+  }, [tab, validRange, haveAll, rangeTxns, monthly, companyId, asOf, range, categoriesById, ledger.raw.accountsMine, assetSummaries]);
+
+  function loadInto(wanted, isCancelled) {
+    if (!wanted.length) return;
+    wanted.forEach((r) => inFlight.current.add(key(r)));
+    setLoading(true);
+    const currentSig = sig;
+    // Results are keyed by company/range/sig, so they are always safe to keep
+    // even if the effect that asked for them re-ran meanwhile.
+    Promise.all(wanted.map((r) => fetchRange(companyId, r.from, r.to).then((rows) => [key(r), rows])))
+      .then((pairs) => {
+        setTxCache((c) => Object.fromEntries([...Object.entries(c).filter(([k]) => k.endsWith(`|${currentSig}`)), ...pairs]));
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => {
+        wanted.forEach((r) => inFlight.current.delete(key(r)));
+        setLoading(inFlight.current.size > 0);
+      });
+  }
 
   const pnlFor = (r) => {
     if (!core.isMonthAligned(r.from, r.to)) {
@@ -142,7 +254,8 @@ export default function Reports({ onOpenTxn }) {
   // ── Exports ──────────────────────────────────────────────────────────
   const fileBase = `${meta.short}_${TABS.find((t) => t[0] === tab)[1].replace(/[^A-Za-z]+/g, '-')}_${range.from}_${range.to}`;
   const exportCsv = () => {
-    const lines = [[`${meta.legalName} — ${TABS.find((t) => t[0] === tab)[1]} (cash basis)`], [`${range.from} to ${range.to}${compare && tab === 'pnl' ? ` vs ${prior.from} to ${prior.to}` : ''}`], []];
+    const period = AS_OF_TABS.includes(tab) ? `As of ${asOf}` : `${range.from} to ${range.to}${compare && tab === 'pnl' ? ` vs ${prior.from} to ${prior.to}` : ''}`;
+    const lines = [[`${meta.legalName} — ${TABS.find((t) => t[0] === tab)[1]} (cash basis)`], [period], []];
     const money = (c) => core.centsToDecimalString(c);
     if (tab === 'pnl' && current) {
       const hdr = compare && previous ? ['Section', 'Category', 'Current', 'Prior', 'Change'] : ['Section', 'Category', 'Amount'];
@@ -168,6 +281,8 @@ export default function Reports({ onOpenTxn }) {
     } else if (tab === 'trends') {
       lines.push(['Month', ...trendCats.map((id) => (categoriesById[id] || {}).name || id)]);
       trend.forEach((r) => lines.push([r.month, ...trendCats.map((id) => (r[id] || 0).toFixed(2))]));
+    } else if (['bs', 'tb', 'gl', 'assets', 'owner'].includes(tab)) {
+      lines.push(...statementCsvRows(tab, { ...statements, assets: assetSummaries }));
     } else if (tab === 'ic') {
       lines.push(['Month end', `Balance (+ due from ${ledger.otherMeta.short}, − due to)`]);
       icSeries.forEach((r) => lines.push([r.month, r.balance.toFixed(2)]));
@@ -273,7 +388,12 @@ export default function Reports({ onOpenTxn }) {
       </div>
 
       <div className="bk-subtabs" role="tablist">
-        {TABS.map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{l}</button>)}
+        {['Statements', 'Analysis', 'Schedules'].map((g) => (
+          <span key={g} className="bk-subtab-group">
+            <span className="bk-subtab-label">{g}</span>
+            {TABS.filter((t) => t[2] === g).map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? 'active' : ''} onClick={() => { setTab(k); setNotice(''); }}>{l}</button>)}
+          </span>
+        ))}
       </div>
 
       {error && <div className="bk-error" role="alert">{error}</div>}
@@ -281,9 +401,9 @@ export default function Reports({ onOpenTxn }) {
 
       <div ref={reportRef} data-report-root className="bk-report-body">
         <div className="bk-report-head">
-          <strong>{meta.legalName}</strong> · {fmtDate(range.from)} – {fmtDate(range.to)}
+          <strong>{meta.legalName}</strong> · {AS_OF_TABS.includes(tab) ? `as of ${fmtDate(asOf)}` : `${fmtDate(range.from)} – ${fmtDate(range.to)}`}
           {compare && ['pnl'].includes(tab) && <span className="bk-muted"> · vs {fmtDate(prior.from)} – {fmtDate(prior.to)}</span>}
-          <span className="bk-muted"> · cash basis · excludes transfers, owner equity and amounts paid for {ledger.otherMeta.short}</span>
+          <span className="bk-muted"> · cash basis{['pnl', 'monthly', 'categories', 'trends', 'income'].includes(tab) ? ` · excludes transfers, owner equity and amounts paid for ${ledger.otherMeta.short}` : ''}</span>
         </div>
 
         {tab === 'pnl' && (
@@ -315,6 +435,17 @@ export default function Reports({ onOpenTxn }) {
               <div className="bk-muted bk-small">Click a category to see its transactions.{current.excludedEquityCents ? ` Owner equity moves (${fmt(current.excludedEquityCents)}) are excluded.` : ''}</div>
             </>
           )
+        )}
+
+        {tab === 'bs' && <BalanceSheetView bs={statements.bs} asOf={asOf} />}
+        {tab === 'tb' && <TrialBalanceView tb={statements.tb} asOf={asOf} />}
+        {tab === 'gl' && <GeneralLedgerView gl={statements.gl} accountsById={accountsById} onOpenTxn={onOpenTxn} />}
+        {tab === 'owner' && <OwnerEquityView report={statements.owner} onOpenTxn={onOpenTxn} />}
+        {tab === 'assets' && (
+          <>
+            {notice && <div className="bk-notice">{notice}</div>}
+            <FixedAssetsView summaries={assetSummaries} asOf={asOf} postThrough={postThrough} onPost={postAll} busy={posting} toPostCount={depreciationDue} />
+          </>
         )}
 
         {tab === 'monthly' && (

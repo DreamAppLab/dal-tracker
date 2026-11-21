@@ -28,7 +28,8 @@ const COMPANY_META = Object.freeze({
   },
 });
 
-const ACCOUNT_KINDS = Object.freeze(['checking', 'credit_card', 'intercompany']);
+// fixed_asset: one account per asset (cost in, depreciation out; balance = book value).
+const ACCOUNT_KINDS = Object.freeze(['checking', 'credit_card', 'intercompany', 'fixed_asset']);
 const CATEGORY_KINDS = Object.freeze(['income', 'expense', 'equity']);
 const TXN_TYPES = Object.freeze(['expense', 'income', 'transfer', 'intercompany', 'equity']);
 const STATUSES = Object.freeze(['uncleared', 'cleared', 'reconciled']);
@@ -71,6 +72,7 @@ const ids = Object.freeze({
   intercompany: (c) => `${assertCompany(c)}_ic_${otherCompany(c)}`,
   category: (c, slug) => `${assertCompany(c)}_cat_${slug}`,
   rule: (c, slug) => `${assertCompany(c)}_rule_${slug}`,
+  depreciation: (assetAccountId, month) => `${assetAccountId}_dep_${month}`,
   monthly: (c, month) => `${assertCompany(c)}_${month}`,
   imported: (c, hash) => `${assertCompany(c)}_imp_${hash}`,
   // Linked legs are derived from the parent id so they can always be found.
