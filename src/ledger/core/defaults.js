@@ -22,6 +22,7 @@ const SHARED_EXPENSE = [
   ['taxes_licenses', 'Taxes & licenses', 'expense'],
   ['insurance', 'Insurance', 'expense'],
   ['interest_expense', 'Interest expense', 'expense'],
+  ['depreciation', 'Depreciation', 'expense'],
   ['other_expense', 'Other expense', 'expense'],
 ];
 

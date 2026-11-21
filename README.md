@@ -74,7 +74,7 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
 ### Data model (Firestore, all top-level, every doc has `companyId`)
 | Collection | Holds |
 |---|---|
-| `ledgerAccounts` | `checking`, `credit_card` and one `intercompany` account per company (`dal_checking`, `dal_card`, `dal_ic_zerbiq`, …). Each has an opening balance (cents) and opening date, plus an optional link to the vault's `bankAccounts` / `creditCards` record and its last 4 digits. |
+| `ledgerAccounts` | `checking`, `credit_card`, `fixed_asset` (one per asset: life, salvage, in-service date) and one `intercompany` account per company (`dal_checking`, `dal_card`, `dal_ic_zerbiq`, …). Each has an opening balance (cents) and opening date, plus an optional link to the vault's `bankAccounts` / `creditCards` record and its last 4 digits. |
 | `ledgerCategories` | Per-company `income` / `expense` / `equity` categories. These are archived, never deleted. |
 | `ledgerTransactions` | `date`, `amountCents` (integer, signed), `payee`, `memo`, `status` (`uncleared` / `cleared` / `reconciled`), `type`, `categoryId` or `transferAccountId`, `splits[]`, `fingerprint`, `deleted` (soft delete). `role` is `main`, `leg` or `mirror`. |
 | `ledgerVendorRules` | "Payee contains X" → category, applied on entry and import (the longest match wins). |
@@ -106,6 +106,22 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
    payments are fine.
 6. **P&L** (cash basis) counts only income and expense category lines. Transfers, equity, intercompany
    receivables and uncategorized lines are excluded; uncategorized lines are flagged so they get fixed.
+   **Reports** are grouped into three sets:
+   - *Statements:* P&L, balance sheet, trial balance, general ledger.
+   - *Analysis:* income vs expense, category breakdown, category trends, income by source.
+   - *Schedules:* fixed assets, owner contributions & distributions, intercompany.
+
+   All of them export to CSV and PDF. On the balance sheet, equity is opening-balance equity + owner
+   contributions/draws + retained earnings (prior years) + net income (this year) + uncategorized activity.
+   So it always balances, and the trial balance's debits always equal its credits
+   (`src/ledger/core/statements.js`, tested in `tests/ledger/statements.test.js`).
+6a. **Fixed assets** are accounts of kind `fixed_asset`, one per asset, added in Setup → Fixed assets.
+   - A purchase is a *transfer* into the asset from checking or the card: it is capitalized and never
+     counted as an expense.
+   - An asset bought before the books started gets its cost as the opening balance instead.
+   - Depreciation is straight-line, full month from the in-service month. Reports → Fixed assets posts
+     one entry per month (category Depreciation, id `<assetId>_dep_<YYYY-MM>`), so posting is idempotent.
+   - The asset's balance is its book value.
 7. **Reconciled rows are locked by the rules.** Their amount, date, account, status and delete flag can't
    change. **Undo reconcile** is server-side (`/api/ledger/unreconcile`), requires a sign-in within the last
    15 minutes, is written to the audit log first, and works on the latest statement only.

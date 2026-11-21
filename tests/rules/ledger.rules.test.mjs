@@ -217,3 +217,14 @@ test('ledger: monthly increments must omit empty maps (an empty merged map wipes
   await assertSucceeds(setDoc(ref, { companyId: 'dal', month: '2026-05', cat: {} }, { merge: true }));
   assert.deepEqual((await getDoc(ref)).data().cat, {});
 });
+
+test('ledger: fixed-asset accounts and their depreciation entries are valid; kinds stay fixed', async () => {
+  const db = admin();
+  const asset = { companyId: 'dal', kind: 'fixed_asset', name: 'MacBook Pro', openingBalanceCents: 0, openingDate: '2026-01-01', inServiceDate: '2026-01-01', lifeMonths: 36, salvageCents: 0, depreciationCategoryId: 'dal_cat_depreciation' };
+  await assertSucceeds(setDoc(doc(db, 'ledgerAccounts', 'dal_fa_mac'), asset));
+  await assertFails(setDoc(doc(db, 'ledgerAccounts', 'dal_fa_bad'), { ...asset, kind: 'savings' }));
+  await assertFails(updateDoc(doc(db, 'ledgerAccounts', 'dal_fa_mac'), { kind: 'checking' }));
+  await assertFails(setDoc(doc(db, 'ledgerAccounts', 'dal_fa_x'), { ...asset, companyId: 'zerbiq' }));
+  await assertSucceeds(setDoc(doc(db, 'ledgerTransactions', 'dal_fa_mac_dep_2026-01'), txn({ accountId: 'dal_fa_mac', date: '2026-01-31', amountCents: -10000, payee: 'Depreciation', categoryId: 'dal_cat_depreciation', source: 'depreciation', status: 'cleared' })));
+  await assertFails(setDoc(doc(db, 'ledgerTransactions', 'dal_fa_mac_dep_2026-02'), txn({ accountId: 'zerbiq_fa_mac', date: '2026-02-28', amountCents: -10000, categoryId: 'dal_cat_depreciation' })));
+});

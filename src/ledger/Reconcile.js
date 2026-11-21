@@ -10,7 +10,7 @@ import { describeTxn, Empty, fmt, fmtDate, todayISO } from './ui';
 export default function Reconcile() {
   const ledger = useLedger();
   const { companyId, accounts, accountsById, reconciliations } = ledger;
-  const bankish = accounts.filter((a) => a.kind !== 'intercompany');
+  const bankish = accounts.filter((a) => a.kind === 'checking' || a.kind === 'credit_card');
   const [accountId, setAccountId] = useState('');
   const [statementDate, setStatementDate] = useState(todayISO());
   const [ending, setEnding] = useState('');
@@ -51,6 +51,7 @@ export default function Reconcile() {
   const typed = core.parseMoneyToCents(ending);
   // Card statements show what you owe; internally a card balance owed is negative.
   const endingCents = typed == null ? null : isCard ? -typed : typed;
+  const laterCount = (rows || []).filter((t) => t.date > statementDate).length;
   const inScope = useMemo(() => (rows || []).filter((t) => showLater || t.date <= statementDate), [rows, showLater, statementDate]);
   const summary = useMemo(() => {
     if (endingCents == null) return null;
@@ -160,6 +161,12 @@ export default function Reconcile() {
             <tbody>
               {rows === null && <tr><td colSpan={6}><Empty>Loading…</Empty></td></tr>}
               {rows !== null && !inScope.length && <tr><td colSpan={6}><Empty>No unreconciled transactions{showLater ? '' : ' on or before this date'}.</Empty></td></tr>}
+              {rows !== null && !showLater && laterCount > 0 && (
+                <tr><td colSpan={6} className="bk-muted bk-small bk-later-note">
+                  {laterCount} transaction{laterCount === 1 ? '' : 's'} dated after {fmtDate(statementDate)} {laterCount === 1 ? 'is' : 'are'} hidden (they belong on a later statement).{' '}
+                  <button type="button" className="bk-link" onClick={() => setShowLater(true)}>Show</button>
+                </td></tr>
+              )}
               {inScope.map((t) => (
                 <tr key={t.id} className={`bk-row ${ticked.has(t.id) ? 'bk-ticked' : ''}`} onClick={() => toggle(t)}>
                   <td className="center"><input type="checkbox" checked={ticked.has(t.id)} onChange={() => toggle(t)} onClick={(e) => e.stopPropagation()} aria-label={`Cleared ${t.payee}`} /></td>
@@ -182,8 +189,9 @@ export default function Reconcile() {
           <div className="bk-sum-row"><span>Statement balance</span><span className="num">{endingCents == null ? '—' : show(endingCents)}</span></div>
           <div className={`bk-sum-diff ${summary && summary.canFinish ? 'bk-ok' : 'bk-bad'}`}>
             <span>Difference</span>
-            <span className="num">{summary ? fmt(isCard ? -summary.difference : summary.difference) : 'Enter the statement balance'}</span>
+            <span className="num">{summary ? fmt(isCard ? -summary.difference : summary.difference) : '—'}</span>
           </div>
+          {!summary && <div className="bk-muted bk-small bk-sum-hint">Enter the statement ending balance to see the difference.</div>}
           <button type="button" className="btn btn-primary bk-wide" disabled={!summary || !summary.canFinish || busy} onClick={finish}>
             {summary && summary.canFinish ? 'Finish reconciliation' : 'Finish (difference must be $0.00)'}
           </button>

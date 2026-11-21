@@ -5,7 +5,7 @@ import React, { useEffect, useState } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import * as core from './core';
 import { useLedger } from './LedgerContext';
-import { apiPost, COL, db, deleteRule, newId, saveDoc, seedCompany } from './ledgerStore';
+import { apiPost, COL, createFixedAsset, db, deleteRule, newId, saveDoc, seedCompany } from './ledgerStore';
 import { Empty, fmt } from './ui';
 import { recordAuditEvent } from '../lib/audit';
 
@@ -116,6 +116,68 @@ function CategoryRow({ cat, inUse }) {
   );
 }
 
+function FixedAssets({ ledger, run, busy }) {
+  const { companyId, accounts, balances, categoriesById } = ledger;
+  const assets = accounts.filter((a) => a.kind === 'fixed_asset');
+  const blank = { name: '', acquiredDate: '', inServiceDate: '', lifeYears: '5', salvage: '', cost: '' };
+  const [f, setF] = useState(blank);
+  const [err, setErr] = useState('');
+  const add = () => {
+    setErr('');
+    const lifeMonths = Math.round(Number(f.lifeYears) * 12);
+    const salvage = f.salvage ? core.parseMoneyToCents(f.salvage) : 0;
+    const cost = f.cost ? core.parseMoneyToCents(f.cost) : 0;
+    if (!f.name.trim()) { setErr('Name the asset.'); return; }
+    if (!core.DATE_RE.test(f.acquiredDate)) { setErr('Enter the date you bought it.'); return; }
+    const inService = f.inServiceDate || f.acquiredDate;
+    if (!core.DATE_RE.test(inService) || inService < f.acquiredDate) { setErr('In-service date must be on or after the purchase date.'); return; }
+    if (!lifeMonths || lifeMonths < 1 || lifeMonths > 600) { setErr('Useful life must be between 1 month and 50 years.'); return; }
+    if (salvage == null || cost == null || salvage < 0 || cost < 0) { setErr('Amounts must be positive.'); return; }
+    run(() => createFixedAsset(companyId, { name: f.name.trim().slice(0, 80), acquiredDate: f.acquiredDate, inServiceDate: inService, lifeMonths, salvageCents: salvage, openingCostCents: cost }, categoriesById),
+      () => { setF(blank); return `Added fixed asset "${f.name.trim()}". ${cost ? '' : 'Record its purchase in the register as a transfer to it from checking or the card.'}`; });
+  };
+  return (
+    <>
+      <h3 className="bk-h3">Fixed assets</h3>
+      <div className="bk-panel">
+        <div className="bk-muted bk-small bk-mb">
+          Equipment you keep for more than a year (computers, cameras, furniture) is capitalized, not expensed: record the purchase in the register as
+          <strong> Transfer · [asset]</strong> from checking or the card. Books then posts straight-line depreciation each month (Reports → Fixed assets).
+        </div>
+        <div className="bk-form-grid bk-fa-grid">
+          <label className="bk-field"><span>Asset name</span><input className="bk-input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="MacBook Pro 16" /></label>
+          <label className="bk-field"><span>Purchase date</span><input className="bk-input bk-date" type="date" value={f.acquiredDate} onChange={(e) => setF({ ...f, acquiredDate: e.target.value })} /></label>
+          <label className="bk-field"><span>In service from</span><input className="bk-input bk-date" type="date" value={f.inServiceDate} onChange={(e) => setF({ ...f, inServiceDate: e.target.value })} /></label>
+          <label className="bk-field"><span>Useful life (years)</span><input className="bk-input bk-amt" value={f.lifeYears} onChange={(e) => setF({ ...f, lifeYears: e.target.value })} inputMode="decimal" /></label>
+          <label className="bk-field"><span>Salvage value</span><input className="bk-input bk-amt" value={f.salvage} onChange={(e) => setF({ ...f, salvage: e.target.value })} inputMode="decimal" placeholder="0.00" /></label>
+          <label className="bk-field"><span>Cost if bought before these books</span><input className="bk-input bk-amt" value={f.cost} onChange={(e) => setF({ ...f, cost: e.target.value })} inputMode="decimal" placeholder="0.00" /></label>
+        </div>
+        {err && <div className="bk-error">{err}</div>}
+        <div className="bk-row-actions"><button type="button" className="btn btn-primary btn-sm" onClick={add} disabled={busy}>Add fixed asset</button></div>
+      </div>
+      {assets.length > 0 && (
+        <div className="bk-table-wrap bk-mt">
+          <table className="bk-table">
+            <thead><tr><th>Asset</th><th>Purchased</th><th>In service</th><th className="num">Life</th><th className="num">Salvage</th><th className="num">Book value</th></tr></thead>
+            <tbody>
+              {assets.map((a) => (
+                <tr key={a.id} className="bk-row">
+                  <td>{a.name}</td>
+                  <td>{a.openingDate}</td>
+                  <td>{a.inServiceDate || a.openingDate}</td>
+                  <td className="num">{a.lifeMonths % 12 === 0 ? `${a.lifeMonths / 12} yr` : `${a.lifeMonths} mo`}</td>
+                  <td className="num">{fmt(a.salvageCents || 0)}</td>
+                  <td className="num">{fmt(balances[a.id] || 0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function Setup() {
   const ledger = useLedger();
   const { companyId, meta, accounts, categories, rules, raw, monthly } = ledger;
@@ -160,7 +222,7 @@ export default function Setup() {
   const rebuild = () => run(() => apiPost('/api/ledger/rebuild', { companyId }), (r) => `Rebuilt ${r.result.months} months from ${r.result.transactions} transactions.`);
 
   if (!ledger.ready) return <Empty>Loading…</Empty>;
-  const bankish = accounts.filter((a) => a.kind !== 'intercompany');
+  const bankish = accounts.filter((a) => a.kind === 'checking' || a.kind === 'credit_card');
   const catName = (id) => (ledger.categoriesById[id] || {}).name || 'Unknown';
 
   return (
@@ -187,6 +249,8 @@ export default function Setup() {
         </table>
       </div>
       <div className="bk-muted bk-small">Credit card balances are entered as the amount owed. Linking a vault record copies its nickname and last 4 so both modules show the same account; full numbers stay encrypted in the vault.</div>
+
+      <FixedAssets ledger={ledger} run={run} busy={busy} />
 
       <div className="bk-two-col">
         <div>

@@ -81,7 +81,7 @@ const STATUS_LABEL = {
 export default function ImportPanel({ onDone }) {
   const ledger = useLedger();
   const { companyId, accounts, accountsById, categoriesById, rules } = ledger;
-  const bankish = accounts.filter((a) => a.kind !== 'intercompany');
+  const bankish = accounts.filter((a) => a.kind === 'checking' || a.kind === 'credit_card');
   const [accountId, setAccountId] = useState('');
   const [file, setFile] = useState(null);
   const [step, setStep] = useState('pick'); // pick | map | preview | importing | done

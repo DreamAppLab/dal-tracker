@@ -44,7 +44,7 @@ function amountFromForm(f) {
 
 function columnLabels(kind) {
   if (kind === 'credit_card') return ['Charge', 'Payment'];
-  if (kind === 'intercompany') return ['Decrease', 'Increase'];
+  if (kind === 'intercompany' || kind === 'fixed_asset') return ['Decrease', 'Increase'];
   return ['Payment', 'Deposit'];
 }
 
@@ -466,7 +466,7 @@ export default function Register({ focusTxn, onFocusHandled }) {
               className={`bk-account ${a.id === accountId && mode === 'register' ? 'active' : ''}`}
               onClick={() => { setMode('register'); setAccountId(a.id); cancelEdit(); }}>
               <span className="bk-account-name">{a.name}{a.last4 ? ` ··${a.last4}` : ''}</span>
-              <span className="bk-account-kind">{a.kind === 'credit_card' ? 'Credit card · owed' : a.kind === 'intercompany' ? (bal >= 0 ? `Due from ${ledger.otherMeta.short}` : `Due to ${ledger.otherMeta.short}`) : 'Checking'}</span>
+              <span className="bk-account-kind">{a.kind === 'credit_card' ? 'Credit card · owed' : a.kind === 'intercompany' ? (bal >= 0 ? `Due from ${ledger.otherMeta.short}` : `Due to ${ledger.otherMeta.short}`) : a.kind === 'fixed_asset' ? 'Fixed asset · book value' : 'Checking'}</span>
               <span className={`bk-account-bal ${!owed && bal < 0 ? 'bk-neg' : ''}`}>{fmt(owed ? -bal : a.kind === 'intercompany' ? Math.abs(bal) : bal)}</span>
             </button>
           );
