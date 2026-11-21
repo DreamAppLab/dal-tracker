@@ -422,3 +422,18 @@ test('spending report: totals equal the P&L; payee/category/project/account filt
   assert.deepEqual([ic.totals.intercompany, ic.totals.spent], [2000, 0]);
   assert.match(ic.rows[0].name, /Paid for Zerbiq/);
 });
+
+test('spending report review: uncategorized shown apart (not in P&L totals); numeric payee fallback; notes match', () => {
+  const L = makeLedger();
+  L.add('dal', { accountId: 'dal_card', date: '2026-03-01', amountCents: -5000, payee: 'Sharmin Shepu', categoryId: cat('dal', 'contractors') });
+  L.add('dal', { accountId: 'dal_card', date: '2026-03-02', amountCents: -2500, payee: 'Sharmin Shepu' }); // uncategorized
+  L.add('dal', { accountId: 'dal_card', date: '2026-03-03', amountCents: -1000, payee: 'IRS', memo: 'Form 1099 filing', categoryId: cat('dal', 'taxes_licenses') });
+  const base = { txns: L.txnList(), categories: L.categories, companyId: 'dal', from: '2026-01-01', to: '2026-12-31' };
+  const r = core.spendingReport({ ...base, filters: { payee: 'sharmin' } });
+  assert.deepEqual([r.totals.spent, r.totals.uncategorized, r.totals.count], [5000, 2500, 2]);
+  const all = core.spendingReport(base);
+  const pnl = core.pnlFromMonthly(L.monthlyList(), L.categories, 'dal', '2026-01-01', '2026-12-31');
+  assert.equal(all.totals.spent, pnl.totalExpense, 'uncategorized stays out of Spent, like the P&L');
+  assert.equal(core.spendingReport({ ...base, filters: { payee: '1099' } }).totals.spent, 1000, 'digits-only search falls back to a plain match on payee/notes');
+  assert.equal(core.spendingReport({ ...base, filters: { payee: 'filing' } }).totals.spent, 1000, 'notes match');
+});

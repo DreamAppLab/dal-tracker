@@ -337,33 +337,48 @@ function spendingReport(p) {
   const otherCats = p.otherCategories || {};
   const accounts = p.accounts || {};
   const projects = p.projects || {};
+  // Payee filter: like vendor rules; if that strips everything (e.g. "1099"), a plain match. Notes count too.
   const needle = f.payee ? normalizePayee(f.payee) : '';
+  const raw = f.payee ? String(f.payee).trim().toLowerCase() : '';
+  const payeeHit = (t) => {
+    if (!raw) return true;
+    if (needle) return normalizePayee(t.payee).includes(needle) || normalizePayee(t.memo).includes(needle);
+    return `${t.payee || ''} ${t.memo || ''}`.toLowerCase().includes(raw);
+  };
   const catSet = f.categoryIds && f.categoryIds.length ? new Set(f.categoryIds) : null;
   const includeIc = !!f.includeIntercompany || !!(catSet && [...catSet].some((k) => k.startsWith('ic:')));
   const groups = {};
-  const totals = { spent: 0, received: 0, intercompany: 0, count: 0 };
+  const totals = { spent: 0, received: 0, intercompany: 0, uncategorized: 0, count: 0 };
   for (const t of txns) {
     if (t.companyId !== companyId || t.deleted || t.role === 'leg' || t.date < from || t.date > to) continue;
     if (f.accountId && t.accountId !== f.accountId) continue;
-    if (needle && !normalizePayee(t.payee).includes(needle)) continue;
+    if (!payeeHit(t)) continue;
     linesOf(t).forEach((line, i) => {
       let key;
       let name;
       let kind;
-      if (line.categoryId) {
+      const isIcLine = !!(line.transferAccountId && (accounts[line.transferAccountId] || {}).kind === 'intercompany') || !!line.icCategoryId;
+      if (line.categoryId && categories[line.categoryId]) {
         const c = categories[line.categoryId];
-        if (!c || (c.kind !== 'income' && c.kind !== 'expense')) return;
+        if (c.kind !== 'income' && c.kind !== 'expense') return; // owner money
         key = line.categoryId;
         name = c.name;
         kind = c.kind;
-      } else if (line.icCategoryId && includeIc) {
-        key = `ic:${line.icCategoryId}`;
-        name = `Paid for ${p.otherName || 'the other company'} · ${(otherCats[line.icCategoryId] || {}).name || 'category'}`;
+      } else if (isIcLine) {
+        if (!includeIc) return;
+        key = `ic:${line.icCategoryId || ''}`;
+        name = `Paid for ${p.otherName || 'the other company'} · ${(otherCats[line.icCategoryId] || {}).name || 'no category yet'}`;
         kind = 'intercompany';
+      } else if (!line.transferAccountId) {
+        // Not in the P&L either (it flags these): shown apart so a search never misses them.
+        key = '_uncat';
+        name = 'Uncategorized (not in P&L)';
+        kind = 'uncategorized';
       } else {
-        return;
+        return; // transfer between accounts
       }
-      if (catSet && !catSet.has(key)) return;
+      // "Include paid for …" adds those lines even when specific categories are picked.
+      if (catSet && !catSet.has(key) && !(kind === 'intercompany' && f.includeIntercompany)) return;
       const pid = line.projectId || t.projectId || NO_PROJECT;
       if (f.projectId && pid !== f.projectId) return;
       let gKey;
@@ -373,12 +388,13 @@ function spendingReport(p) {
       else if (groupBy === 'month') { gKey = t.date.slice(0, 7); gName = gKey; }
       else if (groupBy === 'account') { gKey = t.accountId; gName = (accounts[t.accountId] || {}).name || t.accountId; }
       else { gKey = normalizePayee(t.payee) || '(no payee)'; gName = t.payee || '(no payee)'; }
-      if (!groups[gKey]) groups[gKey] = { key: gKey, name: gName, spent: 0, received: 0, intercompany: 0, lines: [] };
+      if (!groups[gKey]) groups[gKey] = { key: gKey, name: gName, spent: 0, received: 0, intercompany: 0, uncategorized: 0, lines: [] };
       const g = groups[gKey];
       const amt = line.amountCents;
       if (kind === 'expense') { g.spent += -amt; totals.spent += -amt; }
       else if (kind === 'income') { g.received += amt; totals.received += amt; }
-      else { g.intercompany += -amt; totals.intercompany += -amt; }
+      else if (kind === 'intercompany') { g.intercompany += -amt; totals.intercompany += -amt; }
+      else { g.uncategorized += -amt; totals.uncategorized += -amt; }
       totals.count += 1;
       g.lines.push({ txnId: t.id, line: i, split: !!(t.splits && t.splits.length), date: t.date, payee: t.payee, memo: line.memo || t.memo, accountId: t.accountId, categoryId: line.categoryId || null, category: name, projectId: pid === NO_PROJECT ? null : pid, cents: amt });
     });

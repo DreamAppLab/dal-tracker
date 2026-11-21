@@ -68,15 +68,18 @@ export default function Register({ focusTxn, onFocusHandled }) {
   // Search across every account of the company (a payee search must not miss rows elsewhere).
   const [allAccounts, setAllAccounts] = useState(false);
   const [allRows, setAllRows] = useState(null);
-  useEffect(() => { setAllRows(null); }, [companyId]);
+  // Reloaded only when the company's totals change (an edit somewhere), not on every toggle.
+  const allSig = useMemo(() => monthly.map((m) => `${m.id}:${m.count}:${JSON.stringify(m.acct)}:${JSON.stringify(m.cat)}`).sort().join('|'), [monthly]);
+  const allLoaded = useRef('');
+  const allWanted = allAccounts && filters.search.trim().length >= 2;
   useEffect(() => {
-    if (!allAccounts || allRows) return undefined;
+    if (!allWanted || allLoaded.current === `${companyId}|${allSig}`) return undefined;
     let stop = false;
     fetchRange(companyId, '2000-01-01', '2099-12-31')
-      .then((r) => { if (!stop) setAllRows(r.filter((t) => !t.deleted && (t.role || 'main') !== 'leg')); })
+      .then((r) => { if (!stop) { allLoaded.current = `${companyId}|${allSig}`; setAllRows(r.filter((t) => !t.deleted && (t.role || 'main') !== 'leg')); } })
       .catch((e) => { if (!stop) setLoadError(e.message); });
     return () => { stop = true; };
-  }, [allAccounts, allRows, companyId]);
+  }, [allWanted, companyId, allSig]);
   const [sort, setSort] = useState({ key: 'date', dir: 'desc' });
   const [newForm, setNewForm] = useState(blankForm());
   const [editId, setEditId] = useState(null);
@@ -574,7 +577,7 @@ export default function Register({ focusTxn, onFocusHandled }) {
         <>
           <div className="bk-toolbar">
             <input className="bk-input bk-search" placeholder={allAccounts ? 'Search all accounts: payee, notes, category, amount' : 'Search payee, notes, category, project, amount'} value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} aria-label="Search" />
-            <label className="bk-check" title="Search every account of this company, not just the one open"><input type="checkbox" checked={allAccounts} onChange={(e) => { setAllAccounts(e.target.checked); setAllRows(null); }} /> All accounts</label>
+            <label className="bk-check" title="Search every account of this company, not just the one open"><input type="checkbox" checked={allAccounts} onChange={(e) => setAllAccounts(e.target.checked)} /> All accounts</label>
             <label className="bk-field-inline"><span>From</span><input type="date" className="bk-input bk-date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} /></label>
             <label className="bk-field-inline"><span>To</span><input type="date" className="bk-input bk-date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} /></label>
             <select className="bk-input bk-filter-cat" value={filters.pick} onChange={(e) => setFilters({ ...filters, pick: e.target.value })} aria-label="Category filter">
@@ -856,11 +859,11 @@ function QueueRow({ t, ledger, mode, busy, onCategorize, onRestore, onPurge, onO
 /** Matches for a search across every account of the company. */
 function AllAccountsResults({ rows, query, ledger, onOpen }) {
   const q = query.trim().toLowerCase();
-  if (!rows) return <div className="bk-panel"><Empty>Searching all accounts…</Empty></div>;
-  const hits = rows.filter((t) => {
+  const hits = useMemo(() => (rows || []).filter((t) => {
     const hay = `${t.payee || ''} ${t.memo || ''} ${(t.splits || []).map((l) => l.memo || '').join(' ')} ${describeTxn(t, ledger)} ${core.centsToDecimalString(Math.abs(t.amountCents))}`.toLowerCase();
     return hay.includes(q);
-  }).sort((a, b) => b.date.localeCompare(a.date));
+  }).sort((a, b) => b.date.localeCompare(a.date)), [rows, q, ledger]);
+  if (!rows) return <div className="bk-panel"><Empty>Searching all accounts…</Empty></div>;
   const total = hits.reduce((s, t) => s + t.amountCents, 0);
   return (
     <div className="bk-panel bk-mb">

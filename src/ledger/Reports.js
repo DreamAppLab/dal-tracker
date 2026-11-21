@@ -302,7 +302,15 @@ export default function Reports({ onOpenTxn }) {
       lines.push(['Month', ...trendCats.map((id) => (categoriesById[id] || {}).name || id)]);
       trend.forEach((r) => lines.push([r.month, ...trendCats.map((id) => (r[id] || 0).toFixed(2))]));
     } else if (['bs', 'tb', 'gl', 'assets', 'owner', 'projects', 'spending'].includes(tab)) {
-      lines.push(...statementCsvRows(tab, { ...statements, assets: assetSummaries }));
+      const sf = spendFilters;
+      const spendingFilters = tab === 'spending' ? [
+        sf.payee && `payee contains "${sf.payee}"`,
+        sf.categoryIds.length && `categories: ${sf.categoryIds.map((k) => (k.startsWith('ic:') ? `${ledger.otherMeta.short} · ${(categoriesById[k.slice(3)] || {}).name || ''}` : (categoriesById[k] || {}).name || k)).join(', ')}`,
+        sf.projectId && `project: ${sf.projectId === '_none' ? 'No project' : (ledger.projectsById[sf.projectId] || {}).name || sf.projectId}`,
+        sf.accountId ? `account: ${(ledger.accountsById[sf.accountId] || {}).name || sf.accountId}` : 'all accounts',
+        sf.includeIntercompany && `including paid for ${ledger.otherMeta.short}`,
+      ].filter(Boolean).join('; ') : '';
+      lines.push(...statementCsvRows(tab, { ...statements, assets: assetSummaries, spendingFilters, accountsById: ledger.accountsById, projectsById: ledger.projectsById }));
     } else if (tab === 'ic') {
       lines.push(['Month end', `Balance (+ due from ${ledger.otherMeta.short}, − due to)`]);
       icSeries.forEach((r) => lines.push([r.month, r.balance.toFixed(2)]));

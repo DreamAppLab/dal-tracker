@@ -267,7 +267,7 @@ export function SpendingReportView({ report, filters, setFilters, ledger, onPick
       {!report ? <Empty>Loading…</Empty> : !report.rows.length ? <Empty>No matching income or expense in this period.</Empty> : (
         <div className="bk-table-wrap">
           <table className="bk-table bk-statement">
-            <thead><tr><th>{(GROUPS.find(([k]) => k === report.groupBy) || [])[1]}</th><th className="num">Entries</th><th className="num">Spent</th><th className="num">Received</th>{report.totals.intercompany ? <th className="num">Paid for {ledger.otherMeta.short}</th> : null}</tr></thead>
+            <thead><tr><th>{(GROUPS.find(([k]) => k === report.groupBy) || [])[1]}</th><th className="num">Entries</th><th className="num">Spent</th><th className="num">Received</th>{report.totals.intercompany ? <th className="num">Paid for {ledger.otherMeta.short}</th> : null}{report.totals.uncategorized ? <th className="num">Uncategorized</th> : null}</tr></thead>
             <tbody>
               {report.rows.map((r) => (
                 <tr key={r.key} className="bk-row bk-click" onClick={() => onPick(r)} title="Show transactions">
@@ -276,14 +276,15 @@ export function SpendingReportView({ report, filters, setFilters, ledger, onPick
                   <td className="num">{r.spent ? fmt(r.spent) : ''}</td>
                   <td className="num">{r.received ? fmt(r.received) : ''}</td>
                   {report.totals.intercompany ? <td className="num">{r.intercompany ? fmt(r.intercompany) : ''}</td> : null}
+                  {report.totals.uncategorized ? <td className="num bk-warn-text">{r.uncategorized ? fmt(r.uncategorized) : ''}</td> : null}
                 </tr>
               ))}
-              <tr className="bk-total"><td>Total</td><td className="num">{report.totals.count}</td><td className="num">{fmt(report.totals.spent)}</td><td className="num">{fmt(report.totals.received)}</td>{report.totals.intercompany ? <td className="num">{fmt(report.totals.intercompany)}</td> : null}</tr>
+              <tr className="bk-total"><td>Total</td><td className="num">{report.totals.count}</td><td className="num">{fmt(report.totals.spent)}</td><td className="num">{fmt(report.totals.received)}</td>{report.totals.intercompany ? <td className="num">{fmt(report.totals.intercompany)}</td> : null}{report.totals.uncategorized ? <td className="num">{fmt(report.totals.uncategorized)}</td> : null}</tr>
             </tbody>
           </table>
         </div>
       )}
-      <div className="bk-muted bk-small">All accounts unless one is picked. Same lines as the P&L: transfers, owner money and deleted rows are left out, split lines count by their own category, and refunds net against their category, so with no filters the totals equal the P&L. Click a row to see its transactions.</div>
+      <div className="bk-muted bk-small">All accounts unless one is picked. Same lines as the P&L: transfers, owner money and deleted rows are left out, split lines count by their own category, and refunds net against their category, so with no filters Spent and Received equal the P&L. Uncategorized lines (also outside the P&L) are shown in their own column so a search never misses them. Payee matches the payee or notes. Click a row to see its transactions.</div>
     </>
   );
 }
@@ -324,12 +325,17 @@ export function statementCsvRows(tab, d) {
     rows.push(['Project / app', 'Date', 'Payee', 'Category', 'Description / notes', 'Amount']);
     d.projects.rows.forEach((r) => r.lines.forEach((l) => rows.push([r.name, l.date, l.payee, l.category, l.memo || '', money(l.cents)])));
   } else if (tab === 'spending' && d.spending) {
-    rows.push([d.spending.groupBy, 'Entries', 'Spent', 'Received', 'Paid for other company']);
-    d.spending.rows.forEach((r) => rows.push([r.name, r.count, money(r.spent), money(r.received), money(r.intercompany)]));
-    rows.push(['Total', d.spending.totals.count, money(d.spending.totals.spent), money(d.spending.totals.received), money(d.spending.totals.intercompany)]);
+    const sp = d.spending;
+    const label = (GROUPS.find(([k]) => k === sp.groupBy) || [])[1] || 'Group';
+    const extra = [sp.totals.intercompany ? 'Paid for other company' : null, sp.totals.uncategorized ? 'Uncategorized' : null].filter(Boolean);
+    const extraVals = (x) => [sp.totals.intercompany ? money(x.intercompany) : null, sp.totals.uncategorized ? money(x.uncategorized) : null].filter((v) => v !== null);
+    if (d.spendingFilters) rows.push([`Filters: ${d.spendingFilters}`]);
+    rows.push([label, 'Entries', 'Spent', 'Received', ...extra]);
+    sp.rows.forEach((r) => rows.push([sp.groupBy === 'month' ? r.key : r.name, r.count, money(r.spent), money(r.received), ...extraVals(r)]));
+    rows.push(['Total', sp.totals.count, money(sp.totals.spent), money(sp.totals.received), ...extraVals(sp.totals)]);
     rows.push([]);
-    rows.push(['Group', 'Date', 'Payee', 'Category', 'Description / notes', 'Amount']);
-    d.spending.rows.forEach((r) => r.lines.forEach((l) => rows.push([r.name, l.date, l.payee, l.category, l.memo || '', money(l.cents)])));
+    rows.push([label, 'Date', 'Account', 'Payee', 'Category', 'Project', 'Description / notes', 'Amount (account view)']);
+    sp.rows.forEach((r) => r.lines.forEach((l) => rows.push([sp.groupBy === 'month' ? r.key : r.name, l.date, (d.accountsById && d.accountsById[l.accountId] ? d.accountsById[l.accountId].name : l.accountId), l.payee, l.category, l.projectId && d.projectsById && d.projectsById[l.projectId] ? d.projectsById[l.projectId].name : '', l.memo || '', money(l.cents)])));
   } else if (tab === 'owner' && d.owner) {
     rows.push(['Month', 'Contributions', 'Distributions', 'Net']);
     d.owner.months.forEach((m) => rows.push([m.month, money(m.contributions), money(m.distributions), money(m.net)]));
