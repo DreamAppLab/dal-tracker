@@ -11,7 +11,7 @@ import * as core from './core';
 import { useLedger } from './LedgerContext';
 import { fetchAccountAll, fetchRange, postDepreciation } from './ledgerStore';
 import {
-  BalanceSheetView, FixedAssetsView, GeneralLedgerView, OwnerEquityView, ProjectReportView, TrialBalanceView, statementCsvRows,
+  BalanceSheetView, FixedAssetsView, GeneralLedgerView, OwnerEquityView, ProjectReportView, SpendingReportView, TrialBalanceView, statementCsvRows,
 } from './ReportsStatements';
 import { csvCell, downloadText, Empty, fmt, fmtDate, monthLabel, todayISO } from './ui';
 
@@ -42,6 +42,7 @@ const TABS = [
   ['trends', 'Category trends', 'Analysis'],
   ['income', 'Income by source', 'Analysis'],
   ['projects', 'By project', 'Analysis'],
+  ['spending', 'Spending', 'Analysis'],
   ['assets', 'Fixed assets', 'Schedules'],
   ['owner', 'Owner contributions & distributions', 'Schedules'],
   ['ic', 'Intercompany', 'Schedules'],
@@ -69,6 +70,7 @@ export default function Reports({ onOpenTxn }) {
   const lastGoodAnchor = useRef(anchorInput);
   if (core.isValidDate(anchorInput)) lastGoodAnchor.current = anchorInput;
   const anchor = core.isValidDate(anchorInput) ? anchorInput : lastGoodAnchor.current;
+  const [spendFilters, setSpendFilters] = useState({ payee: '', categoryIds: [], projectId: '', accountId: '', groupBy: 'payee', includeIntercompany: false });
   const [custom, setCustom] = useState({ from: `${todayISO().slice(0, 4)}-01-01`, to: todayISO() });
   const [compare, setCompare] = useState(true);
   const [txCache, setTxCache] = useState({});
@@ -111,7 +113,7 @@ export default function Reports({ onOpenTxn }) {
   const statementRanges = useMemo(() => {
     const list = [];
     if (['bs', 'tb'].includes(tab) && core.needsMonthTxns(asOf)) list.push({ from: core.monthStart(asOf), to: asOf });
-    if (['gl', 'owner', 'projects'].includes(tab)) {
+    if (['gl', 'owner', 'projects', 'spending'].includes(tab)) {
       list.push({ from: range.from, to: range.to });
       if (range.from !== core.monthStart(range.from)) list.push({ from: core.monthStart(range.from), to: core.addDays(range.from, -1) });
     }
@@ -180,6 +182,13 @@ export default function Reports({ onOpenTxn }) {
         tb: core.trialBalance({ accounts: allAccounts, categories: categoriesById, totals, totalsBeforeFy, companyId, asOf }),
       };
     }
+    if (tab === 'spending') {
+      return { spending: core.spendingReport({
+        txns: rangeTxns, categories: categoriesById, otherCategories: categoriesById, otherName: ledger.otherMeta.short,
+        accounts: ledger.accountsById, projects: ledger.projectsById, companyId, from: range.from, to: range.to,
+        filters: spendFilters, groupBy: spendFilters.groupBy,
+      }) };
+    }
     if (tab === 'projects') {
       return { projects: core.projectReport({ txns: rangeTxns, categories: categoriesById, projects: ledger.projectsById, companyId, from: range.from, to: range.to }) };
     }
@@ -191,7 +200,7 @@ export default function Reports({ onOpenTxn }) {
       return { owner: core.ownerEquityReport({ accounts: ledger.raw.accountsMine, categories: categoriesById, txns: rangeTxns, companyId, from: range.from, to: range.to, totalsBefore }) };
     }
     return {};
-  }, [tab, validRange, haveAll, rangeTxns, monthly, companyId, asOf, range, categoriesById, ledger.raw.accountsMine, assetSummaries, ledger.projectsById]);
+  }, [tab, validRange, haveAll, rangeTxns, monthly, companyId, asOf, range, categoriesById, ledger.raw.accountsMine, assetSummaries, ledger.projectsById, spendFilters, ledger.accountsById, ledger.otherMeta.short]);
 
   function loadInto(wanted, isCancelled) {
     if (!wanted.length) return;
@@ -292,7 +301,7 @@ export default function Reports({ onOpenTxn }) {
     } else if (tab === 'trends') {
       lines.push(['Month', ...trendCats.map((id) => (categoriesById[id] || {}).name || id)]);
       trend.forEach((r) => lines.push([r.month, ...trendCats.map((id) => (r[id] || 0).toFixed(2))]));
-    } else if (['bs', 'tb', 'gl', 'assets', 'owner', 'projects'].includes(tab)) {
+    } else if (['bs', 'tb', 'gl', 'assets', 'owner', 'projects', 'spending'].includes(tab)) {
       lines.push(...statementCsvRows(tab, { ...statements, assets: assetSummaries }));
     } else if (tab === 'ic') {
       lines.push(['Month end', `Balance (+ due from ${ledger.otherMeta.short}, − due to)`]);
@@ -455,6 +464,7 @@ export default function Reports({ onOpenTxn }) {
         {tab === 'tb' && <TrialBalanceView tb={statements.tb} asOf={asOf} />}
         {tab === 'gl' && <GeneralLedgerView gl={statements.gl} accountsById={accountsById} onOpenTxn={onOpenTxn} />}
         {tab === 'owner' && <OwnerEquityView report={statements.owner} onOpenTxn={onOpenTxn} />}
+        {tab === 'spending' && <SpendingReportView report={statements.spending} filters={spendFilters} setFilters={setSpendFilters} ledger={ledger} onPick={(r) => setDrill({ title: `${spendFilters.groupBy === 'month' ? r.key : r.name} · transactions`, range, rows: r.lines })} />}
         {tab === 'projects' && <ProjectReportView report={statements.projects} onPick={(r) => setDrill({ title: `${r.name} · income & expense`, range, rows: r.lines })} />}
         {tab === 'assets' && (
           <>

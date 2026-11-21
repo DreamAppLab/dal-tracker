@@ -393,3 +393,32 @@ test('report dates: half-typed custom dates never throw; prior period only for v
   assert.equal(core.priorRange({ from: '2026-01-01', to: '', kind: 'custom' }), null);
   assert.deepEqual(core.priorRange({ from: '2026-01-01', to: '2026-01-31', kind: 'custom' }), { from: '2025-12-01', to: '2025-12-31', kind: 'custom' });
 });
+
+test('spending report: totals equal the P&L; payee/category/project/account filters; split lines; refunds net; intercompany only on request', () => {
+  const L = makeLedger();
+  L.accounts.dal_personal.openingDate = '2025-01-01';
+  L.accounts.dal_card.openingDate = '2025-01-01';
+  L.add('dal', { accountId: 'dal_personal', date: '2025-11-09', amountCents: -415000, payee: 'Sharmin Shepu', categoryId: cat('dal', 'contractors') });
+  L.add('dal', { accountId: 'dal_personal', date: '2026-02-03', amountCents: -1259550, payee: 'SHARMIN SHEPU', categoryId: cat('dal', 'contractors'), projectId: P('logabode') });
+  L.add('dal', { accountId: 'dal_card', date: '2026-03-03', amountCents: -30000, payee: 'Best Buy', splits: [
+    { lineId: 'a', categoryId: cat('dal', 'hardware'), amountCents: -20000 }, { lineId: 'b', categoryId: cat('dal', 'office'), amountCents: -10000 },
+  ] });
+  L.add('dal', { accountId: 'dal_card', date: '2026-03-09', amountCents: 5000, payee: 'Best Buy refund', categoryId: cat('dal', 'hardware') });
+  L.add('dal', { accountId: 'dal_checking', date: '2026-04-01', amountCents: 300000, payee: 'Client', categoryId: cat('dal', 'client_projects') });
+  L.add('dal', { accountId: 'dal_card', date: '2026-04-02', amountCents: -2000, payee: 'ANTHROPIC', transferAccountId: 'dal_ic_zerbiq', icCategoryId: cat('zerbiq', 'ai_apis') });
+  L.add('dal', { accountId: 'dal_checking', date: '2026-04-03', amountCents: -50000, payee: 'Card', transferAccountId: 'dal_card' });
+  const base = { txns: L.txnList(), categories: L.categories, otherCategories: L.categories, otherName: 'Zerbiq', companyId: 'dal', from: '2025-01-01', to: '2026-12-31' };
+  const all = core.spendingReport({ ...base, groupBy: 'category' });
+  const pnl = core.pnlFromMonthly(L.monthlyList(), L.categories, 'dal', '2025-01-01', '2026-12-31');
+  assert.deepEqual([all.totals.spent, all.totals.received], [pnl.totalExpense, pnl.totalIncome], 'agrees with P&L');
+  assert.equal(all.rows.find((r) => r.key === cat('dal', 'hardware')).spent, 15000, 'refund nets against its category');
+  const sharmin = core.spendingReport({ ...base, filters: { payee: 'sharmin shepu' }, groupBy: 'month' });
+  assert.equal(sharmin.totals.spent, 1674550, '$16,745.50 across all accounts');
+  assert.deepEqual(sharmin.rows.map((r) => r.key), ['2025-11', '2026-02']);
+  assert.equal(core.spendingReport({ ...base, filters: { payee: 'sharmin', projectId: P('logabode') } }).totals.spent, 1259550);
+  assert.equal(core.spendingReport({ ...base, filters: { categoryIds: [cat('dal', 'office')] } }).totals.spent, 10000, 'split line by its own category');
+  assert.equal(core.spendingReport({ ...base, filters: { accountId: 'dal_card' } }).totals.spent, 25000);
+  const ic = core.spendingReport({ ...base, filters: { categoryIds: [`ic:${cat('zerbiq', 'ai_apis')}`] }, groupBy: 'category' });
+  assert.deepEqual([ic.totals.intercompany, ic.totals.spent], [2000, 0]);
+  assert.match(ic.rows[0].name, /Paid for Zerbiq/);
+});
