@@ -171,11 +171,14 @@ service cloud.firestore {
         && optOwnedBy(request.resource.data, 'accountId', request.resource.data.companyId)
         // "Paid for the other company" rules point at the OTHER company's category.
         && (request.resource.data.get('icCategoryId', null) == null
-          || (request.resource.data.icCategoryId is string
-            && ledgerCompany(request.resource.data.icCategoryId.split('_')[0])
-            && request.resource.data.icCategoryId.split('_')[0] != request.resource.data.companyId))
+          || (request.resource.data.companyId == 'dal' && ownedBy(request.resource.data.icCategoryId, 'zerbiq'))
+          || (request.resource.data.companyId == 'zerbiq' && ownedBy(request.resource.data.icCategoryId, 'dal')))
         && (request.resource.data.get('fromDate', null) == null || isDate(request.resource.data.fromDate))
         && (request.resource.data.get('toDate', null) == null || isDate(request.resource.data.toDate))
+        && (request.resource.data.get('fromDate', null) == null || request.resource.data.get('toDate', null) == null
+          || request.resource.data.fromDate <= request.resource.data.toDate)
+        && request.resource.data.get('wholeWord', false) is bool
+        && request.resource.data.get('settleThroughOwners', false) is bool
         && request.resource.data.pattern is string && request.resource.data.pattern.size() > 0
         && request.resource.data.pattern.size() <= 100
         && (resource == null || sameCompany());

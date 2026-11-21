@@ -215,3 +215,37 @@ test('vendor rules: date/account-limited intercompany rules (Zerbiq vendors from
   assert.equal(core.pnlFromMonthly(L.monthlyList(), L.categories, 'dal', '2026-09-01', '2026-09-30').totalExpense, 0);
   assert.equal(core.pnlFromMonthly(L.monthlyList(), L.categories, 'zerbiq', '2026-09-01', '2026-09-30').totalExpense, 2000);
 });
+
+test('Zerbiq charges on the DAL card: Vercel plan split + overage, settled through the owners (no open intercompany balance)', () => {
+  const L = makeLedger();
+  for (const c of ['dal', 'zerbiq']) L.accounts[`${c}_personal`].openingDate = '2026-01-01';
+  const rule = { pattern: 'VERCEL', categoryId: cat('dal', 'hosting'), icCategoryId: cat('zerbiq', 'hosting'), settleThroughOwners: true, fromDate: '2026-08-28', accountId: 'dal_card', splitPlan: { planCents: 2000, ownCents: 1000, overageMemo: 'Vercel overage: Zerbiq builds/previews' } };
+  // Longer general DAL rule loses to the limited Zerbiq rule.
+  const picked = core.matchVendorRule('VERCEL INC PRO PLAN', [{ pattern: 'VERCEL INC PRO', categoryId: cat('dal', 'hosting') }, rule], { date: '2026-09-03', accountId: 'dal_card' });
+  assert.equal(picked, rule);
+  assert.equal(core.rulePick(rule), `cat:${cat('dal', 'hosting')}`, 'outside the importer a split rule falls back to our category');
+  const lines = core.ruleSplitLines(rule, -2350, 'dal');
+  assert.deepEqual(lines.map((l) => l.amountCents), [-1000, -1000, -350]);
+  const id = L.add('dal', { accountId: 'dal_card', date: '2026-09-03', amountCents: -2350, payee: 'VERCEL INC', splits: lines });
+  const anth = L.add('dal', { accountId: 'dal_card', date: '2026-09-05', amountCents: -2000, payee: 'ANTHROPIC', transferAccountId: 'dal_ic_zerbiq', icCategoryId: cat('zerbiq', 'ai_apis') });
+  assert.equal(L.balance('dal_ic_zerbiq'), 1350 + 2000);
+  for (const [key, amt, date] of [[id, 1350, '2026-09-03'], [anth, 2000, '2026-09-05']]) {
+    core.ownersSettlementDrafts({ paidBy: 'dal', key, amountCents: amt, date }).forEach((d) => L.save(d.id, d.draft));
+  }
+  // Idempotent ids.
+  assert.equal(core.ownersSettlementDrafts({ paidBy: 'dal', key: id, amountCents: 1350, date: '2026-09-03' })[0].id, core.ownersSettlementDrafts({ paidBy: 'dal', key: id, amountCents: 1, date: '2026-09-03' })[0].id);
+  assert.equal(L.balance('dal_ic_zerbiq'), 0, 'Due from Zerbiq cleared');
+  assert.equal(L.balance('zerbiq_ic_dal'), 0, 'Due to DAL cleared');
+  assert.equal(L.balance('dal_card'), -4350, 'card still owes the statement amounts');
+  const pnl = (c) => core.pnlFromMonthly(L.monthlyList(), L.categories, c, '2026-09-01', '2026-09-30').totalExpense;
+  assert.equal(pnl('dal'), 1000, 'DAL keeps only its $10 plan share');
+  assert.equal(pnl('zerbiq'), 1000 + 350 + 2000);
+  const accounts = Object.entries(L.accounts).map(([aid, a]) => ({ id: aid, ...a }));
+  const owner = (c) => core.ownerEquityReport({ accounts, categories: L.categories, txns: L.txnList(), companyId: c, from: '2026-01-01', to: '2026-12-31', totalsBefore: { acct: {}, cat: {} } }).totals.net;
+  assert.equal(owner('zerbiq'), 3350, 'Zerbiq: the owners funded its share');
+  assert.equal(owner('dal'), -3350, 'DAL: its owner money is reduced by the Zerbiq share (card payments add it back when imported)');
+  for (const c of ['dal', 'zerbiq']) {
+    const totals = core.totalsAsOf({ monthly: L.monthlyList(), monthTxns: [], companyId: c, asOf: '2026-12-31' });
+    assert.ok(core.balanceSheet({ accounts, categories: L.categories, totals, totalsBeforeFy: { acct: {}, cat: {} }, companyId: c, asOf: '2026-12-31' }).balanced, c);
+  }
+});

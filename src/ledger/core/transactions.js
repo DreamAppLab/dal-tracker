@@ -30,6 +30,7 @@ const {
   ids,
   monthOf,
   otherCompany,
+  COMPANY_META,
 } = require('./constants');
 
 class LedgerError extends Error {
@@ -47,7 +48,7 @@ const TXN_FIELDS = [
   'settlementId', 'fingerprint', 'importId', 'source', 'project', 'attachmentUrl',
   'checkNumber', 'legacyExpenseId', 'parentLineKey', 'attachmentPath', 'lineId',
   'projectId', 'convertedFromCategoryId', 'legacyProjectLinked', 'legacyNotesAdded',
-  'personalMovedFrom', 'coversHistoricalCents',
+  'personalMovedFrom', 'coversHistoricalCents', 'settlementKind',
 ];
 
 // Fields a linked leg/mirror keeps for itself across re-plans (its own
@@ -479,6 +480,31 @@ function settlementDrafts({ settlementId, payer, payerTxnId, receiverTxnId, paye
   ];
 }
 
+/**
+ * "Settle through owners (no repayment)": the other company will never pay
+ * back what `paidBy` paid for it, because the owners funded it personally.
+ * It is an ordinary intercompany settlement whose two sides go through each
+ * company's "Paid personally" account instead of a bank account: the company
+ * that was paid for records an owner contribution, the payer's owner money is
+ * reduced by the same amount, and both intercompany balances go to zero.
+ * Deterministic ids from `key` make it idempotent.
+ */
+function ownersSettlementDrafts({ paidBy, key, amountCents, date, memo, payee }) {
+  const other = otherCompany(paidBy);
+  let h = 5381;
+  for (const ch of String(key)) h = ((h * 33) ^ ch.charCodeAt(0)) >>> 0;
+  const base = `own${h.toString(36)}${String(key).length.toString(36)}`;
+  const { payerTxnId, receiverTxnId } = settlementTxnIds(base, other);
+  const drafts = settlementDrafts({
+    settlementId: `set_${base}`, payer: other, payerTxnId, receiverTxnId,
+    payerAccountId: ids.personal(other), receiverAccountId: ids.personal(paidBy),
+    amountCents, date, memo: memo || 'Settled through the owners: no repayment',
+    payerPayee: payee || `${COMPANY_META[other].short} costs paid personally via ${COMPANY_META[paidBy].short} card`,
+    receiverPayee: payee || `${COMPANY_META[other].short} costs paid personally via ${COMPANY_META[paidBy].short} card`,
+  });
+  return drafts.map((d) => ({ ...d, draft: { ...d.draft, settlementKind: 'owners', status: 'cleared' } }));
+}
+
 /** Merge several plans into one write set (e.g. both sides of a settlement). */
 function mergePlans(plans) {
   // eslint-disable-next-line global-require
@@ -515,6 +541,7 @@ module.exports = {
   planTransactionWrite,
   planSoftDelete,
   settlementDrafts,
+  ownersSettlementDrafts,
   mergePlans,
   monthOf,
   companyOfId,

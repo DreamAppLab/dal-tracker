@@ -286,4 +286,17 @@ test('ledger: intercompany vendor rules point at the other company only; dates a
   await assertFails(setDoc(doc(db, 'ledgerVendorRules', 'dal_rule_ic_bad3'), rule({ fromDate: '08/28/2026' })));
   await assertFails(setDoc(doc(db, 'ledgerVendorRules', 'dal_rule_ic_bad4'), rule({ accountId: 'zerbiq_card' })));
   await assertSucceeds(updateDoc(doc(db, 'ledgerVendorRules', 'dal_rule_ic_vercel'), { categoryId: 'dal_cat_software' }));
+  await assertFails(setDoc(doc(db, 'ledgerVendorRules', 'dal_rule_ic_bad5'), rule({ icCategoryId: 'zerbiq_' })));
+  await assertFails(setDoc(doc(db, 'ledgerVendorRules', 'dal_rule_ic_bad6'), rule({ wholeWord: 'false' })));
+  await assertFails(setDoc(doc(db, 'ledgerVendorRules', 'dal_rule_ic_bad7'), rule({ fromDate: '2026-09-01', toDate: '2026-08-01' })));
+  await assertSucceeds(setDoc(doc(db, 'ledgerVendorRules', 'dal_rule_ic_split'), rule({ settleThroughOwners: true, splitPlan: { planCents: 2000, ownCents: 1000 } })));
+});
+
+test('ledger: an owners settlement (through Paid personally, no bank) passes the rules', async () => {
+  const db = admin();
+  const core = (await import('../../src/ledger/core/index.js')).default;
+  const drafts = core.ownersSettlementDrafts({ paidBy: 'dal', key: 'dal_card_x1', amountCents: 1350, date: '2026-09-03' });
+  for (const d of drafts) {
+    await assertSucceeds(setDoc(doc(db, 'ledgerTransactions', d.id), txn({ ...d.draft, categoryId: null, icCategoryId: null, type: 'intercompany' })));
+  }
 });

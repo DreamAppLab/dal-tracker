@@ -139,7 +139,10 @@ function matchVendorRule(payee, rules, ctx = {}) {
     if (r.fromDate && ctx.date < r.fromDate) continue;
     if (r.toDate && ctx.date > r.toDate) continue;
     if (r.accountId && r.accountId !== ctx.accountId) continue;
-    const score = normalizePayee(r.pattern).length * 10 + (r.fromDate || r.toDate ? 2 : 0) + (r.accountId ? 1 : 0);
+    // A rule limited to a date range or account is a deliberate exception, so
+    // it beats any general rule (even a longer one); then the longest pattern.
+    const limited = (r.fromDate || r.toDate ? 2 : 0) + (r.accountId ? 1 : 0);
+    const score = limited * 1e6 + normalizePayee(r.pattern).length;
     if (!best || score > best.score) best = { score, rule: r };
   }
   return best ? best.rule : null;
@@ -148,7 +151,39 @@ function matchVendorRule(payee, rules, ctx = {}) {
 /** The register/import pick a rule gives: its category, or "Paid for <other company>" for an intercompany rule. */
 function rulePick(rule) {
   if (!rule) return '';
-  return rule.icCategoryId ? `ic:${rule.icCategoryId}` : `cat:${rule.categoryId}`;
+  // A shared-plan rule (splitPlan) is split by the importer; elsewhere it falls back to its own category.
+  return rule.icCategoryId && !rule.splitPlan ? `ic:${rule.icCategoryId}` : `cat:${rule.categoryId}`;
+}
+
+/**
+ * Split lines for a shared-plan rule (e.g. Vercel Pro: $20 plan, $10 ours,
+ * $10 theirs, anything above the plan is theirs). Charges only (amount < 0);
+ * up to the plan price it splits 50/50 (odd cent to the other company).
+ * Lines are in the account's sign and always add up to the charge.
+ */
+function ruleSplitLines(rule, amountCents, companyId) {
+  if (!rule || !rule.splitPlan || !rule.icCategoryId || !(amountCents < 0)) return null;
+  const total = -amountCents;
+  const plan = Number(rule.splitPlan.planCents) || 0;
+  const ownShare = Number(rule.splitPlan.ownCents) || 0;
+  let own;
+  let theirs;
+  let overage = 0;
+  if (total <= plan) {
+    own = Math.floor(total / 2);
+    theirs = total - own;
+  } else {
+    own = ownShare;
+    theirs = plan - ownShare;
+    overage = total - plan;
+  }
+  const ic = `${companyId}_ic_${companyId === 'dal' ? 'zerbiq' : 'dal'}`;
+  const lines = [
+    { lineId: 'own', categoryId: rule.categoryId, transferAccountId: null, icCategoryId: null, amountCents: -own, memo: rule.splitPlan.ownMemo || 'Plan: our share' },
+    { lineId: 'oth', categoryId: null, transferAccountId: ic, icCategoryId: rule.icCategoryId, amountCents: -theirs, memo: rule.splitPlan.otherMemo || 'Plan: their share' },
+  ];
+  if (overage) lines.push({ lineId: 'ovr', categoryId: null, transferAccountId: ic, icCategoryId: rule.icCategoryId, amountCents: -overage, memo: rule.splitPlan.overageMemo || 'Overage' });
+  return lines.filter((l) => l.amountCents !== 0);
 }
 
 function applyVendorRules(payee, rules) {
@@ -428,6 +463,7 @@ module.exports = {
   isLikelyCardPayment,
   rulePick,
   rulePatternMatches,
+  ruleSplitLines,
   suggestTransfer,
   detectDelimiter,
   parseCsvText,

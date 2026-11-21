@@ -7,7 +7,7 @@ import React, { useMemo, useState } from 'react';
 import * as core from './core';
 import { useLedger } from './LedgerContext';
 import {
-  apiPost, COL, db, doc, fetchAccountRange, importRecordExists, getTxn, runPlans, saveDoc, serverTimestamp, writeBatch,
+  apiPost, COL, db, doc, fetchAccountRange, settleThroughOwners, importRecordExists, getTxn, runPlans, saveDoc, serverTimestamp, writeBatch,
 } from './ledgerStore';
 import { parseStatementPdf } from './import/capOnePdf';
 import { CategorySelect, Empty, fmt, fmtDate, lineFromPick, pickFromLine } from './ui';
@@ -216,9 +216,13 @@ export default function ImportPanel({ onDone }) {
         } else {
           const rule = core.matchVendorRule(r.payee, rules, { date: r.date, accountId: account.id });
           if (rule && !(rule.icCategoryId && account.kind === 'intercompany')) {
-            row.pick = core.rulePick(rule);
+            const split = core.ruleSplitLines(rule, r.amountCents, companyId);
+            row.pick = split ? 'split' : core.rulePick(rule);
+            row.splits = split || null;
             row.projectId = rule.icCategoryId ? null : rule.projectId || null;
             row.rulePick = row.pick;
+            row.ownerSettle = !!rule.settleThroughOwners;
+            row.reviewNote = rule.reviewNote || '';
           }
         }
       }
@@ -334,8 +338,11 @@ export default function ImportPanel({ onDone }) {
             // Never overwrite: an existing doc (moved outside the preview
             // window, or deleted) means this row was imported before.
             makeDraft: (before) => (before ? undefined : {
-              companyId, accountId: account.id, date: r.date, payee: r.payee, memo: r.memo || '', amountCents: r.amountCents,
-              ...lineFromPick(r.pick, companyId), splits: [], status: 'cleared', source: 'import',
+              companyId, accountId: account.id, date: r.date, payee: r.payee, amountCents: r.amountCents,
+              // A rule's review note (e.g. which company a domain belongs to) stays on the row until someone checks it.
+              memo: [r.memo || '', r.reviewNote && r.pick === r.rulePick ? `Check: ${r.reviewNote}` : ''].filter(Boolean).join(' · '),
+              ...(r.pick === 'split' && r.splits ? { categoryId: null, transferAccountId: null, icCategoryId: null, splits: r.splits } : { ...lineFromPick(r.pick, companyId), splits: [] }),
+              status: 'cleared', source: 'import',
               projectId: r.projectId && r.pick === r.rulePick ? r.projectId : null,
               coversHistoricalCents: coverage[r.key] && r.coverAck !== false ? coverage[r.key] : null,
               fingerprint: r.fingerprint, importId: r.importId,
@@ -343,6 +350,20 @@ export default function ImportPanel({ onDone }) {
           };
         });
         if (entries.length) await runPlans(entries, accountsById, categoriesById);
+        // Rules marked "settle through owners": the other company's share is
+        // never repaid (the owners paid the card personally), so close it
+        // with a non-cash owners settlement dated like the charge.
+        const owed = slice.filter((w) => w.kind === 'new' && w.r.ownerSettle && w.r.pick === w.r.rulePick)
+          .map(({ r }) => {
+            const lines = r.pick === 'split' && r.splits ? r.splits : [lineFromPick(r.pick, companyId)].map((l) => ({ ...l, amountCents: r.amountCents }));
+            const icCents = lines.filter((l) => l.icCategoryId).reduce((s, l) => s - l.amountCents, 0);
+            return { key: `${account.id}_${r.fingerprint}`, amountCents: icCents, date: r.date, memo: `Settled through the owners: ${r.payee}` };
+          })
+          .filter((it) => it.amountCents > 0);
+        if (owed.length) {
+          setProgress('Settling the other company’s share through the owners…');
+          await settleThroughOwners(companyId, owed, accountsById, categoriesById);
+        }
         done += slice.length;
         setProgress(`Imported ${done} of ${work.length}…`);
       }
@@ -507,7 +528,18 @@ export default function ImportPanel({ onDone }) {
                     <td>
                       {r.status === 'match' || r.status === 'duplicate'
                         ? <span className="bk-muted">{r.status === 'match' ? 'Keeps existing booking' : '—'}</span>
-                        : <CategorySelect ledger={ledger} accountId={account.id} value={r.pick} allowSplit={false} onChange={(v) => patch(r.key, { pick: v, pairTxnId: v === pickFromLine({ transferAccountId: otherAcct && otherAcct.id }) ? r.pairTxnId : null })} />}
+                        : (
+                          <>
+                            {r.pick === 'split' && r.splits && (
+                              <div className="bk-small">
+                                Split: {r.splits.map((l) => `${l.icCategoryId ? `${ledger.otherMeta.short} · ` : ''}${(categoriesById[l.icCategoryId || l.categoryId] || {}).name || ''} ${fmt(-l.amountCents)}`).join(' + ')}
+                              </div>
+                            )}
+                            <CategorySelect ledger={ledger} accountId={account.id} value={r.pick === 'split' ? '' : r.pick} allowSplit={false} onChange={(v) => patch(r.key, { pick: v, splits: null, pairTxnId: v === pickFromLine({ transferAccountId: otherAcct && otherAcct.id }) ? r.pairTxnId : null })} />
+                            {r.ownerSettle && r.pick === r.rulePick && <div className="bk-muted bk-small">{ledger.otherMeta.short}’s share: settled through the owners (no repayment)</div>}
+                            {r.reviewNote && <div className="bk-small bk-warn-text">{r.reviewNote}</div>}
+                          </>
+                        )}
                     </td>
                     <td className="num">{r.amountCents < 0 ? fmt(-r.amountCents) : ''}</td>
                     <td className="num bk-pos">{r.amountCents > 0 ? fmt(r.amountCents) : ''}</td>

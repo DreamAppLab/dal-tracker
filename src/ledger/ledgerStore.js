@@ -597,3 +597,39 @@ export async function undoBulkEdit(edit, accounts, categories) {
   recordAuditEvent('ledger_update', `${COL.bulkEdits}/${edit.id}`, { action: 'bulk_recategorize_undone', companyId: edit.companyId, txnCount: n, failedCount: failed.length });
   return { done: n, failed };
 }
+
+/**
+ * "Settle through owners (no repayment)" for charges `paidBy` paid for the
+ * other company: items [{ key, amountCents (positive), date, memo? }].
+ * Makes sure both companies have a "Paid personally" account open by the
+ * earliest date, then records each pair (idempotent per key). Audited.
+ */
+export async function settleThroughOwners(paidBy, items, accounts, categories) {
+  const live = items.filter((i) => i.amountCents > 0);
+  if (!live.length) return 0;
+  const earliest = live.map((i) => i.date).sort()[0];
+  const accts = { ...accounts };
+  for (const c of core.COMPANY_IDS) {
+    const id = core.ids.personal(c);
+    const cur = accts[id];
+    if (!cur || cur.archived || cur.openingDate > earliest) {
+      const base = cur ? { ...cur } : { ...core.personalAccountDoc(c).data };
+      delete base.id; delete base.updatedAt; delete base.createdAt;
+      const data = { ...base, archived: false, openingDate: cur && cur.openingDate < earliest ? cur.openingDate : earliest };
+      // eslint-disable-next-line no-await-in-loop
+      await setDoc(doc(db, COL.accounts, id), { ...data, updatedAt: serverTimestamp() }, { merge: true });
+      accts[id] = { ...data, id };
+    }
+  }
+  let done = 0;
+  for (let i = 0; i < live.length; i += 10) {
+    const chunk = live.slice(i, i + 10);
+    const entries = chunk.flatMap((it) => core.ownersSettlementDrafts({ paidBy, key: it.key, amountCents: it.amountCents, date: it.date, memo: it.memo })
+      .map((d) => ({ id: d.id, makeDraft: (before) => (before && !before.deleted ? undefined : d.draft) })));
+    // eslint-disable-next-line no-await-in-loop
+    const { plan } = await runPlans(entries, accts, categories);
+    done += new Set(plan.sets.filter((s) => s.data && s.data.settlementKind === 'owners' && s.data.companyId === paidBy && s.data.role === 'main').map((s) => s.id)).size;
+  }
+  recordAuditEvent('ledger_update', 'ledgerTransactions/settle-through-owners', { action: 'settle_through_owners', companyId: paidBy, count: live.length, recorded: done, totalCents: live.reduce((s, it) => s + it.amountCents, 0) });
+  return done;
+}
