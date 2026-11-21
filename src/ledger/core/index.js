@@ -14,4 +14,5 @@ module.exports = {
   ...require('./migration'),
   ...require('./fixedAssets'),
   ...require('./statements'),
+  ...require('./bulk'),
 };

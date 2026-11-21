@@ -7,6 +7,7 @@ import * as core from './core';
 import { useLedger } from './LedgerContext';
 import { apiPost, COL, createFixedAsset, db, deleteRule, disposeAsset, newId, saveDoc, seedCompany } from './ledgerStore';
 import { Empty, fmt } from './ui';
+import BulkRecategorize from './BulkRecategorize';
 import { recordAuditEvent } from '../lib/audit';
 
 function useVault(companyId) {
@@ -419,6 +420,9 @@ export default function Setup() {
           <div className="bk-muted bk-small">Rules fill the category when you type a payee or import a statement. The longest matching text wins.</div>
         </div>
       </div>
+
+      <h3 className="bk-h3">Change category in bulk</h3>
+      <BulkRecategorize ledger={ledger} />
 
       <h3 className="bk-h3">Maintenance</h3>
       <div className="bk-panel bk-maint">

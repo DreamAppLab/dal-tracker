@@ -517,3 +517,48 @@ export async function importRecordExists(id) {
 }
 
 export { db, doc, writeBatch, serverTimestamp, COL };
+
+/** Every transaction of a company (all accounts, all years). */
+export async function fetchCompanyAll(companyId) {
+  return fetchRange(companyId, '0000-01-01', '9999-12-31');
+}
+
+async function runCategoryChanges(changes, direction, accounts, categories) {
+  const groups = Object.entries(core.changesByTxn(changes));
+  let changed = 0;
+  // Small chunks keep each Firestore transaction well under its write limit
+  // (main row + monthly totals per row).
+  for (let i = 0; i < groups.length; i += 40) {
+    const chunk = groups.slice(i, i + 40);
+    // eslint-disable-next-line no-await-in-loop
+    const { plan } = await runPlans(chunk.map(([id, list]) => ({ id, makeDraft: (before) => core.applyCategoryChanges(before, list, direction) })), accounts, categories);
+    changed += new Set(plan.sets.map((x) => x.id).filter((id) => chunk.some(([cid]) => cid === id))).size;
+  }
+  return changed;
+}
+
+/**
+ * Bulk "change category". The record (with every line's old category) is
+ * saved first, so the change can be undone even if it stops part-way.
+ */
+export async function bulkRecategorize(companyId, plan, q, accounts, categories) {
+  const id = newId(companyId, 'bulk');
+  const changes = plan.changes.map((c) => ({ id: c.id, lineId: c.lineId || null, line: c.line == null ? null : c.line, from: c.from || null, to: c.to, cents: c.cents }));
+  await setDoc(doc(db, COL.bulkEdits, id), {
+    companyId, kind: 'recategorize', payeeContains: String(q.payeeContains).slice(0, 100), fromCategoryId: q.fromCategoryId, toCategoryId: q.toCategoryId,
+    txnCount: plan.txnCount, totalCents: plan.totalCents, reconciledCount: plan.reconciled, changes, status: 'applying', createdAt: serverTimestamp(),
+  });
+  const done = await runCategoryChanges(changes, 'apply', accounts, categories);
+  await setDoc(doc(db, COL.bulkEdits, id), { status: 'applied', appliedCount: done, updatedAt: serverTimestamp() }, { merge: true });
+  recordAuditEvent('ledger_update', `${COL.bulkEdits}/${id}`, { action: 'bulk_recategorize', companyId, payeeContains: q.payeeContains, fromCategoryId: q.fromCategoryId, toCategoryId: q.toCategoryId, txnCount: done, lineCount: changes.length, totalCents: plan.totalCents, reconciledCount: plan.reconciled });
+  return done;
+}
+
+/** Undo a bulk change: lines still in the new category go back; later manual edits are kept. */
+export async function undoBulkEdit(edit, accounts, categories) {
+  if (edit.status === 'undone') throw new Error('Already undone.');
+  const n = await runCategoryChanges(edit.changes || [], 'undo', accounts, categories);
+  await setDoc(doc(db, COL.bulkEdits, edit.id), { status: 'undone', undoneCount: n, updatedAt: serverTimestamp() }, { merge: true });
+  recordAuditEvent('ledger_update', `${COL.bulkEdits}/${edit.id}`, { action: 'bulk_recategorize_undone', companyId: edit.companyId, txnCount: n });
+  return n;
+}

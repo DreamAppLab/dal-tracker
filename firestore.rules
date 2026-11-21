@@ -80,7 +80,7 @@ service cloud.firestore {
     function ledgerCollection(collection) {
       return collection in ['ledgerAccounts', 'ledgerCategories', 'ledgerTransactions',
         'ledgerVendorRules', 'ledgerReconciliations', 'ledgerMonthly', 'ledgerImports',
-        'ledgerPrefs', 'ledgerMigrationBackups', 'ledgerProjects'];
+        'ledgerPrefs', 'ledgerMigrationBackups', 'ledgerProjects', 'ledgerBulkEdits'];
     }
     function ledgerCompany(c) {
       return c is string && c in ['dal', 'zerbiq'];
@@ -132,6 +132,23 @@ service cloud.firestore {
     }
 
     // Projects / apps for tagging transactions (archived, never deleted).
+    // Bulk "change category" records (for undo). Created once with every
+    // line's old category; afterwards only the status counters change.
+    match /ledgerBulkEdits/{id} {
+      allow read: if ledgerReadable();
+      allow create: if isAdmin()
+        && ledgerCompany(request.resource.data.companyId)
+        && ownedBy(id, request.resource.data.companyId)
+        && request.resource.data.status == 'applying'
+        && request.resource.data.changes is list
+        && request.resource.data.changes.size() <= 2000
+        && ownedBy(request.resource.data.toCategoryId, request.resource.data.companyId);
+      allow update: if isAdmin() && sameCompany()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'appliedCount', 'undoneCount', 'updatedAt'])
+        && request.resource.data.status in ['applied', 'undone'];
+      allow delete: if false;
+    }
+
     match /ledgerProjects/{id} {
       allow read: if ledgerReadable();
       allow create, update: if isAdmin()
