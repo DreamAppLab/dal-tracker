@@ -112,8 +112,11 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
    bank account. The company that was paid for records an owner contribution, the paying company's owner
    money goes down by the same amount, and both intercompany balances end at $0.00. P&L and bank/card
    balances don't change. Imports apply it automatically for rules marked `settleThroughOwners`; it can also
-   be recorded on the Intercompany screen. Ids are derived from the charge, so it is idempotent; delete it
-   like any reimbursement to undo.
+   be recorded on the Intercompany screen. On import it's written in the same Firestore transaction as its
+   charge, and only when the charge itself is new. A refund on such a charge settles in the other direction.
+   Ids are derived from the charge (account + fingerprint), so it is idempotent. Delete it like any
+   reimbursement to undo; a deleted one is never re-created. Register entries aren't settled automatically:
+   use the Intercompany screen for any open balance.
 6. **P&L** (cash basis) counts only income and expense category lines. Transfers, equity, intercompany
    receivables and uncategorized lines are excluded; uncategorized lines are flagged so they get fixed.
    **Reports** are grouped into three sets:

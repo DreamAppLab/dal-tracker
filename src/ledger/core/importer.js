@@ -164,8 +164,9 @@ function rulePick(rule) {
 function ruleSplitLines(rule, amountCents, companyId) {
   if (!rule || !rule.splitPlan || !rule.icCategoryId || !(amountCents < 0)) return null;
   const total = -amountCents;
-  const plan = Number(rule.splitPlan.planCents) || 0;
-  const ownShare = Number(rule.splitPlan.ownCents) || 0;
+  const plan = Number(rule.splitPlan.planCents);
+  const ownShare = Number(rule.splitPlan.ownCents);
+  if (!Number.isInteger(plan) || !Number.isInteger(ownShare) || plan <= 0 || ownShare < 0 || ownShare > plan) return null;
   let own;
   let theirs;
   let overage = 0;

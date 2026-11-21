@@ -191,7 +191,9 @@ export default function Intercompany({ onOpenTxn }) {
                 {settlements.map((s) => (
                   <tr key={s.id} className="bk-row">
                     <td>{fmtDate(s.date)}</td>
-                    <td>{s.amountCents < 0 ? `${otherMeta.short} → ${meta.short}` : `${meta.short} → ${otherMeta.short}`}</td>
+                    <td>{s.settlementKind === 'owners'
+                      ? `Settled through owners (no repayment)${s.payee ? ` · ${s.payee}` : ''}`
+                      : s.amountCents < 0 ? `${otherMeta.short} → ${meta.short}` : `${meta.short} → ${otherMeta.short}`}</td>
                     <td className="num">{fmt(Math.abs(s.amountCents))}</td>
                     <td className="bk-actions">{s.status !== 'reconciled' && <button type="button" className="btn btn-ghost btn-sm bk-del" onClick={() => deleteSettlement(s)} disabled={busy}>Delete</button>}</td>
                   </tr>

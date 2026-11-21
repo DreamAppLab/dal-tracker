@@ -249,3 +249,23 @@ test('Zerbiq charges on the DAL card: Vercel plan split + overage, settled throu
     assert.ok(core.balanceSheet({ accounts, categories: L.categories, totals, totalsBeforeFy: { acct: {}, cat: {} }, companyId: c, asOf: '2026-12-31' }).balanced, c);
   }
 });
+
+test('owners settlement: refunds reverse it, legs carry the kind, ids come from the charge, bad split plans are ignored', () => {
+  const L = makeLedger();
+  for (const c of ['dal', 'zerbiq']) L.accounts[`${c}_personal`].openingDate = '2026-01-01';
+  const charge = L.add('dal', { accountId: 'dal_card', date: '2026-09-05', amountCents: -2000, payee: 'ANTHROPIC', transferAccountId: 'dal_ic_zerbiq', icCategoryId: cat('zerbiq', 'ai_apis') });
+  core.ownersSettlementDrafts({ paidBy: 'dal', key: `dal_card_${charge}`, amountCents: 2000, date: '2026-09-05' }).forEach((d) => L.save(d.id, d.draft));
+  const refund = L.add('dal', { accountId: 'dal_card', date: '2026-09-09', amountCents: 500, payee: 'ANTHROPIC REFUND', transferAccountId: 'dal_ic_zerbiq', icCategoryId: cat('zerbiq', 'ai_apis') });
+  assert.equal(L.balance('dal_ic_zerbiq'), -500, 'refund: DAL now owes Zerbiq');
+  // Reverse settlement: paid by the other company.
+  core.ownersSettlementDrafts({ paidBy: 'zerbiq', key: `dal_card_${refund}`, amountCents: 500, date: '2026-09-09' }).forEach((d) => L.save(d.id, d.draft));
+  assert.equal(L.balance('dal_ic_zerbiq'), 0);
+  assert.equal(L.balance('zerbiq_ic_dal'), 0);
+  assert.equal(core.pnlFromMonthly(L.monthlyList(), L.categories, 'zerbiq', '2026-09-01', '2026-09-30').totalExpense, 1500);
+  const legs = L.txnList().filter((t) => t.role === 'leg' && t.settlementId);
+  assert.ok(legs.length && legs.every((t) => t.settlementKind === 'owners'));
+  const ids = core.ownersSettlementDrafts({ paidBy: 'dal', key: 'dal_card_abc123def', amountCents: 1, date: '2026-09-05' }).map((d) => d.id);
+  assert.deepEqual(ids, ['zerbiq_set_owndalcardabc123def_p', 'dal_set_owndalcardabc123def_r']);
+  assert.equal(core.settlementPeerId(ids[0]), ids[1]);
+  assert.equal(core.ruleSplitLines({ splitPlan: { planCents: 2000, ownCents: 3000 }, icCategoryId: 'x', categoryId: 'y' }, -2500, 'dal'), null);
+});

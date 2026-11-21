@@ -270,6 +270,7 @@ function buildLeg(main, line, index, existing, accounts) {
     parentLineKey: key,
     role: 'leg',
     settlementId: main.settlementId,
+    settlementKind: main.settlementKind || null,
     fingerprint: null,
     importId: null,
     source: main.source,
@@ -491,9 +492,10 @@ function settlementDrafts({ settlementId, payer, payerTxnId, receiverTxnId, paye
  */
 function ownersSettlementDrafts({ paidBy, key, amountCents, date, memo, payee }) {
   const other = otherCompany(paidBy);
-  let h = 5381;
-  for (const ch of String(key)) h = ((h * 33) ^ ch.charCodeAt(0)) >>> 0;
-  const base = `own${h.toString(36)}${String(key).length.toString(36)}`;
+  // The charge's own id (account + import fingerprint) makes the settlement
+  // id: unique per charge, and the same on every re-run.
+  const base = `own${String(key).toLowerCase().replace(/[^a-z0-9]/g, '').slice(-48)}`;
+  if (base.length < 8) throw new LedgerError('Bad settlement key.');
   const { payerTxnId, receiverTxnId } = settlementTxnIds(base, other);
   const drafts = settlementDrafts({
     settlementId: `set_${base}`, payer: other, payerTxnId, receiverTxnId,
