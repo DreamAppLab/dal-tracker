@@ -160,23 +160,19 @@ async function linkLegacyProjects(db) {
   return { created: plan.create.length, tagged: plan.tag.length };
 }
 
-/** Old receipts live at expenses/<legacyId>/<file>; which migrated rows still have one. */
+/** Old receipts live at expenses/<legacyId>/<file>; which migrated rows still have one (one Storage listing). */
 async function legacyReceipts(getBucket, migrated) {
   const withUrl = migrated.filter((t) => t.attachmentUrl && !t.attachmentPath && t.legacyExpenseId);
-  let found = 0;
   if (!withUrl.length) return { withLink: 0, fileFound: 0, fileMissing: 0, missingIds: [] };
-  const bucket = getBucket();
-  const missing = [];
-  for (const t of withUrl) {
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      const [files] = await bucket.getFiles({ prefix: `expenses/${t.legacyExpenseId}/`, maxResults: 1 });
-      if (files.length) found += 1; else missing.push(t.id);
-    } catch (_) {
-      missing.push(t.id);
-    }
+  let present;
+  try {
+    const [files] = await getBucket().getFiles({ prefix: 'expenses/', autoPaginate: true });
+    present = new Set(files.map((f) => String(f.name).split('/')[1]));
+  } catch (_) {
+    return { withLink: withUrl.length, fileFound: null, fileMissing: null, missingIds: [] };
   }
-  return { withLink: withUrl.length, fileFound: found, fileMissing: missing.length, missingIds: missing.slice(0, 50) };
+  const missing = withUrl.filter((t) => !present.has(t.legacyExpenseId)).map((t) => t.id);
+  return { withLink: withUrl.length, fileFound: withUrl.length - missing.length, fileMissing: missing.length, missingIds: missing.slice(0, 50) };
 }
 
 /**

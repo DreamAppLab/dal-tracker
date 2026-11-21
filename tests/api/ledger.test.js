@@ -298,3 +298,30 @@ test('migration legacy-report is read-only; legacy-notes adds only dropped notes
   assert.equal(db.store.get('ledgerTransactions/dal_mig_e3').memo, 'April invoice');
   assert.ok([...db.store.keys()].some((k) => k.startsWith('auditLog/')), 'audited');
 });
+
+test('ledger receipt-url: old Expenses receipts get a fresh link to their own file only', async () => {
+  const firebaseAdmin = require('../../api/_lib/firebaseAdmin');
+  const signed = [];
+  const bucket = {
+    file: (name) => ({ getSignedUrl: async () => { signed.push(name); return [`https://signed/${name}`]; } }),
+    getFiles: async ({ prefix }) => [prefix === 'expenses/e9/' ? [{ name: 'expenses/e9/scan.pdf' }] : []],
+  };
+  const db = setup({
+    'ledgerTransactions/dal_mig_e1': { companyId: 'dal', source: 'migration', legacyExpenseId: 'e1', attachmentUrl: 'https://storage.googleapis.com/b/expenses/e1/receipt%201.pdf?GoogleAccessId=x' },
+    'ledgerTransactions/dal_mig_e2': { companyId: 'dal', source: 'migration', legacyExpenseId: 'e2', attachmentUrl: 'https://storage.googleapis.com/b/expenses/other/receipt.pdf?x' },
+    'ledgerTransactions/dal_mig_e3': { companyId: 'dal', source: 'migration', legacyExpenseId: 'e3', attachmentUrl: '' },
+    'ledgerTransactions/dal_mig_e9': { companyId: 'dal', source: 'migration', legacyExpenseId: 'e9', attachmentUrl: 'https://weird.example/x' },
+    'ledgerTransactions/dal_mig_bad': { companyId: 'dal', source: 'migration', legacyExpenseId: '../x', attachmentUrl: 'https://storage.googleapis.com/b/expenses/../x/a.pdf' },
+  });
+  firebaseAdmin.__setTestOverrides({ db, auth: require('../helpers').fakeAuth, bucket });
+  const ok = await call('receipt-url', { companyId: 'dal', txnId: 'dal_mig_e1' });
+  assert.equal(ok.statusCode, 200);
+  assert.equal(signed.pop(), 'expenses/e1/receipt 1.pdf', 'the file named in the stored link');
+  assert.equal((await call('receipt-url', { companyId: 'dal', txnId: 'dal_mig_e2' })).statusCode, 404, "another expense's file is never served");
+  assert.equal((await call('receipt-url', { companyId: 'dal', txnId: 'dal_mig_e3' })).statusCode, 404, 'cleared receipt');
+  assert.equal((await call('receipt-url', { companyId: 'dal', txnId: 'dal_mig_e9' })).statusCode, 200, 'unparseable link: listed by prefix');
+  assert.equal(signed.pop(), 'expenses/e9/scan.pdf');
+  assert.equal((await call('receipt-url', { companyId: 'dal', txnId: 'dal_mig_bad' })).statusCode, 404);
+  assert.equal(ledger.legacyReceiptPath('https://s/b/expenses/e1/..', 'e1'), null);
+  assert.equal(ledger.legacyReceiptPath('https://s/b/expenses/e1/a%2Fb.pdf', 'e1'), null);
+});

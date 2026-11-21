@@ -171,6 +171,21 @@ async function receipt(req, res) {
   return res.status(200).json({ ok: true, attachmentPath: path });
 }
 
+/** The object path inside an old signed receipt URL, if it is this expense's own file. */
+function legacyReceiptPath(url, legacyId) {
+  try {
+    const u = new URL(String(url));
+    const parts = u.pathname.split('/').filter(Boolean).map((p) => decodeURIComponent(p));
+    const i = parts.indexOf('expenses');
+    if (i < 0 || parts[i + 1] !== legacyId || parts.length !== i + 3) return null;
+    const file = parts[i + 2];
+    if (!file || file === '.' || file === '..' || /[\\/]/.test(file)) return null;
+    return `expenses/${legacyId}/${file}`;
+  } catch (_) {
+    return null;
+  }
+}
+
 async function receiptUrl(req, res) {
   const body = validate(ReceiptUrlSchema, parseJsonBody(req, { maxBytes: 1024 }));
   if (!body.txnId.startsWith(`${body.companyId}_`)) throw new HttpError(400, 'Transaction does not belong to this company');
@@ -180,11 +195,14 @@ async function receiptUrl(req, res) {
   if (t.companyId !== body.companyId) throw new HttpError(404, 'No receipt');
   const prefix = `ledgerReceipts/${body.companyId}/${body.txnId}/`;
   let path = t.attachmentPath && String(t.attachmentPath).startsWith(prefix) ? t.attachmentPath : null;
-  if (!path && !t.attachmentPath && t.source === 'migration' && t.legacyExpenseId && /^[A-Za-z0-9_-]{1,120}$/.test(t.legacyExpenseId)) {
+  if (!path && !t.attachmentPath && t.attachmentUrl && t.source === 'migration' && t.legacyExpenseId && /^[A-Za-z0-9_-]{1,120}$/.test(t.legacyExpenseId)) {
     // Receipts from the old Expenses tab: stored at expenses/<id>/<file>. Their
     // saved links were long-lived signed URLs; issue a fresh short one instead.
-    const [files] = await getMcBucket().getFiles({ prefix: `expenses/${t.legacyExpenseId}/`, maxResults: 1 });
-    if (files.length) path = files[0].name;
+    path = legacyReceiptPath(t.attachmentUrl, t.legacyExpenseId);
+    if (!path) {
+      const [files] = await getMcBucket().getFiles({ prefix: `expenses/${t.legacyExpenseId}/`, maxResults: 1 });
+      if (files.length) path = files[0].name;
+    }
   }
   if (!path) throw new HttpError(404, 'No receipt');
   const [url] = await getMcBucket().file(path).getSignedUrl({ version: 'v4', action: 'read', expires: Date.now() + 10 * 60 * 1000 });
@@ -205,3 +223,4 @@ module.exports = withSecurity(
 );
 
 module.exports.routeOf = routeOf;
+module.exports.legacyReceiptPath = legacyReceiptPath;

@@ -279,6 +279,7 @@ function planLegacyNotes(expenses, dalTxns) {
     let original;
     try { original = mapLegacyExpense(e).memo; } catch (_) { continue; }
     if (clean(t.memo) !== original || original.includes(add)) continue;
+    if (original.length + 3 + add.length > 1000) continue; // would be cut off (and then not undoable)
     updates.push({ id: t.id, memo: `${original}${original ? ' · ' : ''}${add}`.slice(0, 1000), legacyNotesAdded: add });
   }
   return updates;

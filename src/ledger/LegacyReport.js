@@ -37,7 +37,8 @@ export default function LegacyReport({ ledger }) {
     const r = await call('legacy-report'); if (r) setReport(r.report);
   };
   const exportNeither = () => {
-    const rows = [['Date', 'Payee', 'Category', 'Amount', 'Receipt']].concat(report.books.neither.rows.map((r) => [r.date, r.payee, catName(r.categoryId), (Math.abs(r.cents) / 100).toFixed(2), r.receipt ? 'yes' : '']));
+    // Charges positive, credits/refunds negative (as on the old Expenses tab).
+    const rows = [['Date', 'Payee', 'Category', 'Amount (credits negative)', 'Receipt']].concat(report.books.neither.rows.map((r) => [r.date, r.payee, catName(r.categoryId), (-r.cents / 100).toFixed(2), r.receipt ? 'yes' : '']));
     downloadText('expenses-without-project-or-notes.csv', rows.map((r) => r.map(csvCell).join(',')).join('\n'), 'text/csv');
   };
 
@@ -58,8 +59,8 @@ export default function LegacyReport({ ledger }) {
           <ul className="bk-small">
             <li>{b.withProject} have a project / app</li>
             <li>{b.withNotes} have notes</li>
-            <li>{b.withReceipt} have a receipt{report.receipts ? ` (old receipts: ${report.receipts.fileFound} of ${report.receipts.withLink} files found, opened with a fresh link)` : ''}</li>
-            <li><strong>{b.neither.count} have neither a project nor notes · {fmt(Math.abs(b.neither.totalCents))}</strong></li>
+            <li>{b.withReceipt} have a receipt{report.receipts && report.receipts.withLink ? (report.receipts.fileFound == null ? ' (could not check the old receipt files)' : ` (old receipts: ${report.receipts.fileFound} of ${report.receipts.withLink} files found; they open with a fresh link)`) : ''}</li>
+            <li><strong>{b.neither.count} have neither a project nor notes · {fmt(-b.neither.totalCents)} net spend</strong></li>
           </ul>
           <div className="bk-kicker bk-mt">Old Expenses records ({l.total})</div>
           <ul className="bk-small">
@@ -97,7 +98,7 @@ export default function LegacyReport({ ledger }) {
           <div className="bk-kicker bk-mt">Still need an invoice lookup ({b.neither.count})</div>
           {!b.neither.count ? <Empty>Every migrated row has a project or notes.</Empty> : (
             <>
-              <div className="bk-row-actions"><button type="button" className="btn btn-secondary btn-sm" onClick={exportNeither}>Export list (CSV)</button></div>
+              <div className="bk-row-actions"><button type="button" className="btn btn-secondary btn-sm" onClick={exportNeither}>Export list (CSV)</button>{b.neither.count > 300 && <span className="bk-muted bk-small">Showing the first 300 of {b.neither.count}; the CSV has all of them.</span>}</div>
               <div className="bk-table-wrap bk-scroll-y">
                 <table className="bk-table">
                   <thead><tr><th>Date</th><th>Payee</th><th>Category</th><th className="num">Amount</th></tr></thead>
