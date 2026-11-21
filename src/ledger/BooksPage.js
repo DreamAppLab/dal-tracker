@@ -10,6 +10,7 @@ import ImportPanel from './ImportPanel';
 import Reports from './Reports';
 import Setup from './Setup';
 import { fmt } from './ui';
+import useNewVersion from './useNewVersion';
 import './books.css';
 
 const TABS = [
@@ -64,6 +65,7 @@ function CompanyBar({ tab, setTab }) {
 
 function BooksInner() {
   const ledger = useLedger();
+  const stale = useNewVersion();
   const [tab, setTab] = useState(() => {
     try { return window.localStorage.getItem('mc.books.tab') || 'register'; } catch (_) { return 'register'; }
   });
@@ -84,6 +86,12 @@ function BooksInner() {
   };
   return (
     <div className="page bk-page" key={ledger.companyId} style={{ '--bk-co': ledger.meta.color, '--bk-co-tint': ledger.meta.tint }}>
+      {stale && (
+        <div className="bk-notice bk-notice-warn bk-update" role="alert">
+          <strong>Mission Control was updated.</strong> This tab is still running the previous version, which may book things differently. Reload before entering or changing anything.
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => window.location.reload()}>Reload now</button>
+        </div>
+      )}
       <CompanyBar tab={tab} setTab={go} />
       <div className="bk-body">
         {tab === 'register' && <Register focusTxn={focusTxn} onFocusHandled={() => setFocusTxn(null)} />}

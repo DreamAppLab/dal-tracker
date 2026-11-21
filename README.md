@@ -205,6 +205,10 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
      days is held back as a possible duplicate. Merge and Move apply only to the rows that were previewed
      (`ids`). Pairing is a maximum matching that prefers the closest dates, a statement row already merged
      into is never offered again, and undo keeps fields changed after the merge.
+   - **Old tabs:** Books checks `/asset-manifest.json` every 5 minutes and when the tab regains focus. If a
+     newer build is deployed than the one the tab is running, it shows a "Reload now" banner. A tab left open
+     across deploys keeps running the old code, and that is how hand-picked "Paid for Zerbiq" charges once
+     skipped their owners settlement (`useNewVersion`).
 7. **Reconciled rows are locked by the rules.** Their amount, date, account, status and delete flag can't
    change. **Undo reconcile** is server-side (`/api/ledger/unreconcile`), requires a sign-in within the last
    15 minutes, is written to the audit log first, and works on the latest statement only.
