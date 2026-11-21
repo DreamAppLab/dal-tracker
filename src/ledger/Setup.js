@@ -358,9 +358,18 @@ export default function Setup() {
     ['expo_650', '650 INDUSTRIES', false, 'software', 'software', {}],
     // Vercel Pro is shared: $10 DAL, $10 Zerbiq, overage (Zerbiq builds/previews) all Zerbiq.
     ['vercel', 'VERCEL', false, 'hosting', 'hosting', { splitPlan: { planCents: 2000, ownCents: 1000, ownMemo: 'Vercel Pro: DAL half', otherMemo: 'Vercel Pro: Zerbiq half', overageMemo: 'Vercel overage: Zerbiq builds/previews' } }],
+    // St Augustine law firm: Zerbiq's legal work. "AUGUSTINE LAW" (whole word) covers ST / ST. / SAINT
+    // spellings and never matches "ST AUGUSTINE LAWN CARE".
+    ['st_augustine_law', 'AUGUSTINE LAW', true, 'professional', 'professional', { label: 'St Augustine law rule' }],
+    // State of Florida fees are Zerbiq's (per the owners). DAL is a Florida LLC too, so these
+    // rows are labelled in the preview: change a DAL annual-report fee back to DAL there.
+    // "DIVISION OF CORPORATI" also catches descriptors cut off at the card's length limit.
+    ...[['fl_state', 'STATE OF FLORIDA'], ['fl_dept_state', 'FL DEPT OF STATE'], ['fl_dept_state2', 'FLORIDA DEPARTMENT OF STATE'], ['fl_dept_state3', 'FLORIDA DEPT OF STATE'],
+      ['fla_dept_state', 'FLA DEPT OF STATE'], ['sunbiz', 'SUNBIZ'], ['fl_corps', 'DIVISION OF CORPORATI'], ['fl_div_corp', 'FL DIV OF CORP']]
+      .map(([slug, pattern]) => [slug, pattern, false, 'taxes_licenses', 'taxes_licenses', { label: 'State of Florida rule' }]),
   ];
   const addZerbiqRules = () => run(async () => {
-    const need = ['ai_apis', 'software', 'hosting'].map((slug) => core.ids.category('zerbiq', slug));
+    const need = ['ai_apis', 'software', 'hosting', 'professional', 'taxes_licenses'].map((slug) => core.ids.category('zerbiq', slug));
     const missing = need.filter((id) => !ledger.categoriesById[id]);
     if (missing.length) throw new Error('Zerbiq’s default categories are missing. Switch to Zerbiq → Setup → Create default books first.');
     for (const [slug, pattern, wholeWord, zSlug, dSlug, extra] of zerbiqPresets) {
@@ -368,7 +377,7 @@ export default function Setup() {
       await saveDoc(COL.vendorRules, `dal_rule_ic_${slug}`, {
         companyId: 'dal', pattern, wholeWord, categoryId: core.ids.category('dal', dSlug), icCategoryId: core.ids.category('zerbiq', zSlug),
         fromDate: ZERBIQ_FROM, toDate: null, accountId: core.ACCOUNT, projectId: null, isDefault: false,
-        settleThroughOwners: true, splitPlan: extra.splitPlan || null, reviewNote: null,
+        settleThroughOwners: true, splitPlan: extra.splitPlan || null, reviewNote: null, label: extra.label || null,
       });
     }
     // Vercel Domains are yearly domain purchases, not the plan: plain DAL hosting (no split).
@@ -386,7 +395,7 @@ export default function Setup() {
       }
     }
     recordAuditEvent('ledger_update', 'ledgerVendorRules/dal_rule_ic_*', { action: 'zerbiq_vendor_rules', companyId: 'dal', fromDate: ZERBIQ_FROM, count: zerbiqPresets.length + 1 });
-  }, () => `Zerbiq rules saved. On the business card from ${fmtDate(ZERBIQ_FROM)}: Anthropic, Claude.ai, Expo and 650 Industries are 100% Zerbiq; Vercel is split $10 DAL / $10 Zerbiq with any overage to Zerbiq; Zerbiq's share is settled through the owners (no repayment). Vercel Domains stay plain DAL Hosting & domains. Earlier charges keep the DAL rules.`);
+  }, () => `Zerbiq rules saved. On the business card from ${fmtDate(ZERBIQ_FROM)}: Anthropic, Claude.ai, Expo, 650 Industries, St Augustine law and State of Florida fees are 100% Zerbiq; Vercel is split $10 DAL / $10 Zerbiq with any overage to Zerbiq; Zerbiq's share is settled through the owners (no repayment). Vercel Domains stay plain DAL Hosting & domains. Earlier charges keep the DAL rules.`);
   const ruleExtra = (r) => [
     r.icCategoryId ? `→ ${ledger.otherMeta.short} · ${(ledger.categoriesById[r.icCategoryId] || {}).name || 'category'}` : '',
     r.fromDate ? `from ${fmtDate(r.fromDate)}` : '',
@@ -396,6 +405,7 @@ export default function Setup() {
     r.splitPlan ? `split: ${fmt(r.splitPlan.ownCents)} ours of a ${fmt(r.splitPlan.planCents)} plan, rest theirs` : '',
     r.settleThroughOwners ? 'settled through owners' : '',
     r.reviewNote ? 'flagged to check' : '',
+    r.label ? `labelled “${r.label}”` : '',
   ].filter(Boolean).join(' · ');
   const addProject = () => {
     const name = newProject.trim();
@@ -540,7 +550,7 @@ export default function Setup() {
           </div>
           <div className="bk-muted bk-small">Rules fill the category when you type a payee or import a statement. A rule limited to dates or an account wins over general rules; otherwise the longest matching text wins. A rule marked “→ {ledger.otherMeta.short}” books the charge as paid for {ledger.otherMeta.short} (their expense); “settled through owners” closes that with no repayment. Outside a rule's dates or account, the other rules apply. For a split rule the category is our own share.</div>
           {companyId === 'dal' && (
-            <button type="button" className="btn btn-secondary btn-sm bk-mt" onClick={addZerbiqRules} disabled={busy}>{rules.some((r) => r.id === 'dal_rule_ic_anthropic') ? 'Update' : 'Add'} Zerbiq rules (Anthropic, Expo, Vercel from 08/28/26)</button>
+            <button type="button" className="btn btn-secondary btn-sm bk-mt" onClick={addZerbiqRules} disabled={busy}>{rules.some((r) => r.id === 'dal_rule_ic_st_augustine_law') ? 'Update' : 'Add'} Zerbiq rules (Anthropic, Expo, Vercel, St Augustine law, State of Florida from 08/28/26)</button>
           )}
         </div>
       </div>

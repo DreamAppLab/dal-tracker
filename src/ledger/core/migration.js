@@ -31,10 +31,17 @@ function legacyDate(expense) {
   return DATE_RE.test(raw) ? raw : '';
 }
 
+/** A year typo in an old record (e.g. 0226-03-29) is reported, never migrated as is. */
+function legacyYearOk(date) {
+  const y = Number(date.slice(0, 4));
+  return y >= 2000 && y <= 2099;
+}
+
 /** One legacy expense → a main transaction draft (no id). Throws on bad data. */
 function mapLegacyExpense(expense) {
   const date = legacyDate(expense);
   if (!date) throw new Error('missing or invalid date');
+  if (!legacyYearOk(date)) throw new Error(`date ${date} has a year typo; fix it on the old record`);
   const cents = dollarsToCents(expense.amount);
   if (!cents) throw new Error('zero amount');
   const slug = Object.prototype.hasOwnProperty.call(LEGACY_CATEGORY_MAP, expense.category)
@@ -68,10 +75,13 @@ function mapLegacyExpense(expense) {
 function planMigration(expenses, existingIds) {
   const errors = [];
   const mapped = [];
+  const alreadyIds = [];
   for (const e of expenses) {
     try {
       mapped.push({ id: migratedId(e.id), draft: mapLegacyExpense(e) });
     } catch (err) {
+      // Already migrated (and possibly corrected in Books since): nothing to do.
+      if (existingIds.has(migratedId(e.id))) { alreadyIds.push(migratedId(e.id)); continue; }
       errors.push({ id: e.id, error: err.message });
     }
   }
@@ -79,7 +89,7 @@ function planMigration(expenses, existingIds) {
   mapped.sort((a, b) => a.draft.date.localeCompare(b.draft.date) || a.id.localeCompare(b.id));
   const fps = withFingerprints(ACCOUNT, mapped.map((m) => m.draft));
   mapped.forEach((m, i) => { m.draft.fingerprint = fps[i].fingerprint; });
-  const skipped = [];
+  const skipped = [...alreadyIds];
   const drafts = [];
   for (const m of mapped) {
     if (existingIds.has(m.id)) skipped.push(m.id);

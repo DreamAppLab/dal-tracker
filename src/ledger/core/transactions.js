@@ -376,6 +376,11 @@ function assertUnlocked(before, after, label) {
 function planTransactionWrite(p) {
   const { id, draft, before, accounts, categories } = p;
   const existing = p.existing || {};
+  // Catch year typos (e.g. 0226 for 2026) whenever a date is entered or changed.
+  if (draft && draft.date && (!before || before.date !== draft.date)) {
+    const year = Number(String(draft.date).slice(0, 4));
+    if (!(year >= 2000 && year <= 2099)) throw new LedgerError(`Check the year in ${draft.date}: dates must be between 2000 and 2099.`, 'bad_year');
+  }
   const sets = [];
   const deletes = [];
   const beforeDocs = {};
