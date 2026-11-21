@@ -124,7 +124,11 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
    receivables and uncategorized lines are excluded; uncategorized lines are flagged so they get fixed.
    **Reports** are grouped into three sets:
    - *Statements:* P&L, balance sheet, trial balance, general ledger.
-   - *Analysis:* income vs expense, category breakdown, category trends, income by source, by project.
+   - *Analysis:* income vs expense, category breakdown, category trends, income by source, by project,
+     **Spending**: totals for any payee, categories (including "Paid for <other>" lines), project or account,
+     across all accounts, grouped by payee / category / project / month / account, with drill-down to the
+     register. With no filters its totals equal the P&L (`core.spendingReport`). The register's search has an
+     **All accounts** option.
    - *Schedules:* fixed assets, owner contributions & distributions, intercompany.
 
    All of them export to CSV and PDF. On the balance sheet, equity is opening-balance equity + owner

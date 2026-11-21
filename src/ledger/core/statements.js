@@ -312,4 +312,97 @@ function projectReport({ txns, categories, projects, companyId, from, to }) {
   return { rows: list, totals: { ...totals, net: totals.income - totals.expense } };
 }
 
-module.exports = { NO_PROJECT, projectReport, totalsAsOf, needsMonthTxns, balanceSheet, trialBalance, generalLedger, ownerEquityReport, catTotalsFromMonthly };
+/**
+ * Spending / transactions report: income and expense lines for [from, to]
+ * across all of a company's accounts (or one), filtered by payee text,
+ * categories, project and account, grouped by payee / category / project /
+ * month / account. Same lines as the P&L (cash basis: transfers, owner
+ * equity, uncategorized and deleted rows excluded; split lines by their own
+ * category and amount; refunds net against their category), so with no
+ * filters its totals equal the P&L. "Paid for <other company>" lines are
+ * included only when asked for (includeIntercompany, or picked as a category
+ * `ic:<categoryId>`); they are not in either P&L total.
+ *
+ * @param {object} p { txns, categories, otherCategories?, otherName?, accounts?, projects?, companyId, from, to,
+ *                     filters: { payee?, categoryIds?: string[], projectId?, accountId?, includeIntercompany? }, groupBy }
+ */
+function spendingReport(p) {
+  // eslint-disable-next-line global-require
+  const { linesOf } = require('./transactions');
+  // eslint-disable-next-line global-require
+  const { normalizePayee } = require('./importer');
+  const { txns, categories, companyId, from, to } = p;
+  const f = p.filters || {};
+  const groupBy = p.groupBy || 'payee';
+  const otherCats = p.otherCategories || {};
+  const accounts = p.accounts || {};
+  const projects = p.projects || {};
+  // Payee filter: like vendor rules; if that strips everything (e.g. "1099"), a plain match. Notes count too.
+  const needle = f.payee ? normalizePayee(f.payee) : '';
+  const raw = f.payee ? String(f.payee).trim().toLowerCase() : '';
+  const payeeHit = (t) => {
+    if (!raw) return true;
+    if (needle) return normalizePayee(t.payee).includes(needle) || normalizePayee(t.memo).includes(needle);
+    return `${t.payee || ''} ${t.memo || ''}`.toLowerCase().includes(raw);
+  };
+  const catSet = f.categoryIds && f.categoryIds.length ? new Set(f.categoryIds) : null;
+  const includeIc = !!f.includeIntercompany || !!(catSet && [...catSet].some((k) => k.startsWith('ic:')));
+  const groups = {};
+  const totals = { spent: 0, received: 0, intercompany: 0, uncategorized: 0, count: 0 };
+  for (const t of txns) {
+    if (t.companyId !== companyId || t.deleted || t.role === 'leg' || t.date < from || t.date > to) continue;
+    if (f.accountId && t.accountId !== f.accountId) continue;
+    if (!payeeHit(t)) continue;
+    linesOf(t).forEach((line, i) => {
+      let key;
+      let name;
+      let kind;
+      const isIcLine = !!(line.transferAccountId && (accounts[line.transferAccountId] || {}).kind === 'intercompany') || !!line.icCategoryId;
+      if (line.categoryId && categories[line.categoryId]) {
+        const c = categories[line.categoryId];
+        if (c.kind !== 'income' && c.kind !== 'expense') return; // owner money
+        key = line.categoryId;
+        name = c.name;
+        kind = c.kind;
+      } else if (isIcLine) {
+        if (!includeIc) return;
+        key = `ic:${line.icCategoryId || ''}`;
+        name = `Paid for ${p.otherName || 'the other company'} · ${(otherCats[line.icCategoryId] || {}).name || 'no category yet'}`;
+        kind = 'intercompany';
+      } else if (!line.transferAccountId) {
+        // Not in the P&L either (it flags these): shown apart so a search never misses them.
+        key = '_uncat';
+        name = 'Uncategorized (not in P&L)';
+        kind = 'uncategorized';
+      } else {
+        return; // transfer between accounts
+      }
+      // "Include paid for …" adds those lines even when specific categories are picked.
+      if (catSet && !catSet.has(key) && !(kind === 'intercompany' && f.includeIntercompany)) return;
+      const pid = line.projectId || t.projectId || NO_PROJECT;
+      if (f.projectId && pid !== f.projectId) return;
+      let gKey;
+      let gName;
+      if (groupBy === 'category') { gKey = key; gName = name; }
+      else if (groupBy === 'project') { gKey = pid; gName = pid === NO_PROJECT ? 'No project' : (projects[pid] || {}).name || 'Unknown project'; }
+      else if (groupBy === 'month') { gKey = t.date.slice(0, 7); gName = gKey; }
+      else if (groupBy === 'account') { gKey = t.accountId; gName = (accounts[t.accountId] || {}).name || t.accountId; }
+      else { gKey = normalizePayee(t.payee) || '(no payee)'; gName = t.payee || '(no payee)'; }
+      if (!groups[gKey]) groups[gKey] = { key: gKey, name: gName, spent: 0, received: 0, intercompany: 0, uncategorized: 0, lines: [] };
+      const g = groups[gKey];
+      const amt = line.amountCents;
+      if (kind === 'expense') { g.spent += -amt; totals.spent += -amt; }
+      else if (kind === 'income') { g.received += amt; totals.received += amt; }
+      else if (kind === 'intercompany') { g.intercompany += -amt; totals.intercompany += -amt; }
+      else { g.uncategorized += -amt; totals.uncategorized += -amt; }
+      totals.count += 1;
+      g.lines.push({ txnId: t.id, line: i, split: !!(t.splits && t.splits.length), date: t.date, payee: t.payee, memo: line.memo || t.memo, accountId: t.accountId, categoryId: line.categoryId || null, category: name, projectId: pid === NO_PROJECT ? null : pid, cents: amt });
+    });
+  }
+  const rows = Object.values(groups).map((g) => ({ ...g, net: g.received - g.spent, count: g.lines.length, lines: g.lines.sort((a, b) => a.date.localeCompare(b.date)) }));
+  if (groupBy === 'month') rows.sort((a, b) => a.key.localeCompare(b.key));
+  else rows.sort((a, b) => (b.spent + b.intercompany) - (a.spent + a.intercompany) || b.received - a.received || a.name.localeCompare(b.name));
+  return { rows, totals: { ...totals, net: totals.received - totals.spent }, groupBy };
+}
+
+module.exports = { NO_PROJECT, projectReport, spendingReport, totalsAsOf, needsMonthTxns, balanceSheet, trialBalance, generalLedger, ownerEquityReport, catTotalsFromMonthly };

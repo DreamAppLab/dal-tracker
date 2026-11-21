@@ -6,7 +6,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as core from './core';
 import { useLedger } from './LedgerContext';
 import {
-  convertToFixedAsset, fetchAccountRange, getTxn, newTxnId, openReceipt, purgeDeleted, saveTransaction, undoFixedAsset, uploadReceipt, setDeleted, setStatus, watchAccountWindow, watchFlag,
+  convertToFixedAsset, fetchAccountRange, fetchRange, getTxn, newTxnId, openReceipt, purgeDeleted, saveTransaction, undoFixedAsset, uploadReceipt, setDeleted, setStatus, watchAccountWindow, watchFlag,
 } from './ledgerStore';
 import SplitEditor from './SplitEditor';
 import {
@@ -65,6 +65,21 @@ export default function Register({ focusTxn, onFocusHandled }) {
   const [assetModal, setAssetModal] = useState(null); // { txn, name, inService, lifeYears, salvage }
   const [menuFor, setMenuFor] = useState(null); // row id whose ⋯ menu is open
   const [showClosed, setShowClosed] = useState(false);
+  // Search across every account of the company (a payee search must not miss rows elsewhere).
+  const [allAccounts, setAllAccounts] = useState(false);
+  const [allRows, setAllRows] = useState(null);
+  // Reloaded only when the company's totals change (an edit somewhere), not on every toggle.
+  const allSig = useMemo(() => monthly.map((m) => `${m.id}:${m.count}:${JSON.stringify(m.acct)}:${JSON.stringify(m.cat)}`).sort().join('|'), [monthly]);
+  const allLoaded = useRef('');
+  const allWanted = allAccounts && filters.search.trim().length >= 2;
+  useEffect(() => {
+    if (!allWanted || allLoaded.current === `${companyId}|${allSig}`) return undefined;
+    let stop = false;
+    fetchRange(companyId, '2000-01-01', '2099-12-31')
+      .then((r) => { if (!stop) { allLoaded.current = `${companyId}|${allSig}`; setAllRows(r.filter((t) => !t.deleted && (t.role || 'main') !== 'leg')); } })
+      .catch((e) => { if (!stop) setLoadError(e.message); });
+    return () => { stop = true; };
+  }, [allWanted, companyId, allSig]);
   const [sort, setSort] = useState({ key: 'date', dir: 'desc' });
   const [newForm, setNewForm] = useState(blankForm());
   const [editId, setEditId] = useState(null);
@@ -561,7 +576,8 @@ export default function Register({ focusTxn, onFocusHandled }) {
       {mode === 'register' && (
         <>
           <div className="bk-toolbar">
-            <input className="bk-input bk-search" placeholder="Search payee, notes, category, project, amount" value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} aria-label="Search" />
+            <input className="bk-input bk-search" placeholder={allAccounts ? 'Search all accounts: payee, notes, category, amount' : 'Search payee, notes, category, project, amount'} value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} aria-label="Search" />
+            <label className="bk-check" title="Search every account of this company, not just the one open"><input type="checkbox" checked={allAccounts} onChange={(e) => setAllAccounts(e.target.checked)} /> All accounts</label>
             <label className="bk-field-inline"><span>From</span><input type="date" className="bk-input bk-date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} /></label>
             <label className="bk-field-inline"><span>To</span><input type="date" className="bk-input bk-date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} /></label>
             <select className="bk-input bk-filter-cat" value={filters.pick} onChange={(e) => setFilters({ ...filters, pick: e.target.value })} aria-label="Category filter">
@@ -587,6 +603,20 @@ export default function Register({ focusTxn, onFocusHandled }) {
             {filtersActive && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setFilters({ search: '', from: '', to: '', pick: '*', status: '', min: '', max: '', project: '*' })}>Clear</button>}
           </div>
 
+          {allAccounts && filters.search.trim().length >= 2 && (
+            <AllAccountsResults rows={allRows} query={filters.search} ledger={ledger} onOpen={(t) => {
+              setAllAccounts(false);
+              setMode('register');
+              setAccountId(t.accountId);
+              if (t.date < windowStart) {
+                const [fy, fm] = t.date.split('-').map(Number);
+                const [ty, tm] = todayISO().split('-').map(Number);
+                setMonths((ty - fy) * 12 + (tm - fm) + 1);
+              }
+              setSelected(t.id);
+              setFilters((f) => ({ ...f, search: '' }));
+            }} />
+          )}
           <div className="bk-table-wrap" ref={tableRef}>
             <table className="bk-table bk-reg-table">
               <colgroup>
@@ -823,5 +853,41 @@ function QueueRow({ t, ledger, mode, busy, onCategorize, onRestore, onPurge, onO
           : <button type="button" className="btn btn-ghost btn-sm" onClick={onOpen}>Open</button>}
       </td>
     </tr>
+  );
+}
+
+/** Matches for a search across every account of the company. */
+function AllAccountsResults({ rows, query, ledger, onOpen }) {
+  const q = query.trim().toLowerCase();
+  const hits = useMemo(() => (rows || []).filter((t) => {
+    const hay = `${t.payee || ''} ${t.memo || ''} ${(t.splits || []).map((l) => l.memo || '').join(' ')} ${describeTxn(t, ledger)} ${core.centsToDecimalString(Math.abs(t.amountCents))}`.toLowerCase();
+    return hay.includes(q);
+  }).sort((a, b) => b.date.localeCompare(a.date)), [rows, q, ledger]);
+  if (!rows) return <div className="bk-panel"><Empty>Searching all accounts…</Empty></div>;
+  const total = hits.reduce((s, t) => s + t.amountCents, 0);
+  return (
+    <div className="bk-panel bk-mb">
+      <div className="bk-kicker">All accounts: {hits.length} match{hits.length === 1 ? '' : 'es'} · net {fmt(total)}</div>
+      {!hits.length ? <Empty>No matches in any account.</Empty> : (
+        <div className="bk-table-wrap bk-scroll-y">
+          <table className="bk-table">
+            <thead><tr><th>Date</th><th>Account</th><th>Payee · notes</th><th>Category</th><th className="num">Amount</th><th aria-label="Open" /></tr></thead>
+            <tbody>
+              {hits.slice(0, 500).map((t) => (
+                <tr key={t.id} className="bk-row">
+                  <td>{fmtDate(t.date)}</td>
+                  <td>{(ledger.accountsById[t.accountId] || {}).name || t.accountId}</td>
+                  <td className="bk-payee">{t.payee}{t.memo ? <div className="bk-muted bk-small">{t.memo}</div> : null}</td>
+                  <td>{describeTxn(t, ledger)}</td>
+                  <td className={`num ${t.amountCents > 0 ? 'bk-pos' : ''}`}>{fmt(t.amountCents)}</td>
+                  <td className="bk-actions"><button type="button" className="btn btn-ghost btn-sm" onClick={() => onOpen(t)}>Open</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div className="bk-muted bk-small">Amounts are from each account's point of view (a charge on a card or in Paid personally is negative). For totals by payee or category across accounts, use Reports → Spending.</div>
+    </div>
   );
 }

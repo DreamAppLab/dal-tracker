@@ -227,6 +227,68 @@ export function ProjectReportView({ report, onPick }) {
   );
 }
 
+const GROUPS = [['payee', 'Payee'], ['category', 'Category'], ['project', 'Project / app'], ['month', 'Month'], ['account', 'Account']];
+
+/**
+ * Spending / transactions report: filters, grouped totals, click a group for
+ * its transactions (each opens in its register).
+ */
+export function SpendingReportView({ report, filters, setFilters, ledger, onPick }) {
+  const cats = ledger.categories.filter((c) => c.kind === 'income' || c.kind === 'expense');
+  const icCats = ledger.otherCategories.filter((c) => c.kind === 'expense' && !c.archived);
+  const accounts = ledger.raw.accountsMine.filter((a) => a.kind !== 'intercompany');
+  const set = (patch) => setFilters({ ...filters, ...patch });
+  return (
+    <>
+      <div className="bk-toolbar bk-spend-filters">
+        <input className="bk-input" placeholder="Payee contains… (e.g. Sharmin)" value={filters.payee} onChange={(e) => set({ payee: e.target.value })} aria-label="Payee contains" />
+        <select className="bk-input" multiple size={4} value={filters.categoryIds} onChange={(e) => set({ categoryIds: [...e.target.selectedOptions].map((o) => o.value) })} aria-label="Categories (none selected = all)" title="Ctrl/Cmd-click to pick several; none selected = all">
+          <optgroup label="Expense">{cats.filter((c) => c.kind === 'expense').map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+          <optgroup label="Income">{cats.filter((c) => c.kind === 'income').map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+          <optgroup label={`Paid for ${ledger.otherMeta.short}`}>{icCats.map((c) => <option key={c.id} value={`ic:${c.id}`}>{ledger.otherMeta.short} · {c.name}</option>)}</optgroup>
+        </select>
+        <select className="bk-input" value={filters.projectId} onChange={(e) => set({ projectId: e.target.value })} aria-label="Project">
+          <option value="">All projects</option>
+          <option value="_none">No project</option>
+          {ledger.allProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <select className="bk-input" value={filters.accountId} onChange={(e) => set({ accountId: e.target.value })} aria-label="Account">
+          <option value="">All accounts</option>
+          {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.archived ? ' (closed)' : ''}</option>)}
+        </select>
+        <label className="bk-field-inline"><span>Group by</span>
+          <select className="bk-input" value={filters.groupBy} onChange={(e) => set({ groupBy: e.target.value })} aria-label="Group by">
+            {GROUPS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+        </label>
+        <label className="bk-check"><input type="checkbox" checked={filters.includeIntercompany} onChange={(e) => set({ includeIntercompany: e.target.checked })} /> Include paid for {ledger.otherMeta.short}</label>
+        {(filters.payee || filters.categoryIds.length || filters.projectId || filters.accountId) && <button type="button" className="btn btn-ghost btn-sm" onClick={() => set({ payee: '', categoryIds: [], projectId: '', accountId: '' })}>Clear filters</button>}
+      </div>
+      {!report ? <Empty>Loading…</Empty> : !report.rows.length ? <Empty>No matching income or expense in this period.</Empty> : (
+        <div className="bk-table-wrap">
+          <table className="bk-table bk-statement">
+            <thead><tr><th>{(GROUPS.find(([k]) => k === report.groupBy) || [])[1]}</th><th className="num">Entries</th><th className="num">Spent</th><th className="num">Received</th>{report.totals.intercompany ? <th className="num">Paid for {ledger.otherMeta.short}</th> : null}{report.totals.uncategorized ? <th className="num">Uncategorized</th> : null}</tr></thead>
+            <tbody>
+              {report.rows.map((r) => (
+                <tr key={r.key} className="bk-row bk-click" onClick={() => onPick(r)} title="Show transactions">
+                  <td>{report.groupBy === 'month' ? monthLabel(r.key) : r.name}</td>
+                  <td className="num bk-muted">{r.count}</td>
+                  <td className="num">{r.spent ? fmt(r.spent) : ''}</td>
+                  <td className="num">{r.received ? fmt(r.received) : ''}</td>
+                  {report.totals.intercompany ? <td className="num">{r.intercompany ? fmt(r.intercompany) : ''}</td> : null}
+                  {report.totals.uncategorized ? <td className="num bk-warn-text">{r.uncategorized ? fmt(r.uncategorized) : ''}</td> : null}
+                </tr>
+              ))}
+              <tr className="bk-total"><td>Total</td><td className="num">{report.totals.count}</td><td className="num">{fmt(report.totals.spent)}</td><td className="num">{fmt(report.totals.received)}</td>{report.totals.intercompany ? <td className="num">{fmt(report.totals.intercompany)}</td> : null}{report.totals.uncategorized ? <td className="num">{fmt(report.totals.uncategorized)}</td> : null}</tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div className="bk-muted bk-small">All accounts unless one is picked. Same lines as the P&L: transfers, owner money and deleted rows are left out, split lines count by their own category, and refunds net against their category, so with no filters Spent and Received equal the P&L. Uncategorized lines (also outside the P&L) are shown in their own column so a search never misses them. Payee matches the payee or notes. Click a row to see its transactions.</div>
+    </>
+  );
+}
+
 /** CSV rows (arrays) for the statement tabs. */
 export function statementCsvRows(tab, d) {
   const rows = [];
@@ -262,6 +324,18 @@ export function statementCsvRows(tab, d) {
     rows.push([]);
     rows.push(['Project / app', 'Date', 'Payee', 'Category', 'Description / notes', 'Amount']);
     d.projects.rows.forEach((r) => r.lines.forEach((l) => rows.push([r.name, l.date, l.payee, l.category, l.memo || '', money(l.cents)])));
+  } else if (tab === 'spending' && d.spending) {
+    const sp = d.spending;
+    const label = (GROUPS.find(([k]) => k === sp.groupBy) || [])[1] || 'Group';
+    const extra = [sp.totals.intercompany ? 'Paid for other company' : null, sp.totals.uncategorized ? 'Uncategorized' : null].filter(Boolean);
+    const extraVals = (x) => [sp.totals.intercompany ? money(x.intercompany) : null, sp.totals.uncategorized ? money(x.uncategorized) : null].filter((v) => v !== null);
+    if (d.spendingFilters) rows.push([`Filters: ${d.spendingFilters}`]);
+    rows.push([label, 'Entries', 'Spent', 'Received', ...extra]);
+    sp.rows.forEach((r) => rows.push([sp.groupBy === 'month' ? r.key : r.name, r.count, money(r.spent), money(r.received), ...extraVals(r)]));
+    rows.push(['Total', sp.totals.count, money(sp.totals.spent), money(sp.totals.received), ...extraVals(sp.totals)]);
+    rows.push([]);
+    rows.push([label, 'Date', 'Account', 'Payee', 'Category', 'Project', 'Description / notes', 'Amount (account view)']);
+    sp.rows.forEach((r) => r.lines.forEach((l) => rows.push([sp.groupBy === 'month' ? r.key : r.name, l.date, (d.accountsById && d.accountsById[l.accountId] ? d.accountsById[l.accountId].name : l.accountId), l.payee, l.category, l.projectId && d.projectsById && d.projectsById[l.projectId] ? d.projectsById[l.projectId].name : '', l.memo || '', money(l.cents)])));
   } else if (tab === 'owner' && d.owner) {
     rows.push(['Month', 'Contributions', 'Distributions', 'Net']);
     d.owner.months.forEach((m) => rows.push([m.month, money(m.contributions), money(m.distributions), money(m.net)]));
