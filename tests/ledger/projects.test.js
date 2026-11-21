@@ -128,3 +128,31 @@ test('"make this a fixed asset": re-booked off the P&L onto an asset; undo resto
   assert.equal(pnl.totalExpense, 311749, 'back to a Hardware expense, no depreciation left');
   assert.equal(L.txns[id].memo, 'MacBook Pro for app builds', 'notes kept');
 });
+
+test('old Expenses report: fields, app tags, notes, and rows still missing both; dropped notes come over once and undo cleanly', () => {
+  const expenses = [
+    { id: 'e1', date: '2025-05-01', vendor: 'Sharmin Shepu', amount: 300, category: 'Professional Services', appId: 'Logabode', notes: 'Logabode onboarding', description: 'Logabode onboarding' },
+    { id: 'e2', date: '2025-05-02', vendor: 'Fiverr', amount: 50, category: 'Development', appId: 'DAL', notes: 'FO123', description: 'FO123', source: 'excel-import', statementId: 's1' },
+    { id: 'e3', date: '2025-05-03', vendor: 'Best Buy', amount: 99, category: 'Office', appId: 'DAL General', notes: '', description: '' },
+    { id: 'e4', date: '2025-05-04', vendor: 'Sharmin Shepu', amount: 120, category: 'Professional Services', appId: 'DAL General', notes: 'RV Vault icons', description: 'April invoice', attachmentUrl: 'https://x' },
+  ];
+  const txns = expenses.map((e) => ({ id: core.migratedId(e.id), legacyExpenseId: e.id, ...core.mapLegacyExpense(e), role: 'main' }));
+  const r = core.legacyExpenseReport(expenses, txns);
+  assert.equal(r.legacy.total, 4);
+  assert.equal(r.legacy.withApp, 1);
+  assert.equal(r.legacy.withNotes, 3);
+  assert.equal(r.legacy.droppedNotes, 1);
+  assert.equal(r.legacy.withReceipt, 1);
+  assert.ok(r.legacy.fields.some((f) => f.name === 'appId' && f.count === 4));
+  assert.equal(r.legacy.examples.length, 3, 'Sharmin and Fiverr rows');
+  assert.equal(r.books.appTagNotLinked, 1);
+  assert.deepEqual([r.books.neither.count, r.books.neither.totalCents], [1, -9900]);
+  // Bring over the dropped note (e4) — only while the memo is what the migration wrote.
+  const plan = core.planLegacyNotes(expenses, txns);
+  assert.deepEqual(plan, [{ id: 'dal_mig_e4', memo: 'April invoice · RV Vault icons', legacyNotesAdded: 'RV Vault icons' }]);
+  const edited = txns.map((t) => (t.id === 'dal_mig_e4' ? { ...t, memo: 'my own words' } : t));
+  assert.equal(core.planLegacyNotes(expenses, edited).length, 0, 'never over a user edit');
+  const after = txns.map((t) => (t.id === 'dal_mig_e4' ? { ...t, memo: plan[0].memo, legacyNotesAdded: plan[0].legacyNotesAdded } : t));
+  assert.equal(core.planLegacyNotes(expenses, after).length, 0, 'idempotent');
+  assert.deepEqual(core.planLegacyNotesUndo(after), [{ id: 'dal_mig_e4', memo: 'April invoice' }]);
+});

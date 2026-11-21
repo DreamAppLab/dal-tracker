@@ -42,7 +42,7 @@ const ReceiptSchema = z
   })
   .strict();
 
-const MigrateSchema = z.object({ mode: z.enum(['dry-run', 'apply', 'rollback', 'settle', 'projects']), as: z.enum(['equity', 'owner']).optional() }).strict();
+const MigrateSchema = z.object({ mode: z.enum(['dry-run', 'apply', 'rollback', 'settle', 'projects', 'legacy-report', 'legacy-notes', 'legacy-notes-undo']), as: z.enum(['equity', 'owner']).optional() }).strict();
 const RebuildSchema = z.object({ companyId }).strict();
 
 async function migrate(req, res) {
@@ -50,12 +50,12 @@ async function migrate(req, res) {
   // Apply is additive, backed up and idempotent; rollback removes rows.
   if (mode === 'rollback') requireRecentAuth(req.auth, RECENT_AUTH_SECONDS);
   const db = getMcDb();
-  if (mode !== 'dry-run') {
+  if (mode !== 'dry-run' && mode !== 'legacy-report') {
     // Strict audit before any write.
     await writeAudit({ type: 'ledger_migration', actor: req.auth, target: 'expenses', meta: { mode, ...(as ? { as } : {}) } }, req);
   }
   try {
-    const summary = await migrateExpenses(db, { mode, as });
+    const summary = await migrateExpenses(db, { mode, as, getBucket: getMcBucket });
     return res.status(200).json({ ok: true, summary });
   } catch (e) {
     if (e && e.status) throw new HttpError(e.status, e.message);
@@ -177,9 +177,17 @@ async function receiptUrl(req, res) {
   const snap = await getMcDb().collection('ledgerTransactions').doc(body.txnId).get();
   if (!snap.exists) throw new HttpError(404, 'Transaction not found');
   const t = snap.data();
+  if (t.companyId !== body.companyId) throw new HttpError(404, 'No receipt');
   const prefix = `ledgerReceipts/${body.companyId}/${body.txnId}/`;
-  if (t.companyId !== body.companyId || !t.attachmentPath || !String(t.attachmentPath).startsWith(prefix)) throw new HttpError(404, 'No receipt');
-  const [url] = await getMcBucket().file(t.attachmentPath).getSignedUrl({ version: 'v4', action: 'read', expires: Date.now() + 10 * 60 * 1000 });
+  let path = t.attachmentPath && String(t.attachmentPath).startsWith(prefix) ? t.attachmentPath : null;
+  if (!path && !t.attachmentPath && t.source === 'migration' && t.legacyExpenseId && /^[A-Za-z0-9_-]{1,120}$/.test(t.legacyExpenseId)) {
+    // Receipts from the old Expenses tab: stored at expenses/<id>/<file>. Their
+    // saved links were long-lived signed URLs; issue a fresh short one instead.
+    const [files] = await getMcBucket().getFiles({ prefix: `expenses/${t.legacyExpenseId}/`, maxResults: 1 });
+    if (files.length) path = files[0].name;
+  }
+  if (!path) throw new HttpError(404, 'No receipt');
+  const [url] = await getMcBucket().file(path).getSignedUrl({ version: 'v4', action: 'read', expires: Date.now() + 10 * 60 * 1000 });
   return res.status(200).json({ ok: true, url });
 }
 

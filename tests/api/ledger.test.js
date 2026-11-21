@@ -272,3 +272,29 @@ test('historical card payments: migrated card owes 0, P&L and checking unchanged
   assert.equal(rb.statusCode, 200);
   assert.equal(txnsOf(db, 'dal').filter((t) => t.source === 'historical_payment').length, 0);
 });
+
+test('migration legacy-report is read-only; legacy-notes adds only dropped notes (audited, undoable)', async () => {
+  const seed = legacySeed();
+  seed['expenses/e3'] = { ...seed['expenses/e3'], notes: 'RV Vault icons', description: 'April invoice' };
+  const db = setup(seed);
+  await call('migrate', { mode: 'apply' });
+  const before = snapshot(db, '');
+  const r = await call('migrate', { mode: 'legacy-report' });
+  assert.equal(r.statusCode, 200, JSON.stringify(r.body));
+  assert.equal(snapshot(db, ''), before, 'report writes nothing');
+  const rep = r.body.summary.report;
+  assert.equal(rep.legacy.total, 3);
+  assert.equal(rep.legacy.droppedNotes, 1);
+  assert.equal(rep.notesToAdd, 1);
+  assert.equal(rep.books.migrated, 3);
+  assert.deepEqual(rep.receipts, { withLink: 0, fileFound: 0, fileMissing: 0, missingIds: [] });
+  const add = await call('migrate', { mode: 'legacy-notes' });
+  assert.equal(add.statusCode, 200);
+  assert.equal(add.body.summary.notesAdded, 1);
+  assert.equal(db.store.get('ledgerTransactions/dal_mig_e3').memo, 'April invoice · RV Vault icons');
+  assert.equal((await call('migrate', { mode: 'legacy-notes' })).body.summary.notesAdded, 0, 'idempotent');
+  const undo = await call('migrate', { mode: 'legacy-notes-undo' });
+  assert.equal(undo.body.summary.notesRemoved, 1);
+  assert.equal(db.store.get('ledgerTransactions/dal_mig_e3').memo, 'April invoice');
+  assert.ok([...db.store.keys()].some((k) => k.startsWith('auditLog/')), 'audited');
+});

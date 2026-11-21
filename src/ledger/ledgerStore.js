@@ -351,7 +351,8 @@ export async function uploadReceipt(txn, file) {
 
 /** Opens a receipt via a short-lived link (new tab opened first so pop-up blockers allow it). */
 export async function openReceipt(txn) {
-  if (!txn.attachmentPath && txn.attachmentUrl) {
+  const legacy = !txn.attachmentPath && txn.attachmentUrl;
+  if (legacy && !txn.legacyExpenseId) {
     window.open(txn.attachmentUrl, '_blank', 'noopener');
     return;
   }
@@ -360,6 +361,8 @@ export async function openReceipt(txn) {
     const { url } = await apiPost('/api/ledger/receipt-url', { companyId: txn.companyId, txnId: txn.id });
     if (win) { win.opener = null; win.location.href = url; } else window.open(url, '_blank', 'noopener');
   } catch (e) {
+    // Old Expenses receipt whose file can't be found: fall back to its saved link.
+    if (legacy && win) { win.opener = null; win.location.href = txn.attachmentUrl; return; }
     if (win) win.close();
     throw e;
   }

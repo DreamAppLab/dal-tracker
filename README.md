@@ -174,6 +174,15 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
    booked as *Owner contribution* and appear on the owner contributions report. Setup → "Migrated card
    charges were paid before Books" can switch them to *Opening balance equity (paid before Books)*, an
    equity category with `equityType: 'opening'` that the owner report ignores. Re-runs keep the choice.
+   **Old Expenses: notes, app tags and receipts** (Setup, DAL) runs a read-only report
+   (`migrate` mode `legacy-report`). It shows which fields the old records carry, how many have an app tag,
+   notes or a receipt, and which migrated rows still have neither a project nor notes (with a CSV of those).
+   *Bring over* (`legacy-notes`) appends notes the migration left out, only while the memo is still exactly
+   what the migration wrote. Each such row is marked `legacyNotesAdded` so `legacy-notes-undo` can remove the
+   note. It also links app tags to projects. Old Expenses receipts (`expenses/<id>/<file>` in Storage) open
+   through `receipt-url` with a fresh 10-minute link instead of their stored long-lived signed URL. Note: the old
+   Fiverr Excel import kept only the invoice number as the note. Its *service* and *project* columns were never
+   saved, so they can only come back by re-reading those Excel exports.
 
 ### Indexes
 Composite indexes live in `firestore.indexes.json`. Deploy them with
