@@ -42,20 +42,20 @@ const ReceiptSchema = z
   })
   .strict();
 
-const MigrateSchema = z.object({ mode: z.enum(['dry-run', 'apply', 'rollback']) }).strict();
+const MigrateSchema = z.object({ mode: z.enum(['dry-run', 'apply', 'rollback', 'settle']), as: z.enum(['equity', 'owner']).optional() }).strict();
 const RebuildSchema = z.object({ companyId }).strict();
 
 async function migrate(req, res) {
-  const { mode } = validate(MigrateSchema, parseJsonBody(req, { maxBytes: 1024 }));
+  const { mode, as } = validate(MigrateSchema, parseJsonBody(req, { maxBytes: 1024 }));
   // Apply is additive, backed up and idempotent; rollback removes rows.
   if (mode === 'rollback') requireRecentAuth(req.auth, RECENT_AUTH_SECONDS);
   const db = getMcDb();
   if (mode !== 'dry-run') {
     // Strict audit before any write.
-    await writeAudit({ type: 'ledger_migration', actor: req.auth, target: 'expenses', meta: { mode } }, req);
+    await writeAudit({ type: 'ledger_migration', actor: req.auth, target: 'expenses', meta: { mode, ...(as ? { as } : {}) } }, req);
   }
   try {
-    const summary = await migrateExpenses(db, { mode });
+    const summary = await migrateExpenses(db, { mode, as });
     return res.status(200).json({ ok: true, summary });
   } catch (e) {
     if (e && e.status) throw new HttpError(e.status, e.message);

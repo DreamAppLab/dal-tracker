@@ -277,6 +277,16 @@ export default function Setup() {
     run(() => saveDoc(COL.vendorRules, newId(companyId, 'rule'), { companyId, pattern: pattern.slice(0, 100), categoryId: newRule.categoryId, isDefault: false }, false), () => { setNewRule({ pattern: '', categoryId: newRule.categoryId }); return `Rule added: payees containing “${pattern}”.`; });
   };
   const migrate = (mode) => run(() => apiPost('/api/ledger/migrate', { mode }), (r) => { setMigration(r.summary); return mode === 'dry-run' ? 'Dry run finished (nothing written).' : mode === 'apply' ? (r.summary.verified ? 'Migration complete and verified.' : 'Migration finished but totals did not verify — see details.') : 'Rollback complete.'; });
+  const card = accounts.find((a) => a.id === 'dal_card');
+  const savedHistAs = (card && card.historicalPaymentsAs) || 'owner';
+  const [histAs, setHistAs] = useState(savedHistAs);
+  useEffect(() => { setHistAs(savedHistAs); }, [savedHistAs]);
+  const settle = () => run(() => apiPost('/api/ledger/migrate', { mode: 'settle', as: histAs }), (r) => {
+    setMigration(r.summary);
+    const st = r.summary.settled || {};
+    const problems = (st.errors || []).length;
+    return `Migrated card charges marked as paid before Books: ${st.months || 0} monthly entries totalling ${fmt(st.totalCents || 0)}, booked as ${histAs === 'owner' ? 'owner contributions' : 'opening balance equity'}. ${problems ? `${problems} month(s) could not be updated (reconciled) — see details below.` : "The card's migrated history now owes $0.00."}`;
+  });
   const rebuild = () => run(() => apiPost('/api/ledger/rebuild', { companyId }), (r) => `Rebuilt ${r.result.months} months from ${r.result.transactions} transactions.`);
 
   if (!ledger.ready) return <Empty>Loading…</Empty>;
@@ -377,6 +387,27 @@ export default function Setup() {
               {confirmRollback
                 ? <button type="button" className="btn btn-danger btn-sm" onClick={() => { setConfirmRollback(false); migrate('rollback'); }} disabled={busy}>Confirm roll back</button>
                 : <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirmRollback(true)} disabled={busy} title="Removes migrated rows from the ledger; the original Expenses records are untouched">Roll back</button>}
+            </div>
+          </div>
+        )}
+        {companyId === 'dal' && (
+          <div className="bk-maint-row">
+            <div>
+              <strong>Migrated card charges were paid before Books</strong>
+              <div className="bk-muted bk-small">
+                The old Expenses were paid long ago, outside these books. This adds one "Card payments before Books" entry per month on the card
+                (dated that month's last migrated charge) so the card owes $0.00 for that history. Expenses and P&L stay exactly the same and checking is
+                not touched. They are booked as <em>Owner contributions</em> (you paid the old card bills personally; default — they appear in the
+                owner contributions report), or switch to <em>Opening balance equity</em> if they were paid from accounts these books don't track.
+                Migrate runs this automatically and keeps your choice; you can switch any time.
+              </div>
+            </div>
+            <div className="bk-row-actions">
+              <select className="bk-input bk-kind" value={histAs} onChange={(e) => setHistAs(e.target.value)} aria-label="Book historical card payments as">
+                <option value="owner">Owner contributions</option>
+                <option value="equity">Opening balance equity</option>
+              </select>
+              <button type="button" className="btn btn-primary btn-sm" onClick={settle} disabled={busy}>Mark as paid</button>
             </div>
           </div>
         )}

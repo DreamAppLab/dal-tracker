@@ -86,8 +86,71 @@ function legacyTotalCents(expenses, errorIds) {
 }
 
 /**
+ * Clear the migrated card history with "Card payments before Books" entries
+ * (see core.planHistoricalPayments). as: 'owner' (default — the old card
+ * bills were paid from the owner's personal money: Owner contribution) or
+ * 'equity' (Opening balance equity, for money from accounts not in Books).
+ * The choice is remembered on the card account so re-runs keep it.
+ */
+async function settleHistory(db, opts) {
+  const cardRef = db.collection('ledgerAccounts').doc(core.ACCOUNT);
+  const cardSnap = await cardRef.get();
+  if (!cardSnap.exists) return { months: 0, totalCents: 0, skipped: 'no card account' };
+  const card = cardSnap.data();
+  const as = (opts && opts.as) || card.historicalPaymentsAs || 'owner';
+  const slug = as === 'owner' ? 'owner_contribution' : 'opening_equity';
+  const categoryId = core.ids.category(core.COMPANY, slug);
+  const catRef = db.collection('ledgerCategories').doc(categoryId);
+  if (!(await catRef.get()).exists) {
+    const def = core.defaultCategoryDocs(core.COMPANY).find((d) => d.id === categoryId);
+    await catRef.set({ ...def.data, createdAt: FieldValue.serverTimestamp() });
+  }
+  const dalTxns = await readCompany(db, 'ledgerTransactions', core.COMPANY);
+  const zerbiqTxns = await readCompany(db, 'ledgerTransactions', 'zerbiq');
+  // Only the main entries are ours; legs/mirrors (if a user re-booked one) are derived.
+  const existing = dalTxns.filter((t) => t.source === core.HISTORICAL_SOURCE && (t.role || 'main') === 'main');
+  const plan = core.planHistoricalPayments(dalTxns, existing, categoryId);
+  const allById = Object.fromEntries([...dalTxns, ...zerbiqTxns].map(({ id, ...d }) => [id, d]));
+  const { accounts, categories } = accountsAndCategories(
+    [...(await readCompany(db, 'ledgerAccounts', 'dal')), ...(await readCompany(db, 'ledgerAccounts', 'zerbiq'))],
+    [...(await readCompany(db, 'ledgerCategories', 'dal')), ...(await readCompany(db, 'ledgerCategories', 'zerbiq'))]
+  );
+  const byId = Object.fromEntries(existing.map((t) => [t.id, t]));
+  const ops = [];
+  const errors = [];
+  const applyPlan = (p) => {
+    p.sets.forEach(({ id: docId, data }) => ops.push((b) => b.set(db.collection('ledgerTransactions').doc(docId), { ...data, updatedAt: FieldValue.serverTimestamp() }, { merge: true })));
+    p.deletes.forEach(({ id: docId }) => ops.push((b) => b.delete(db.collection('ledgerTransactions').doc(docId))));
+  };
+  for (const { id, draft } of plan.upserts) {
+    const before = allById[id] || null;
+    try {
+      // These entries are system-managed: re-running restores them (undeletes,
+      // and resets a category/transfer someone edited), keeping only their
+      // cleared/reconciled state. Linked legs/mirrors are removed by the planner.
+      const full = before
+        ? { ...before, ...draft, transferAccountId: null, icCategoryId: null, splits: [], deleted: false, status: before.status, reconciliationId: before.reconciliationId || null }
+        : draft;
+      applyPlan(core.planTransactionWrite({ id, draft: full, before, existing: allById, accounts, categories }));
+    } catch (e) {
+      errors.push({ id, error: e.message });
+    }
+  }
+  for (const id of plan.deleteIds) {
+    try {
+      applyPlan(core.planTransactionWrite({ id, draft: null, before: allById[id], existing: allById, accounts, categories }));
+    } catch (e) {
+      errors.push({ id, error: e.message });
+    }
+  }
+  await commitInChunks(db, ops);
+  await cardRef.set({ historicalPaymentsAs: as }, { merge: true });
+  return { as, months: plan.months, totalCents: plan.totalCents, removed: plan.deleteIds.length, errors };
+}
+
+/**
  * @param {FirebaseFirestore.Firestore} db  Admin Firestore
- * @param {object} opts { mode: 'dry-run'|'apply'|'rollback', runId?: string }
+ * @param {object} opts { mode: 'dry-run'|'apply'|'rollback'|'settle', as?: 'owner'|'equity', runId?: string }
  */
 async function migrateExpenses(db, opts) {
   const mode = (opts && opts.mode) || 'dry-run';
@@ -97,13 +160,20 @@ async function migrateExpenses(db, opts) {
   const migrated = dalTxns.filter((t) => t.source === 'migration' && t.legacyExpenseId);
   const existingIds = new Set(dalTxns.map((t) => t.id));
 
+  if (mode === 'settle') {
+    const settled = await settleHistory(db, { as: opts.as });
+    const rebuilt = await rebuildMonthly(db, core.COMPANY);
+    return { mode, settled, rebuilt };
+  }
+
   if (mode === 'rollback') {
     // Migrated rows plus anything derived from them (transfer legs in DAL,
     // intercompany mirrors in Zerbiq) if they were recategorized since.
-    const migratedIds = new Set(migrated.map((t) => t.id));
+    const historical = dalTxns.filter((t) => t.source === core.HISTORICAL_SOURCE && (t.role || 'main') === 'main');
+    const parentIds = new Set([...migrated, ...historical].map((t) => t.id));
     const zerbiqTxns = await readCompany(db, 'ledgerTransactions', 'zerbiq');
-    const derived = [...dalTxns, ...zerbiqTxns].filter((t) => t.parentId && migratedIds.has(t.parentId));
-    const all = [...migrated, ...derived];
+    const derived = [...dalTxns, ...zerbiqTxns].filter((t) => t.parentId && parentIds.has(t.parentId));
+    const all = [...migrated, ...historical, ...derived];
     const locked = all.filter((t) => t.status === 'reconciled');
     if (locked.length) {
       const err = new Error(`${locked.length} migrated transactions are reconciled. Undo those reconciliations first.`);
@@ -182,7 +252,10 @@ async function migrateExpenses(db, opts) {
   });
   await commitInChunks(db, ops);
 
-  // 4) Aggregates from scratch (self-healing, idempotent).
+  // 4) The migrated charges were paid long ago: clear the card for that history.
+  summary.settled = await settleHistory(db, {});
+
+  // 5) Aggregates from scratch (self-healing, idempotent).
   summary.rebuilt = await rebuildMonthly(db, 'dal');
 
   // 5) Verify: every legacy dollar is in the ledger exactly once.
@@ -198,4 +271,4 @@ async function migrateExpenses(db, opts) {
   return summary;
 }
 
-module.exports = { migrateExpenses, rebuildMonthly, seedDefaults };
+module.exports = { migrateExpenses, rebuildMonthly, seedDefaults, settleHistory };

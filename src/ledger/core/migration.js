@@ -106,4 +106,57 @@ function planLegacyImports(importedStatements) {
     }));
 }
 
-module.exports = { COMPANY, ACCOUNT, migratedId, legacyImportId, mapLegacyExpense, planMigration, planLegacyImports };
+const HISTORICAL_SOURCE = 'historical_payment';
+const historicalId = (month) => `${COMPANY}_hist_${month}`;
+
+/**
+ * The migrated card charges were paid long before these books started, from
+ * money outside the books. One "Card payments before Books" entry per month
+ * (dated that month's last migrated charge, never in the future) clears them,
+ * booked to an equity category — never P&L, never checking — so the card owes
+ * $0.00 for the migrated history while every expense stays an expense.
+ * Deterministic ids make it idempotent; amounts follow the migrated rows.
+ *
+ * @param {Array} cardTxns   DAL card transactions (any; only live migrated rows count)
+ * @param {Array} existing   existing historical payment docs (with id)
+ * @param {string} categoryId  equity category to book them to
+ * @returns {{ upserts: Array<{id, draft}>, deleteIds: string[], totalCents, months }}
+ */
+function planHistoricalPayments(cardTxns, existing, categoryId) {
+  const byMonth = {};
+  for (const t of cardTxns) {
+    if (t.deleted || t.accountId !== ACCOUNT || t.source !== 'migration' || !t.legacyExpenseId) continue;
+    const m = t.date.slice(0, 7);
+    if (!byMonth[m]) byMonth[m] = { net: 0, last: t.date };
+    byMonth[m].net += t.amountCents;
+    if (t.date > byMonth[m].last) byMonth[m].last = t.date;
+  }
+  const upserts = [];
+  let total = 0;
+  for (const [month, { net, last }] of Object.entries(byMonth).sort()) {
+    if (!net) continue;
+    total += -net;
+    upserts.push({
+      id: historicalId(month),
+      draft: {
+        companyId: COMPANY,
+        accountId: ACCOUNT,
+        date: last,
+        amountCents: -net,
+        payee: 'Card payments before Books',
+        memo: `Migrated ${month} card charges, paid before these books started.`,
+        categoryId,
+        source: HISTORICAL_SOURCE,
+        status: 'cleared',
+      },
+    });
+  }
+  const keep = new Set(upserts.map((u) => u.id));
+  const deleteIds = existing.filter((t) => !keep.has(t.id)).map((t) => t.id);
+  return { upserts, deleteIds, totalCents: total, months: upserts.length };
+}
+
+module.exports = {
+  COMPANY, ACCOUNT, migratedId, legacyImportId, mapLegacyExpense, planMigration, planLegacyImports,
+  HISTORICAL_SOURCE, historicalId, planHistoricalPayments,
+};
