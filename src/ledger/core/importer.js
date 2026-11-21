@@ -114,17 +114,77 @@ function classifyRows(rows, existing, opts) {
 }
 
 // ── Vendor rules ──────────────────────────────────────────────────────────
-/** Best matching vendor rule (longest pattern contained in the payee), or null. */
-function matchVendorRule(payee, rules) {
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Does a rule's pattern match this (normalized) payee? `wholeWord` stops EXPO matching EXPORT. */
+function rulePatternMatches(rule, hay) {
+  const pat = normalizePayee(rule.pattern);
+  if (!pat) return false;
+  if (!rule.wholeWord) return hay.includes(pat);
+  return new RegExp(`(^|[^A-Z0-9])${escapeRe(pat)}($|[^A-Z0-9])`).test(hay);
+}
+
+/**
+ * Best matching vendor rule, or null: the longest pattern contained in the
+ * payee wins; on a tie, a rule limited by date or account beats a general one.
+ * ctx { date, accountId } applies rules' optional fromDate / toDate / accountId.
+ */
+function matchVendorRule(payee, rules, ctx = {}) {
   const hay = normalizePayee(payee);
   if (!hay) return null;
   let best = null;
   for (const r of rules || []) {
-    const pat = normalizePayee(r.pattern);
-    if (!pat || !hay.includes(pat)) continue;
-    if (!best || pat.length > best.len) best = { len: pat.length, rule: r };
+    if (!rulePatternMatches(r, hay)) continue;
+    if ((r.fromDate || r.toDate) && !ctx.date) continue;
+    if (r.fromDate && ctx.date < r.fromDate) continue;
+    if (r.toDate && ctx.date > r.toDate) continue;
+    if (r.accountId && r.accountId !== ctx.accountId) continue;
+    // A rule limited to a date range or account is a deliberate exception, so
+    // it beats any general rule (even a longer one); then the longest pattern.
+    const limited = (r.fromDate || r.toDate ? 2 : 0) + (r.accountId ? 1 : 0);
+    const score = limited * 1e6 + normalizePayee(r.pattern).length;
+    if (!best || score > best.score) best = { score, rule: r };
   }
   return best ? best.rule : null;
+}
+
+/** The register/import pick a rule gives: its category, or "Paid for <other company>" for an intercompany rule. */
+function rulePick(rule) {
+  if (!rule) return '';
+  // A shared-plan rule (splitPlan) is split by the importer; elsewhere it falls back to its own category.
+  return rule.icCategoryId && !rule.splitPlan ? `ic:${rule.icCategoryId}` : `cat:${rule.categoryId}`;
+}
+
+/**
+ * Split lines for a shared-plan rule (e.g. Vercel Pro: $20 plan, $10 ours,
+ * $10 theirs, anything above the plan is theirs). Charges only (amount < 0);
+ * up to the plan price it splits 50/50 (odd cent to the other company).
+ * Lines are in the account's sign and always add up to the charge.
+ */
+function ruleSplitLines(rule, amountCents, companyId) {
+  if (!rule || !rule.splitPlan || !rule.icCategoryId || !(amountCents < 0)) return null;
+  const total = -amountCents;
+  const plan = Number(rule.splitPlan.planCents);
+  const ownShare = Number(rule.splitPlan.ownCents);
+  if (!Number.isInteger(plan) || !Number.isInteger(ownShare) || plan <= 0 || ownShare < 0 || ownShare > plan) return null;
+  let own;
+  let theirs;
+  let overage = 0;
+  if (total <= plan) {
+    own = Math.floor(total / 2);
+    theirs = total - own;
+  } else {
+    own = ownShare;
+    theirs = plan - ownShare;
+    overage = total - plan;
+  }
+  const ic = `${companyId}_ic_${companyId === 'dal' ? 'zerbiq' : 'dal'}`;
+  const lines = [
+    { lineId: 'own', categoryId: rule.categoryId, transferAccountId: null, icCategoryId: null, amountCents: -own, memo: rule.splitPlan.ownMemo || 'Plan: our share' },
+    { lineId: 'oth', categoryId: null, transferAccountId: ic, icCategoryId: rule.icCategoryId, amountCents: -theirs, memo: rule.splitPlan.otherMemo || 'Plan: their share' },
+  ];
+  if (overage) lines.push({ lineId: 'ovr', categoryId: null, transferAccountId: ic, icCategoryId: rule.icCategoryId, amountCents: -overage, memo: rule.splitPlan.overageMemo || 'Overage' });
+  return lines.filter((l) => l.amountCents !== 0);
 }
 
 function applyVendorRules(payee, rules) {
@@ -402,6 +462,9 @@ module.exports = {
   applyVendorRules,
   matchVendorRule,
   isLikelyCardPayment,
+  rulePick,
+  rulePatternMatches,
+  ruleSplitLines,
   suggestTransfer,
   detectDelimiter,
   parseCsvText,

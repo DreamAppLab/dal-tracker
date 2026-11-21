@@ -253,15 +253,17 @@ export default function Register({ focusTxn, onFocusHandled }) {
 
   const applyRule = (f) => {
     if (!f.payee) return f;
-    const r = core.matchVendorRule(f.payee, rules);
-    if (!r) return f;
-    const next = { ...f };
-    // The rule fills only what is still blank: its category, and its project
-    // together with that category (never re-added after the user clears it).
-    if (!f.pick) {
-      next.pick = `cat:${r.categoryId}`;
-      if (!f.projectId && r.projectId) next.projectId = r.projectId;
+    // A pick the rule itself filled is re-checked (the date may have moved
+    // across a dated rule's start); one the user chose is kept.
+    const ruleOwned = f.pick && f.rulePick && f.pick === f.rulePick;
+    if (f.pick && !ruleOwned) return f;
+    const r = core.matchVendorRule(f.payee, rules, { date: f.date, accountId });
+    if (!r || (r.icCategoryId && account && account.kind === 'intercompany')) {
+      return ruleOwned ? { ...f, pick: '', rulePick: '' } : f;
     }
+    const next = { ...f, pick: core.rulePick(r) };
+    next.rulePick = next.pick;
+    if (!f.projectId && r.projectId && !r.icCategoryId) next.projectId = r.projectId;
     return next;
   };
 

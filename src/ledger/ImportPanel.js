@@ -7,7 +7,7 @@ import React, { useMemo, useState } from 'react';
 import * as core from './core';
 import { useLedger } from './LedgerContext';
 import {
-  apiPost, COL, db, doc, fetchAccountRange, importRecordExists, getTxn, runPlans, saveDoc, serverTimestamp, writeBatch,
+  apiPost, COL, db, doc, ensureOwnerSettlementAccounts, fetchAccountRange, ownersSettlementEntries, importRecordExists, getTxn, runPlans, saveDoc, serverTimestamp, writeBatch,
 } from './ledgerStore';
 import { parseStatementPdf } from './import/capOnePdf';
 import { CategorySelect, Empty, fmt, fmtDate, lineFromPick, pickFromLine } from './ui';
@@ -214,11 +214,17 @@ export default function ImportPanel({ onDone }) {
             row.pairLabel = pt ? `${pt.payee || '—'} · ${fmtDate(pt.date)}` : '';
           }
         } else {
-          const rule = core.matchVendorRule(r.payee, rules);
-          if (rule) {
-            row.pick = `cat:${rule.categoryId}`;
-            row.projectId = rule.projectId || null;
-            row.rulePick = `cat:${rule.categoryId}`;
+          const rule = core.matchVendorRule(r.payee, rules, { date: r.date, accountId: account.id });
+          if (rule && !(rule.icCategoryId && account.kind === 'intercompany')) {
+            const split = core.ruleSplitLines(rule, r.amountCents, companyId);
+            row.pick = split ? 'split' : core.rulePick(rule);
+            // A credit on a shared plan: we can't know each company's part, so leave it to the user.
+            if (rule.splitPlan && !split) row.pick = '';
+            row.splits = split || null;
+            row.projectId = rule.icCategoryId ? null : rule.projectId || null;
+            row.rulePick = row.pick;
+            row.ownerSettle = !!rule.settleThroughOwners;
+            row.reviewNote = rule.reviewNote || (rule.splitPlan && !split ? `Credit on a shared plan: split it between ${core.COMPANY_META[companyId].short} and ${ledger.otherMeta.short} by hand` : '');
           }
         }
       }
@@ -252,6 +258,7 @@ export default function ImportPanel({ onDone }) {
   }
 
   const patch = (key, p) => setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...p } : r)));
+  const settlesRow = (r) => r.ownerSettle && r.status !== 'match' && (r.pick === 'split' ? (r.splits || []).some((l) => l.icCategoryId) : String(r.pick).startsWith('ic:'));
 
   // Double-count guard (DAL card with migrated history): a payment paid
   // personally that is bigger than what the card owes at that point is paying
@@ -295,8 +302,21 @@ export default function ImportPanel({ onDone }) {
           work.push({ kind: 'new', r });
         }
       }
+      // Rules marked "settle through owners": the other company's share is
+      // never repaid (the owners paid the card personally). Its non-cash
+      // owners settlement is written in the same transaction as the charge.
+      const icShare = (r) => {
+        const lines = r.pick === 'split' && r.splits ? r.splits : [{ ...lineFromPick(r.pick, companyId), amountCents: r.amountCents }];
+        return lines.filter((l) => l.icCategoryId).reduce((s, l) => s - l.amountCents, 0);
+      };
+      const settles = (r) => r.ownerSettle && r.status !== 'match' && icShare(r) !== 0;
+      const ownerRows = work.filter((w) => w.kind === 'new' && settles(w.r));
+      const accts = ownerRows.length
+        ? await ensureOwnerSettlementAccounts(ownerRows.map((w) => w.r.date).sort()[0], accountsById)
+        : accountsById;
       let done = 0;
-      const CHUNK = 60;
+      // Settlements add 4 writes per row; keep each transaction well under Firestore's limit.
+      const CHUNK = ownerRows.length ? 25 : 60;
       for (let i = 0; i < work.length; i += CHUNK) {
         const slice = work.slice(i, i + CHUNK);
         // Matches only stamp the existing entry (no money moves).
@@ -316,6 +336,7 @@ export default function ImportPanel({ onDone }) {
         }
         // Pairs and new rows are planned inside one Firestore transaction with
         // fresh reads, like every other ledger write.
+        const wrote = {};
         const entries = slice.filter((w) => w.kind !== 'match').map(({ kind, r }) => {
           if (kind === 'pair') {
             // The existing opposite entry becomes a transfer; its new leg in
@@ -333,16 +354,23 @@ export default function ImportPanel({ onDone }) {
             id: `${account.id}_${r.fingerprint}`,
             // Never overwrite: an existing doc (moved outside the preview
             // window, or deleted) means this row was imported before.
-            makeDraft: (before) => (before ? undefined : {
-              companyId, accountId: account.id, date: r.date, payee: r.payee, memo: r.memo || '', amountCents: r.amountCents,
-              ...lineFromPick(r.pick, companyId), splits: [], status: 'cleared', source: 'import',
+            makeDraft: (before) => { wrote[r.key] = !before; return before ? undefined : {
+              companyId, accountId: account.id, date: r.date, payee: r.payee, amountCents: r.amountCents,
+              // A rule's review note (e.g. which company a domain belongs to) stays on the row until someone checks it.
+              memo: [r.memo || '', r.reviewNote && r.pick === r.rulePick ? `Check: ${r.reviewNote}` : ''].filter(Boolean).join(' · '),
+              ...(r.pick === 'split' && r.splits ? { categoryId: null, transferAccountId: null, icCategoryId: null, splits: r.splits } : { ...lineFromPick(r.pick, companyId), splits: [] }),
+              status: 'cleared', source: 'import',
               projectId: r.projectId && r.pick === r.rulePick ? r.projectId : null,
               coversHistoricalCents: coverage[r.key] && r.coverAck !== false ? coverage[r.key] : null,
               fingerprint: r.fingerprint, importId: r.importId,
-            }),
+            }; },
           };
         });
-        if (entries.length) await runPlans(entries, accountsById, categoriesById);
+        const owed = slice.filter((w) => w.kind === 'new' && settles(w.r))
+          .map(({ r }) => ({ rowKey: r.key, key: `${account.id}_${r.fingerprint}`, amountCents: icShare(r), date: r.date, memo: `Settled through the owners: ${r.payee}` }));
+        // Settlement entries come after the charges, so `wrote` is known when they're planned.
+        entries.push(...ownersSettlementEntries(companyId, owed, (k) => wrote[owed[k].rowKey] === true));
+        if (entries.length) await runPlans(entries, accts, categoriesById);
         done += slice.length;
         setProgress(`Imported ${done} of ${work.length}…`);
       }
@@ -496,6 +524,7 @@ export default function ImportPanel({ onDone }) {
                     <td className="bk-nowrap">{fmtDate(r.date)}</td>
                     <td className="bk-payee" title={r.payee}>{r.payee}{r.memo ? <div className="bk-muted bk-small">{r.memo}</div> : null}
                       {r.movedLabel && <div className="bk-small bk-warn-text">{r.movedLabel}</div>}
+                      {r.pick && r.pick.startsWith('ic:') && r.status !== 'match' && <span className="bk-pill bk-pill-ic">→ {ledger.otherMeta.short} (intercompany)</span>}
                       {coverage[r.key] > 0 && (
                         <label className="bk-check bk-small bk-warn-text">
                           <input type="checkbox" checked={r.coverAck !== false} onChange={(e) => patch(r.key, { coverAck: e.target.checked })} />
@@ -506,7 +535,19 @@ export default function ImportPanel({ onDone }) {
                     <td>
                       {r.status === 'match' || r.status === 'duplicate'
                         ? <span className="bk-muted">{r.status === 'match' ? 'Keeps existing booking' : '—'}</span>
-                        : <CategorySelect ledger={ledger} accountId={account.id} value={r.pick} allowSplit={false} onChange={(v) => patch(r.key, { pick: v, pairTxnId: v === pickFromLine({ transferAccountId: otherAcct && otherAcct.id }) ? r.pairTxnId : null })} />}
+                        : (
+                          <>
+                            {r.pick === 'split' && r.splits && (
+                              <div className="bk-small">
+                                Split: {r.splits.map((l) => `${l.icCategoryId ? `${ledger.otherMeta.short} · ` : ''}${(categoriesById[l.icCategoryId || l.categoryId] || {}).name || ''} ${fmt(-l.amountCents)}`).join(' + ')}
+                                <div className="bk-muted">Or pick one category below to book it as a single line.</div>
+                              </div>
+                            )}
+                            <CategorySelect ledger={ledger} accountId={account.id} value={r.pick === 'split' ? '' : r.pick} allowSplit={false} onChange={(v) => patch(r.key, { pick: v, splits: null, pairTxnId: v === pickFromLine({ transferAccountId: otherAcct && otherAcct.id }) ? r.pairTxnId : null })} />
+                            {settlesRow(r) && <div className="bk-muted bk-small">{ledger.otherMeta.short}’s share: settled through the owners (no repayment)</div>}
+                            {r.reviewNote && <div className="bk-small bk-warn-text">{r.reviewNote}</div>}
+                          </>
+                        )}
                     </td>
                     <td className="num">{r.amountCents < 0 ? fmt(-r.amountCents) : ''}</td>
                     <td className="num bk-pos">{r.amountCents > 0 ? fmt(r.amountCents) : ''}</td>

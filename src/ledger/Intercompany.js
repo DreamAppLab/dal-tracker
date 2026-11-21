@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import * as core from './core';
 import { useLedger } from './LedgerContext';
-import { getTxn, recordSettlement as saveSettlement, setDeleted, watchAccountWindow } from './ledgerStore';
+import { getTxn, recordSettlement as saveSettlement, setDeleted, settleThroughOwners, watchAccountWindow } from './ledgerStore';
 import { CompanyBadge, Empty, fmt, fmtDate, todayISO } from './ui';
 
 export default function Intercompany({ onOpenTxn }) {
@@ -58,6 +58,25 @@ export default function Intercompany({ onOpenTxn }) {
       });
       await saveSettlement(drafts, accountsById, categoriesById);
       setNotice(`Recorded: ${core.COMPANY_META[payer].short} paid ${core.COMPANY_META[receiver].short} ${fmt(amountCents)} on ${fmtDate(form.date)} (both books updated).`);
+      setForm((f) => ({ ...f, amount: '', memo: '' }));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Non-cash: the owners funded it personally and nobody will be repaid.
+  const settleOwners = async () => {
+    setError('');
+    setNotice('');
+    const amountCents = core.parseMoneyToCents(form.amount);
+    if (!amountCents || amountCents <= 0) { setError('Enter the amount to settle.'); return; }
+    setBusy(true);
+    try {
+      const key = `manual_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      await settleThroughOwners(receiver, [{ key, amountCents, date: form.date, memo: form.memo || 'Settled through the owners: no repayment' }], accountsById, categoriesById);
+      setNotice(`Settled through the owners: ${core.COMPANY_META[payer].short} records ${fmt(amountCents)} as an owner contribution and ${core.COMPANY_META[receiver].short}'s owner money goes down by the same amount (both “Paid personally” accounts). No bank account moves; neither P&L changes.`);
       setForm((f) => ({ ...f, amount: '', memo: '' }));
     } catch (e) {
       setError(e.message);
@@ -131,8 +150,9 @@ export default function Intercompany({ onOpenTxn }) {
           <div className="bk-row-actions">
             {balance !== 0 && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setForm({ ...form, payer: defaultPayer, amount: core.centsToDecimalString(Math.abs(balance)) })}>Settle full balance</button>}
             <button type="button" className="btn btn-primary btn-sm" onClick={recordSettlement} disabled={busy}>Record payment</button>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={settleOwners} disabled={busy} title="Nobody pays anybody back: the owners funded it personally">Settle through owners (no repayment)</button>
           </div>
-          <div className="bk-muted bk-small">Partial payments are fine. Both companies' bank registers get the payment; neither P&L changes.</div>
+          <div className="bk-muted bk-small">Partial payments are fine. <strong>Record payment</strong>: both companies' bank registers get the payment. <strong>Settle through owners</strong>: no money moves — the owners paid personally and won't be repaid, so {core.COMPANY_META[payer].short} records it as an owner contribution and {core.COMPANY_META[receiver].short}'s owner money goes down by the same amount. Neither P&L changes.</div>
         </div>
       </div>
 
@@ -171,7 +191,9 @@ export default function Intercompany({ onOpenTxn }) {
                 {settlements.map((s) => (
                   <tr key={s.id} className="bk-row">
                     <td>{fmtDate(s.date)}</td>
-                    <td>{s.amountCents < 0 ? `${otherMeta.short} → ${meta.short}` : `${meta.short} → ${otherMeta.short}`}</td>
+                    <td>{s.settlementKind === 'owners'
+                      ? `Settled through owners (no repayment)${s.payee ? ` · ${s.payee}` : ''}`
+                      : s.amountCents < 0 ? `${otherMeta.short} → ${meta.short}` : `${meta.short} → ${otherMeta.short}`}</td>
                     <td className="num">{fmt(Math.abs(s.amountCents))}</td>
                     <td className="bk-actions">{s.status !== 'reconciled' && <button type="button" className="btn btn-ghost btn-sm bk-del" onClick={() => deleteSettlement(s)} disabled={busy}>Delete</button>}</td>
                   </tr>
