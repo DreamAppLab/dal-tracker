@@ -156,3 +156,23 @@ test('old Expenses report: fields, app tags, notes, and rows still missing both;
   assert.equal(core.planLegacyNotes(expenses, after).length, 0, 'idempotent');
   assert.deepEqual(core.planLegacyNotesUndo(after), [{ id: 'dal_mig_e4', memo: 'April invoice' }]);
 });
+
+test('a purchase paid personally can become a fixed asset: still an owner contribution, off the P&L, depreciated', () => {
+  const L = makeLedger();
+  L.accounts.dal_personal.openingDate = '2026-01-01';
+  const id = L.add('dal', { accountId: 'dal_personal', date: '2026-06-25', amountCents: -311749, payee: 'Best Buy', memo: 'ASUS laptop', categoryId: cat('dal', 'hardware') });
+  L.accounts.dal_fa_laptop = { companyId: 'dal', kind: 'fixed_asset', name: 'ASUS laptop', openingBalanceCents: 0, openingDate: '2026-06-25', inServiceDate: '2026-06-25', lifeMonths: 60, salvageCents: 0, depreciationCategoryId: cat('dal', 'depreciation') };
+  L.save(id, { ...L.txns[id], categoryId: null, transferAccountId: 'dal_fa_laptop', convertedFromCategoryId: cat('dal', 'hardware') });
+  core.depreciationToPost({ id: 'dal_fa_laptop', ...L.accounts.dal_fa_laptop }, L.txnList(), '2026-11-21').forEach((e) => L.save(e.id, e.draft));
+  const pnl = core.pnlFromMonthly(L.monthlyList(), L.categories, 'dal', '2026-01-01', '2026-12-31');
+  assert.equal(pnl.expense.find((x) => x.categoryId === cat('dal', 'hardware')), undefined);
+  assert.equal(pnl.expense.find((x) => x.categoryId === cat('dal', 'depreciation')).cents, 5 * 5196);
+  assert.equal(L.balance('dal_fa_laptop'), 311749 - 5 * 5196, 'book value');
+  assert.equal(L.balance('dal_personal'), -311749, 'the owners still paid it');
+  const accounts = Object.entries(L.accounts).map(([aid, a]) => ({ id: aid, ...a }));
+  const owner = core.ownerEquityReport({ accounts, categories: L.categories, txns: L.txnList(), companyId: 'dal', from: '2026-01-01', to: '2026-12-31', totalsBefore: { acct: {}, cat: {} } });
+  assert.equal(owner.totals.contributions, 311749);
+  const totals = core.totalsAsOf({ monthly: L.monthlyList(), monthTxns: [], companyId: 'dal', asOf: '2026-12-31' });
+  const bs = core.balanceSheet({ accounts, categories: L.categories, totals, totalsBeforeFy: { acct: {}, cat: {} }, companyId: 'dal', asOf: '2026-12-31' });
+  assert.ok(bs.balanced);
+});
