@@ -371,11 +371,12 @@ export default function Setup() {
         settleThroughOwners: true, splitPlan: extra.splitPlan || null, reviewNote: null,
       });
     }
-    // Vercel Domains are domain purchases, not the plan: DAL by default, flagged to pick the company.
+    // Vercel Domains are yearly domain purchases, not the plan: plain DAL hosting (no split).
+    // The company is assigned by hand at renewal time.
     await saveDoc(COL.vendorRules, 'dal_rule_ic_vercel_domains', {
       companyId: 'dal', pattern: 'VERCEL DOMAINS', wholeWord: false, categoryId: core.ids.category('dal', 'hosting'), icCategoryId: null,
       fromDate: ZERBIQ_FROM, toDate: null, accountId: core.ACCOUNT, projectId: null, isDefault: false, settleThroughOwners: false, splitPlan: null,
-      reviewNote: 'Domain purchase or renewal: change it to Paid for Zerbiq if the domain is Zerbiq’s',
+      reviewNote: null,
     });
     // Before the cut-over these stay DAL's: make sure there is a plain DAL rule for each.
     for (const [slug, pattern, dSlug] of [['claude_ai', 'CLAUDE.AI', 'software'], ['650_industries', '650 INDUSTRIES', 'software']]) {
@@ -385,7 +386,7 @@ export default function Setup() {
       }
     }
     recordAuditEvent('ledger_update', 'ledgerVendorRules/dal_rule_ic_*', { action: 'zerbiq_vendor_rules', companyId: 'dal', fromDate: ZERBIQ_FROM, count: zerbiqPresets.length + 1 });
-  }, () => `Zerbiq rules saved. On the business card from ${fmtDate(ZERBIQ_FROM)}: Anthropic, Claude.ai, Expo and 650 Industries are 100% Zerbiq; Vercel is split $10 DAL / $10 Zerbiq with any overage to Zerbiq; Zerbiq's share is settled through the owners (no repayment). Vercel Domains stay DAL and are flagged to check. Earlier charges keep the DAL rules.`);
+  }, () => `Zerbiq rules saved. On the business card from ${fmtDate(ZERBIQ_FROM)}: Anthropic, Claude.ai, Expo and 650 Industries are 100% Zerbiq; Vercel is split $10 DAL / $10 Zerbiq with any overage to Zerbiq; Zerbiq's share is settled through the owners (no repayment). Vercel Domains stay plain DAL Hosting & domains. Earlier charges keep the DAL rules.`);
   const ruleExtra = (r) => [
     r.icCategoryId ? `→ ${ledger.otherMeta.short} · ${(ledger.categoriesById[r.icCategoryId] || {}).name || 'category'}` : '',
     r.fromDate ? `from ${fmtDate(r.fromDate)}` : '',
