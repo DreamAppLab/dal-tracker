@@ -15,4 +15,5 @@ module.exports = {
   ...require('./fixedAssets'),
   ...require('./statements'),
   ...require('./bulk'),
+  ...require('./dupes'),
 };

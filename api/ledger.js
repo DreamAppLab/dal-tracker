@@ -42,7 +42,7 @@ const ReceiptSchema = z
   })
   .strict();
 
-const MigrateSchema = z.object({ mode: z.enum(['dry-run', 'apply', 'rollback', 'settle', 'projects', 'legacy-report', 'legacy-notes', 'legacy-notes-undo', 'personal-preview', 'personal-move', 'personal-undo']), as: z.enum(['equity', 'owner']).optional(),
+const MigrateSchema = z.object({ mode: z.enum(['dry-run', 'apply', 'rollback', 'settle', 'projects', 'legacy-report', 'legacy-notes', 'legacy-notes-undo', 'personal-preview', 'personal-move', 'personal-undo', 'dupes-preview', 'dupes-merge', 'dupes-undo']), as: z.enum(['equity', 'owner']).optional(),
   // Card-statement cut-over for "Card payments before Books" (null clears it).
   cutoff: z.union([z.null(), z.object({ date: z.string().regex(/^(20\d{2})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).refine((d) => !Number.isNaN(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d, 'Invalid date'), owedCents: z.number().int().min(0).max(1e10) }).strict()]).optional() }).strict();
 const RebuildSchema = z.object({ companyId }).strict();
@@ -52,7 +52,7 @@ async function migrate(req, res) {
   // Apply is additive, backed up and idempotent; rollback removes rows.
   if (mode === 'rollback') requireRecentAuth(req.auth, RECENT_AUTH_SECONDS);
   const db = getMcDb();
-  if (mode !== 'dry-run' && mode !== 'legacy-report' && mode !== 'personal-preview') {
+  if (mode !== 'dry-run' && mode !== 'legacy-report' && mode !== 'personal-preview' && mode !== 'dupes-preview') {
     // Strict audit before any write.
     await writeAudit({ type: 'ledger_migration', actor: req.auth, target: 'expenses', meta: { mode, ...(as ? { as } : {}), ...(cutoff !== undefined ? { cutoffDate: cutoff ? cutoff.date : 'none', cutoffOwedCents: cutoff ? cutoff.owedCents : 0 } : {}) } }, req);
   }

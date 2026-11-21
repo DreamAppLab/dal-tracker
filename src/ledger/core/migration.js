@@ -195,11 +195,19 @@ function planHistoricalPayments(cardTxns, existing, categoryId, cutoff) {
  * them to "Paid personally". Only plain category rows that are still
  * uncleared; marked so the move can be undone.
  */
-function planPersonalMove(dalTxns) {
-  return dalTxns.filter((t) => t.companyId === COMPANY && (t.role || 'main') === 'main' && !t.deleted
-    && t.accountId === ACCOUNT && t.source === 'migration' && t.legacyExpenseId && !t.importId
-    && t.status === 'uncleared' && !t.transferAccountId && !t.icCategoryId
-    && !((t.splits || []).some((l) => l.transferAccountId || l.icCategoryId)))
+function planPersonalMove(dalTxns, cutoffDate) {
+  // eslint-disable-next-line global-require
+  const { findCardDuplicates } = require('./dupes');
+  const dupDrops = new Set(findCardDuplicates(dalTxns, ACCOUNT).map((p) => p.dropId));
+  const plain = (t) => !t.transferAccountId && !t.icCategoryId && !((t.splits || []).some((l) => l.transferAccountId || l.icCategoryId));
+  const base = (t) => t.companyId === COMPANY && (t.role || 'main') === 'main' && !t.deleted && t.accountId === ACCOUNT
+    && t.source === 'migration' && t.legacyExpenseId && t.status !== 'reconciled' && plain(t) && !dupDrops.has(t.id);
+  // Hand entries never on a card statement, and (once real statements are
+  // imported past a cut-over) migrated charges after it that no statement matched.
+  const handEntered = (t) => !t.importId && t.status === 'uncleared';
+  const offCard = (t) => !!cutoffDate && t.date > cutoffDate && !t.importMatched;
+  return dalTxns.filter((t) => base(t) && (handEntered(t) || offCard(t)))
+    .map((t) => ({ ...t, moveReason: handEntered(t) ? 'hand-entered' : 'not on any card statement' }))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 

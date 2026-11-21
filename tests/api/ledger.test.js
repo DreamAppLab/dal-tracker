@@ -426,3 +426,40 @@ test('settle with a card-statement cut-over: covered up to the date, balance lef
   assert.equal(balanceOf(db, 'dal_card'), 0, 'cleared: everything covered again');
   assert.equal((await call('migrate', { mode: 'settle', cutoff: { date: '06/14/2026', owedCents: 1 } })).statusCode, 400);
 });
+
+test('card duplicates: receipt rows merge into statement rows; off-card rows move; card matches the statement; undo', async () => {
+  const db = setup({
+    'expenses/a': { vendor: 'Figma', amount: 615.34, date: '2026-06-10', category: 'Software & Subscriptions', source: 'import', statementId: 's1' },
+    'expenses/b': { vendor: 'ASO.DEV LLP', amount: 39, date: '2026-06-27', category: 'Software & Subscriptions', source: 'pdf', statementId: 's2', notes: 'Indie subscription', attachmentUrl: 'https://x/receipt.pdf' },
+    'expenses/c': { vendor: 'Fiverr FI58988418276', amount: 56.25, date: '2026-08-03', category: 'Design', source: 'excel-import', statementId: 's3' },
+  });
+  await call('migrate', { mode: 'apply' });
+  await call('migrate', { mode: 'settle', cutoff: { date: '2026-06-14', owedCents: 61534 } });
+  // The real statement row for the ASO.DEV charge, imported (uncategorized).
+  db.store.set('ledgerTransactions/dal_card_fpaso', { companyId: 'dal', accountId: 'dal_card', date: '2026-06-28', amountCents: -3900, payee: 'ASO.DEV* TRIAL OVER LONDON', memo: '', role: 'main', status: 'cleared', source: 'import', fingerprint: 'fpaso', categoryId: null, transferAccountId: null, icCategoryId: null, splits: [], deleted: false, needsCategory: true });
+  assert.equal(balanceOf(db, 'dal_card'), -(61534 + 3900 + 5625 + 3900));
+  const pv = await call('migrate', { mode: 'dupes-preview' });
+  assert.equal(pv.statusCode, 200, JSON.stringify(pv.body));
+  assert.deepEqual(pv.body.summary.dupes.pairs.map((p) => [p.dropId, p.keepId]), [['dal_mig_b', 'dal_card_fpaso']]);
+  // The personal move must not take the receipt row while it's a duplicate.
+  const pp = await call('migrate', { mode: 'personal-preview' });
+  assert.deepEqual(pp.body.summary.personal.rows.map((r) => [r.id, r.reason]), [['dal_mig_c', 'not on any card statement']]);
+  const mg = await call('migrate', { mode: 'dupes-merge' });
+  assert.equal(mg.body.summary.dupes.count, 1);
+  const kept = db.store.get('ledgerTransactions/dal_card_fpaso');
+  assert.equal(kept.attachmentUrl, 'https://x/receipt.pdf');
+  assert.equal(kept.categoryId, 'dal_cat_software', 'got the receipt row\'s category');
+  assert.match(kept.memo, /Indie subscription/);
+  assert.equal(db.store.get('ledgerTransactions/dal_mig_b').deleted, true);
+  assert.equal(balanceOf(db, 'dal_card'), -(61534 + 5625 + 3900));
+  await call('migrate', { mode: 'personal-move' });
+  assert.equal(db.store.get('ledgerTransactions/dal_mig_c').accountId, 'dal_personal');
+  assert.equal(balanceOf(db, 'dal_card'), -(61534 + 3900), 'card = previous balance + the statement charge');
+  assert.ok([...db.store.values()].some((d) => d.type === 'ledger_migration' && d.meta && d.meta.mode === 'dupes-merge'), 'audited');
+  // Undo restores both rows as they were.
+  const un = await call('migrate', { mode: 'dupes-undo' });
+  assert.equal(un.body.summary.dupes.count, 1);
+  assert.equal(db.store.get('ledgerTransactions/dal_mig_b').deleted, false);
+  const back = db.store.get('ledgerTransactions/dal_card_fpaso');
+  assert.deepEqual([back.categoryId, back.attachmentUrl, back.memo], [null, null, '']);
+});

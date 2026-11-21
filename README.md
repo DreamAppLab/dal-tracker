@@ -194,6 +194,14 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
    - On a card marked *Payments paid personally*, any line booked "Paid for Zerbiq" (in the import, the
      Review queue or the register) gets its owners settlement automatically. Editing, deleting or restoring
      the charge resizes or removes the settlement (`syncOwnersSettlement`).
+   - **Duplicate receipts on the card** (Setup, DAL): old Expenses rows entered from a receipt (📎) that repeat
+     a statement row (same amount, ±3 days, a shared payee word). *Merge* keeps the statement row, gives it the
+     receipt, notes, project and (if it had none) the category, then soft-deletes the receipt row
+     (`mergedInto` / `mergedFrom` / `mergeBackup`). It re-settles and rebuilds, can be undone, and is audited
+     (`migrate` modes `dupes-preview` / `dupes-merge` / `dupes-undo`).
+   - After a cut-over, *Card charges paid on a personal card* also moves migrated charges dated after it that
+     no imported statement matched (paid another way, e.g. Fiverr via PayPal). Receipt duplicates are skipped
+     until they are merged.
 7. **Reconciled rows are locked by the rules.** Their amount, date, account, status and delete flag can't
    change. **Undo reconcile** is server-side (`/api/ledger/unreconcile`), requires a sign-in within the last
    15 minutes, is written to the audit log first, and works on the latest statement only.

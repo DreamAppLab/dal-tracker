@@ -330,3 +330,22 @@ test('review fixes: duplicates use up migrated rows; matched migrated rows leave
   assert.equal(core.pickPlanCharge([{ date: '2026-10-03', amountCents: -512 }, { date: '2026-10-05', amountCents: -2000 }], 4, 2000).date, '2026-10-05');
   assert.equal(core.pickPlanCharge([{ date: '2026-08-29', amountCents: -4000 }], 4, 2000, '2026-08-28'), null, 'August plan was billed before the rule');
 });
+
+test('card duplicates: the six production receipt/statement pairs pair up; off-card Fiverr rows do not', () => {
+  const row = (id, date, cents, payee, extra = {}) => ({ id, companyId: 'dal', accountId: 'dal_card', date, amountCents: -cents, payee, role: 'main', ...extra });
+  const rec = { source: 'migration', attachmentUrl: 'u', legacyExpenseId: 'x', status: 'cleared' };
+  const imp = { source: 'import', fingerprint: 'f' };
+  const txns = [
+    row('r1', '2026-06-27', 3900, 'ASO.DEV LLP', rec), row('s1', '2026-06-27', 3900, 'ASO.DEV* TRIAL OVER LONDON', imp),
+    row('r2', '2026-06-29', 1900, '650 Industries, Inc. (Expo)', rec), row('s2', '2026-06-30', 1900, '650 INDUSTRIES (EXPO) PALO ALTO', imp),
+    row('r3', '2026-07-05', 597, 'Vercel Inc.', rec), row('s3', '2026-07-06', 597, 'VERCEL DOMAINS COVINA CA', imp),
+    row('r4', '2026-07-29', 4800, '650 Industries, Inc. (Expo)', rec), row('s4', '2026-07-29', 4800, '650 INDUSTRIES (EXPO) BURLINGAME', imp),
+    row('r5', '2026-08-08', 12248, '650 Industries, Inc. (Expo)', rec), row('s5', '2026-08-09', 12248, '650 INDUSTRIES (EXPO) BURLINGAME', imp),
+    row('r6', '2026-08-13', 926, 'Mailgun Technologies, Inc.', rec), row('s6', '2026-08-13', 926, 'SINCH MAILGUN SAN ANTONIO TX', imp),
+    row('f1', '2026-08-03', 5625, 'Fiverr FI58988418276', { source: 'migration', legacyExpenseId: 'y', status: 'cleared' }),
+    row('x1', '2026-08-03', 5625, 'GITHUB INC', imp),
+  ];
+  const pairs = core.findCardDuplicates(txns, 'dal_card');
+  assert.deepEqual(pairs.map((p) => `${p.dropId}>${p.keepId}`), ['r1>s1', 'r2>s2', 'r3>s3', 'r4>s4', 'r5>s5', 'r6>s6']);
+  assert.equal(pairs.reduce((s, p) => s - p.amountCents, 0), 24371, '$243.71');
+});

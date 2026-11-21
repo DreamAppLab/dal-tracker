@@ -292,6 +292,14 @@ export default function Setup() {
 
   const [newAcct, setNewAcct] = useState({ kind: 'credit_card', name: '', last4: '', openingDate: '' });
   const [personalPreview, setPersonalPreview] = useState(null);
+  const [dupes, setDupes] = useState(null);
+  const dupesRun = (mode) => run(() => apiPost('/api/ledger/migrate', { mode }), (r) => {
+    const d = r.summary.dupes;
+    if (mode === 'dupes-preview') { setDupes(d); return d.count ? `${d.count} duplicate charge(s) on the card, ${fmt(d.totalCents)} in total.` : 'No duplicates found.'; }
+    setDupes(null);
+    const owed = -(d.cardBalanceCents || 0);
+    return `${mode === 'dupes-undo' ? 'Undone' : 'Merged'}: ${d.count} duplicate(s), ${fmt(d.totalCents)}. “Card payments before Books” recomputed; the card now owes ${fmt(owed)}.${d.errors.length ? ` ${d.errors.length} could not be ${mode === 'dupes-undo' ? 'undone' : 'merged'}.` : ''}`;
+  });
   const addAccount = () => {
     const name = newAcct.name.trim() || ({ credit_card: 'Business credit card', checking: 'Business checking', personal: 'Paid personally' })[newAcct.kind];
     const openingDate = newAcct.openingDate || new Date().toISOString().slice(0, 10);
@@ -640,17 +648,43 @@ export default function Setup() {
         {companyId === 'dal' && (
           <div className="bk-maint-row">
             <div>
+              <strong>Duplicate receipts on the card</strong>
+              <div className="bk-muted bk-small">
+                Old Expenses rows entered from a receipt (📎) that repeat a card-statement row: same amount, dates within 3 days, a shared word in
+                the payee. Merge keeps the statement row, gives it the receipt, notes, project and (if it had none) the category, and deletes the
+                receipt row. “Card payments before Books” is then recomputed, so the cut-over balance stays the same. You can undo it.
+              </div>
+              {dupes && !!dupes.pairs.length && (
+                <div className="bk-table-wrap bk-scroll-y bk-mt">
+                  <table className="bk-table">
+                    <thead><tr><th>Receipt row (deleted)</th><th>Statement row (kept)</th><th className="num">Amount</th></tr></thead>
+                    <tbody>{dupes.pairs.map((pr) => <tr key={pr.dropId} className="bk-row"><td>{fmtDate(pr.date)} · {pr.dropPayee}{pr.dropMemo ? ` · ${pr.dropMemo}` : ''}</td><td>{fmtDate(pr.keepDate)} · {pr.keepPayee}</td><td className="num">{fmt(-pr.amountCents)}</td></tr>)}</tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <div className="bk-row-actions">
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => dupesRun('dupes-preview')} disabled={busy}>Preview</button>
+              {dupes && dupes.count > 0 && <button type="button" className="btn btn-primary btn-sm" onClick={() => dupesRun('dupes-merge')} disabled={busy}>Merge {dupes.count}</button>}
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => dupesRun('dupes-undo')} disabled={busy} title="Restores the receipt rows and the statement rows as they were">Undo merges</button>
+            </div>
+          </div>
+        )}
+        {companyId === 'dal' && (
+          <div className="bk-maint-row">
+            <div>
               <strong>Card charges paid on a personal card</strong>
               <div className="bk-muted bk-small">
-                Migrated charges that were typed in by hand (not from a Capital One statement) and are still uncleared were paid on an owner's
-                personal card. This moves them from the card to <em>Paid personally</em> and recomputes “Card payments before Books” so it covers
+                Migrated charges that were typed in by hand (not from a Capital One statement) and are still uncleared, and — after a statement
+                cut-over — migrated charges that no imported statement matched (run “Duplicate receipts” first), were paid another way (an owner's
+                personal card, PayPal…). This moves them from the card to <em>Paid personally</em> and recomputes “Card payments before Books” so it covers
                 only the real card charges. The card still owes $0.00, and P&L and total owner contributions don't change. You can undo it.
               </div>
               {personalPreview && !!personalPreview.rows.length && (
                 <div className="bk-table-wrap bk-scroll-y bk-mt">
                   <table className="bk-table">
-                    <thead><tr><th>Date</th><th>Payee</th><th>Notes</th><th className="num">Amount</th></tr></thead>
-                    <tbody>{personalPreview.rows.map((r) => <tr key={r.id} className="bk-row"><td>{fmtDate(r.date)}</td><td>{r.payee}</td><td className="bk-memo">{r.memo}</td><td className="num">{fmt(-r.cents)}</td></tr>)}</tbody>
+                    <thead><tr><th>Date</th><th>Payee</th><th>Notes</th><th>Why</th><th className="num">Amount</th></tr></thead>
+                    <tbody>{personalPreview.rows.map((r) => <tr key={r.id} className="bk-row"><td>{fmtDate(r.date)}</td><td>{r.payee}</td><td className="bk-memo">{r.memo}</td><td className="bk-small">{r.reason}</td><td className="num">{fmt(-r.cents)}</td></tr>)}</tbody>
                   </table>
                 </div>
               )}

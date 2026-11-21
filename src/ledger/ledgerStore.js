@@ -277,7 +277,7 @@ function ownersSyncEntries(id, before, next, accounts) {
   const date = (next || before).date;
   const amount = Math.abs(want) || 1;
   const fwd = core.ownersSettlementDrafts({ paidBy: companyId, key: id, amountCents: amount, date });
-  const rev = core.ownersSettlementDrafts({ paidBy: core.otherCompany(companyId), key: id, amountCents: amount, date });
+  const rev = core.ownersSettlementDrafts({ paidBy: core.otherCompany(companyId), key: id, amountCents: amount, date, payee: refundPayee(companyId) });
   const wanted = Object.fromEntries((want > 0 ? fwd : want < 0 ? rev : []).map((d) => [d.id, d.draft]));
   const locked = () => new Error('This charge’s owners settlement is reconciled. Undo that reconciliation on the Intercompany side first.');
   return [...fwd, ...rev].map((d) => ({
@@ -680,6 +680,12 @@ export async function ensureOwnerSettlementAccounts(earliest, accounts) {
   return accts;
 }
 
+/** Label for the reverse settlement of a refund: the other company's refund landed on `cardOwner`'s card. */
+function refundPayee(cardOwner) {
+  const other = core.otherCompany(cardOwner);
+  return `${core.COMPANY_META[other].short} refund on ${core.COMPANY_META[cardOwner].short} card (settled through owners)`;
+}
+
 /**
  * runPlans entries for owners settlements. items [{ key, amountCents (signed:
  * > 0 = `paidBy` paid for the other company; < 0 = a refund the other way), date, memo? }].
@@ -691,7 +697,8 @@ export function ownersSettlementEntries(paidBy, items, when) {
   return items.flatMap((it, i) => {
     if (!it.amountCents) return [];
     const by = it.amountCents > 0 ? paidBy : core.otherCompany(paidBy);
-    return core.ownersSettlementDrafts({ paidBy: by, key: it.key, amountCents: Math.abs(it.amountCents), date: it.date, memo: it.memo })
+    const payee = it.amountCents < 0 ? refundPayee(paidBy) : undefined;
+    return core.ownersSettlementDrafts({ paidBy: by, key: it.key, amountCents: Math.abs(it.amountCents), date: it.date, memo: it.memo, payee })
       .map((d) => ({ id: d.id, makeDraft: (before) => (before || (when && !when(i)) ? undefined : d.draft) }));
   });
 }
