@@ -30,6 +30,7 @@ const {
   ids,
   monthOf,
   otherCompany,
+  COMPANY_META,
 } = require('./constants');
 
 class LedgerError extends Error {
@@ -47,7 +48,7 @@ const TXN_FIELDS = [
   'settlementId', 'fingerprint', 'importId', 'source', 'project', 'attachmentUrl',
   'checkNumber', 'legacyExpenseId', 'parentLineKey', 'attachmentPath', 'lineId',
   'projectId', 'convertedFromCategoryId', 'legacyProjectLinked', 'legacyNotesAdded',
-  'personalMovedFrom', 'coversHistoricalCents',
+  'personalMovedFrom', 'coversHistoricalCents', 'settlementKind',
 ];
 
 // Fields a linked leg/mirror keeps for itself across re-plans (its own
@@ -269,6 +270,7 @@ function buildLeg(main, line, index, existing, accounts) {
     parentLineKey: key,
     role: 'leg',
     settlementId: main.settlementId,
+    settlementKind: main.settlementKind || null,
     fingerprint: null,
     importId: null,
     source: main.source,
@@ -479,6 +481,32 @@ function settlementDrafts({ settlementId, payer, payerTxnId, receiverTxnId, paye
   ];
 }
 
+/**
+ * "Settle through owners (no repayment)": the other company will never pay
+ * back what `paidBy` paid for it, because the owners funded it personally.
+ * It is an ordinary intercompany settlement whose two sides go through each
+ * company's "Paid personally" account instead of a bank account: the company
+ * that was paid for records an owner contribution, the payer's owner money is
+ * reduced by the same amount, and both intercompany balances go to zero.
+ * Deterministic ids from `key` make it idempotent.
+ */
+function ownersSettlementDrafts({ paidBy, key, amountCents, date, memo, payee }) {
+  const other = otherCompany(paidBy);
+  // The charge's own id (account + import fingerprint) makes the settlement
+  // id: unique per charge, and the same on every re-run.
+  const base = `own${String(key).toLowerCase().replace(/[^a-z0-9]/g, '').slice(-48)}`;
+  if (base.length < 8) throw new LedgerError('Bad settlement key.');
+  const { payerTxnId, receiverTxnId } = settlementTxnIds(base, other);
+  const drafts = settlementDrafts({
+    settlementId: `set_${base}`, payer: other, payerTxnId, receiverTxnId,
+    payerAccountId: ids.personal(other), receiverAccountId: ids.personal(paidBy),
+    amountCents, date, memo: memo || 'Settled through the owners: no repayment',
+    payerPayee: payee || `${COMPANY_META[other].short} costs paid personally via ${COMPANY_META[paidBy].short} card`,
+    receiverPayee: payee || `${COMPANY_META[other].short} costs paid personally via ${COMPANY_META[paidBy].short} card`,
+  });
+  return drafts.map((d) => ({ ...d, draft: { ...d.draft, settlementKind: 'owners', status: 'cleared' } }));
+}
+
 /** Merge several plans into one write set (e.g. both sides of a settlement). */
 function mergePlans(plans) {
   // eslint-disable-next-line global-require
@@ -515,6 +543,7 @@ module.exports = {
   planTransactionWrite,
   planSoftDelete,
   settlementDrafts,
+  ownersSettlementDrafts,
   mergePlans,
   monthOf,
   companyOfId,

@@ -597,3 +597,66 @@ export async function undoBulkEdit(edit, accounts, categories) {
   recordAuditEvent('ledger_update', `${COL.bulkEdits}/${edit.id}`, { action: 'bulk_recategorize_undone', companyId: edit.companyId, txnCount: n, failedCount: failed.length });
   return { done: n, failed };
 }
+
+/**
+ * Accounts an owners settlement needs, open by `earliest`: both companies'
+ * "Paid personally" and intercompany accounts. Reads them fresh and only ever
+ * moves an opening date earlier. Returns the updated accounts map.
+ */
+export async function ensureOwnerSettlementAccounts(earliest, accounts) {
+  const accts = { ...accounts };
+  for (const c of core.COMPANY_IDS) {
+    for (const id of [core.ids.personal(c), core.ids.intercompany(c)]) {
+      // eslint-disable-next-line no-await-in-loop
+      const snap = await getDoc(doc(db, COL.accounts, id));
+      const cur = snap.exists() ? snap.data() : null;
+      if (cur && !cur.archived && cur.openingDate <= earliest) { accts[id] = { ...cur, id }; continue; }
+      const base = cur ? { ...cur } : id === core.ids.personal(c) ? { ...core.personalAccountDoc(c).data } : core.defaultAccountDocs(c).find((a) => a.id === id).data;
+      delete base.updatedAt; delete base.createdAt;
+      const data = { ...base, archived: false, openingDate: cur && cur.openingDate < earliest ? cur.openingDate : earliest };
+      // eslint-disable-next-line no-await-in-loop
+      await setDoc(doc(db, COL.accounts, id), { ...data, updatedAt: serverTimestamp() }, { merge: true });
+      accts[id] = { ...data, id };
+    }
+  }
+  return accts;
+}
+
+/**
+ * runPlans entries for owners settlements. items [{ key, amountCents (signed:
+ * > 0 = `paidBy` paid for the other company; < 0 = a refund the other way), date, memo? }].
+ * Never re-creates one that exists (even deleted: a deleted settlement stays deleted).
+ * `when(i)` (optional) is checked at write time, so a settlement is only
+ * written when its charge was written in the same transaction.
+ */
+export function ownersSettlementEntries(paidBy, items, when) {
+  return items.flatMap((it, i) => {
+    if (!it.amountCents) return [];
+    const by = it.amountCents > 0 ? paidBy : core.otherCompany(paidBy);
+    return core.ownersSettlementDrafts({ paidBy: by, key: it.key, amountCents: Math.abs(it.amountCents), date: it.date, memo: it.memo })
+      .map((d) => ({ id: d.id, makeDraft: (before) => (before || (when && !when(i)) ? undefined : d.draft) }));
+  });
+}
+
+/**
+ * "Settle through owners (no repayment)" for charges `paidBy` paid for the
+ * other company: items [{ key, amountCents (positive), date, memo? }].
+ * Makes sure both companies have a "Paid personally" account open by the
+ * earliest date, then records each pair (idempotent per key). Audited.
+ */
+export async function settleThroughOwners(paidBy, items, accounts, categories) {
+  const live = items.filter((i) => i.amountCents);
+  if (!live.length) return 0;
+  const earliest = live.map((i) => i.date).sort()[0];
+  const accts = await ensureOwnerSettlementAccounts(earliest, accounts);
+  let done = 0;
+  for (let i = 0; i < live.length; i += 10) {
+    const chunk = live.slice(i, i + 10);
+    const entries = ownersSettlementEntries(paidBy, chunk);
+    // eslint-disable-next-line no-await-in-loop
+    const { plan } = await runPlans(entries, accts, categories);
+    done += new Set(plan.sets.filter((x) => x.data && x.data.settlementKind === 'owners' && x.data.role === 'main').map((x) => x.data.settlementId)).size;
+  }
+  recordAuditEvent('ledger_update', 'ledgerTransactions/settle-through-owners', { action: 'settle_through_owners', companyId: paidBy, count: live.length, recorded: done, totalCents: live.reduce((sum, it) => sum + it.amountCents, 0) });
+  return done;
+}

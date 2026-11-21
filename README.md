@@ -79,7 +79,7 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
 | `ledgerTransactions` | `date`, `amountCents` (integer, signed), `payee`, `memo` (shown as **Description / notes**), `projectId` (optional), `status` (`uncleared` / `cleared` / `reconciled`), `type`, `categoryId` or `transferAccountId`, `splits[]`, `fingerprint`, `deleted` (soft delete). `role` is `main`, `leg` or `mirror`. `convertedFromCategoryId` is set when an expense was turned into a fixed asset. |
 | `ledgerProjects` | Per-company projects / apps (`name`, `archived`). Ids are `<companyId>_proj_<slug>`. They are archived, never deleted. |
 | `ledgerBulkEdits` | Bulk "change category" records: every moved line with its old category (for undo), `status` `applying` → `applied` → `undone`. Created once and never deleted; afterwards only the status and counters change. |
-| `ledgerVendorRules` | "Payee contains X" → category, plus an optional default project. Applied on entry and import (the longest match wins). |
+| `ledgerVendorRules` | "Payee contains X" → category, plus an optional default project. Optional limits: `fromDate` / `toDate`, `accountId` and `wholeWord`. With `icCategoryId` (the other company's category) the rule books the charge as "Paid for <other>". Applied on entry and import: the longest match wins, and on a tie a date- or account-limited rule wins. A rule limited to dates or an account beats general rules; otherwise the longest pattern wins. `splitPlan` ({ planCents, ownCents, …memos }) splits a shared plan: up to the plan price it's 50/50; above it we keep `ownCents` and the rest is theirs (import only; elsewhere the rule's own category). `settleThroughOwners` closes the other company's share with an owners settlement. `reviewNote` adds a "Check: …" note to the memo. Setup (DAL) has a one-click preset for Zerbiq's vendors on the DAL card from 2026-08-28: Anthropic, Claude.ai, Expo (whole word) and 650 Industries are 100% Zerbiq; Vercel Pro is split $10 DAL / $10 Zerbiq with overage to Zerbiq; Vercel Domains (yearly domains) stay plain DAL Hosting & domains, assigned by hand at renewal. |
 | `ledgerReconciliations` | Finished statements (`startingBalanceCents`, `endingBalanceCents`, `statementDate`, `status`). |
 | `ledgerMonthly` | Cached totals per company per month (`acct` and `cat` maps), kept up to date with atomic increments. |
 | `ledgerImports` | Fingerprints of imported statement files. |
@@ -106,6 +106,17 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
    category plus a payable. Reimbursements are recorded on the Intercompany screen as two paired mains
    (`<payer>_set_<id>_p` / `<receiver>_set_<id>_r`). Both halves always change together, and partial
    payments are fine.
+   **Settle through owners (no repayment)** is the non-cash version, used when the owners funded the cost
+   personally and nobody will be repaid (`ownersSettlementDrafts`, `settlementKind: 'owners'`). It is the
+   same paired settlement, but each side goes through the company's *Paid personally* account instead of a
+   bank account. The company that was paid for records an owner contribution, the paying company's owner
+   money goes down by the same amount, and both intercompany balances end at $0.00. P&L and bank/card
+   balances don't change. Imports apply it automatically for rules marked `settleThroughOwners`; it can also
+   be recorded on the Intercompany screen. On import it's written in the same Firestore transaction as its
+   charge, and only when the charge itself is new. A refund on such a charge settles in the other direction.
+   Ids are derived from the charge (account + fingerprint), so it is idempotent. Delete it like any
+   reimbursement to undo; a deleted one is never re-created. Register entries aren't settled automatically:
+   use the Intercompany screen for any open balance.
 6. **P&L** (cash basis) counts only income and expense category lines. Transfers, equity, intercompany
    receivables and uncategorized lines are excluded; uncategorized lines are flagged so they get fixed.
    **Reports** are grouped into three sets:
