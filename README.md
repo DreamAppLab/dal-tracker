@@ -116,8 +116,10 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
    be recorded on the Intercompany screen. On import it's written in the same Firestore transaction as its
    charge, and only when the charge itself is new. A refund on such a charge settles in the other direction.
    Ids are derived from the charge (account + fingerprint), so it is idempotent. Delete it like any
-   reimbursement to undo; a deleted one is never re-created. Register entries aren't settled automatically:
-   use the Intercompany screen for any open balance.
+   reimbursement to undo; a deleted one is never re-created. On a card marked *Payments paid personally*,
+   register and Review-queue edits keep the charge's settlement in step in the same transaction, refusing if
+   it's reconciled. Older charges whose share didn't change get none, since they may have been settled by
+   hand. Anything else open is settled on the Intercompany screen.
 6. **P&L** (cash basis) counts only income and expense category lines. Transfers, equity, intercompany
    receivables and uncategorized lines are excluded; uncategorized lines are flagged so they get fixed.
    **Reports** are grouped into three sets:
@@ -180,7 +182,9 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
      *owed then*). Enter the day before the first real statement you'll import, and that statement's *Previous
      balance*. "Card payments before Books" then covers migrated charges only up to that day and leaves that
      balance owed. Every real card payment from then on is a full owner contribution, so the card matches each
-     statement's new balance, and the double-count guard switches off. The cut-over is stored on the card
+     statement's new balance, and the double-count guard switches off. Migrated rows that a statement import
+     matches (or repeats exactly) are stamped `importMatched` and drop out of that coverage, since a charge made
+     before the cut-over can post on the next statement. Settle re-runs after such an import. The cut-over is stored on the card
      (`historicalCutoffDate` / `historicalCutoffOwedCents`) and audited.
    - Import matches statement rows to migrated card rows by amount and date (±5 days), even though those rows
      carry the old import's fingerprint. Each migrated row matches only once (`importMatched`).

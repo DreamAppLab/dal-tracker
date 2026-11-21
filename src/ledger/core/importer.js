@@ -79,6 +79,7 @@ function classifyRows(rows, existing, opts) {
   const live = existing.filter((t) => !t.deleted);
   // Deleted rows still count: a row you deleted must not come back on re-import.
   const fps = new Set(existing.map((t) => t.fingerprint).filter(Boolean));
+  const byFp = new Map(existing.filter((t) => t.fingerprint).map((t) => [t.fingerprint, t]));
   const baseKeys = new Map();
   for (const t of live) {
     const k = `${t.date}|${t.amountCents}|${normalizePayee(t.payee)}`;
@@ -87,7 +88,12 @@ function classifyRows(rows, existing, opts) {
   const used = new Set();
   const nearUsed = new Set();
   return rows.map((row) => {
-    if (fps.has(row.fingerprint)) return { ...row, status: 'duplicate', selected: false };
+    if (fps.has(row.fingerprint)) {
+      // The same row again; a migrated row it duplicates is used up (never matched to another charge).
+      const dup = byFp.get(row.fingerprint);
+      if (dup) used.add(dup.id);
+      return { ...row, status: 'duplicate', selected: false, dupTxnId: dup ? dup.id : null, dupOfMigrated: !!(dup && dup.source === 'migration' && !dup.importMatched), dupDate: dup ? dup.date : null };
+    }
     // Hand entries (no fingerprint) and rows migrated from the old Expenses tab
     // (their fingerprint came from the old import, not this file) are matched
     // by amount and date; a migrated row matches one statement row only once.
@@ -109,7 +115,7 @@ function classifyRows(rows, existing, opts) {
     // Same money already imported in another format (QFX vs CSV: OFX NAME is
     // cut at 32 chars and uses the posted date): flag it, unselected.
     const p = normalizePayee(row.payee);
-    const near = live.find((t) => t.fingerprint && !nearUsed.has(t.id) && t.amountCents === row.amountCents
+    const near = live.find((t) => t.fingerprint && !nearUsed.has(t.id) && !used.has(t.id) && t.amountCents === row.amountCents
       && dayDiff(t.date, row.date) <= 3 && similarPayee(normalizePayee(t.payee), p));
     if (near) {
       nearUsed.add(near.id);
@@ -155,10 +161,15 @@ function matchVendorRule(payee, rules, ctx = {}) {
 }
 
 /** Of a month's charges from a shared-plan vendor, the plan charge: nearest the billing day, then earliest. */
-function pickPlanCharge(charges, planDay = 4) {
+function pickPlanCharge(charges, planDay = 4, planCents = 0, fromDate = null) {
   if (!charges.length) return null;
+  const month = String(charges[0].date).slice(0, 7);
+  // The month's plan was billed before the rule starts (e.g. rule from 08/28): no plan charge to split.
+  if (fromDate && `${month}-${String(planDay).padStart(2, '0')}` < fromDate) return null;
+  const big = planCents ? charges.filter((r) => -r.amountCents >= planCents) : [];
+  const pool = big.length ? big : charges;
   const dist = (r) => Math.abs(Number(String(r.date).slice(8, 10)) - planDay);
-  return [...charges].sort((a, b) => dist(a) - dist(b) || String(a.date).localeCompare(String(b.date)))[0];
+  return [...pool].sort((a, b) => dist(a) - dist(b) || String(a.date).localeCompare(String(b.date)))[0];
 }
 
 /** The register/import pick a rule gives: its category, or "Paid for <other company>" for an intercompany rule. */

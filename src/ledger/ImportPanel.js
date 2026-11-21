@@ -266,7 +266,7 @@ export default function ImportPanel({ onDone }) {
         .some((t) => !t.deleted && (t.splits || []).some((l) => l.lineId === 'own') && core.rulePatternMatches(rule, core.normalizePayee(t.payee)));
       const day = Number(rule.splitPlan.planDay) || 4;
       const charges = monthRows.filter((row) => row.amountCents < 0);
-      const plan = already ? null : core.pickPlanCharge(charges, day);
+      const plan = already ? null : core.pickPlanCharge(charges, day, Number(rule.splitPlan.planCents) || 0, rule.fromDate || null);
       for (const row of monthRows) {
         if (row === plan) continue;
         row.pick = `ic:${rule.icCategoryId}`;
@@ -335,7 +335,8 @@ export default function ImportPanel({ onDone }) {
         const lines = r.pick === 'split' && r.splits ? r.splits : [{ ...lineFromPick(r.pick, companyId), amountCents: r.amountCents }];
         return lines.filter((l) => l.icCategoryId).reduce((s, l) => s - l.amountCents, 0);
       };
-      const settles = (r) => r.ownerSettle && r.status !== 'match' && icShare(r) !== 0;
+      // Rules marked "settle through owners", and any "Paid for" pick on a card paid personally.
+      const settles = (r) => (r.ownerSettle || (account.kind === 'credit_card' && account.cardPaymentsPaidPersonally)) && r.status !== 'match' && icShare(r) !== 0;
       const ownerRows = work.filter((w) => w.kind === 'new' && settles(w.r));
       const accts = ownerRows.length
         ? await ensureOwnerSettlementAccounts(ownerRows.map((w) => w.r.date).sort()[0], accountsById)
@@ -400,6 +401,13 @@ export default function ImportPanel({ onDone }) {
         done += slice.length;
         setProgress(`Imported ${done} of ${work.length}…`);
       }
+      // Migrated rows this statement repeats exactly (same fingerprint) are used up too.
+      const dupStamps = rows.filter((r) => r.status === 'duplicate' && r.dupOfMigrated && r.dupTxnId);
+      if (dupStamps.length) {
+        const batch = writeBatch(db);
+        dupStamps.forEach((r) => batch.set(doc(db, COL.transactions, r.dupTxnId), { importMatched: true, updatedAt: serverTimestamp() }, { merge: true }));
+        await batch.commit();
+      }
       const dates = rows.map((r) => r.date).sort();
       await saveDoc(COL.imports, meta.importId, {
         companyId, accountId: account.id, fileName: file ? file.name.slice(0, 200) : '', kind: meta.kind,
@@ -410,13 +418,18 @@ export default function ImportPanel({ onDone }) {
       recordAuditEvent('import', `ledgerImports/${meta.importId}`, { companyId, accountId: account.id, rows: work.length, fileType: meta.kind });
       const coveredRows = selected.filter((r) => coverage[r.key] && r.coverAck !== false && r.status !== 'match');
       let settleNote = '';
-      if (coveredRows.length) {
+      // With a statement cut-over, rows this statement matched are no longer
+      // covered by "Card payments before Books": recompute it.
+      const cutoverResettle = account.id === core.ACCOUNT && account.historicalCutoffDate
+        && (dupStamps.length || selected.some((r) => r.status === 'match'));
+      if (coveredRows.length || cutoverResettle) {
         // Recompute "Card payments before Books" now that real payments cover part of it.
         setProgress('Updating “Card payments before Books”…');
         try {
           const st = (await apiPost('/api/ledger/migrate', { mode: 'settle', as: account.historicalPaymentsAs || 'owner' })).summary.settled;
-          if (st.errors && st.errors.length) settleNote = ` “Card payments before Books” could not be fully updated (${st.errors.length} reconciled month(s)); the card may not show $0.00 for that history — see Setup → Mark as paid.`;
-          else if (st.uncoveredCents) settleNote = ` ${fmt(st.uncoveredCents)} of the marked payments is more than “Card payments before Books” had left, so the card shows that much in credit — check those payments.`;
+          if (st.cutoff && (st.leftOwedCents || 0) < (st.cutoff.owedCents || 0)) settleNote += ` Note: “Card payments before Books” could only leave ${fmt(st.leftOwedCents || 0)} owed at the cut-over, not ${fmt(st.cutoff.owedCents)} — check the card against the statement.`;
+          if (st.errors && st.errors.length) settleNote += ` “Card payments before Books” could not be fully updated (${st.errors.length} reconciled month(s)); the card may not show $0.00 for that history — see Setup → Mark as paid.`;
+          else if (st.uncoveredCents) settleNote += ` ${fmt(st.uncoveredCents)} of the marked payments is more than “Card payments before Books” had left, so the card shows that much in credit — check those payments.`;
         } catch (e) {
           settleNote = ` The transactions were imported, but “Card payments before Books” wasn't updated (${e.message}). Run Setup → Mark as paid.`;
         }

@@ -445,7 +445,8 @@ export default function Setup() {
     setMigration(r.summary);
     const st = r.summary.settled || {};
     const problems = (st.errors || []).length;
-    const owedNote = st.cutoff ? `Charges up to ${fmtDate(st.cutoff.date)} are covered except ${fmt(st.leftOwedCents || 0)}, which stays owed for the first imported payment; later migrated charges are paid by the imported statements' payments.` : "The card's migrated history now owes $0.00.";
+    const short = st.cutoff && (st.leftOwedCents || 0) < (st.cutoff.owedCents || 0);
+    const owedNote = st.cutoff ? `Charges up to ${fmtDate(st.cutoff.date)} are covered except ${fmt(st.leftOwedCents || 0)}, which stays owed for the first imported payment; later migrated charges are paid by the imported statements' payments.${short ? ` Warning: you entered ${fmt(st.cutoff.owedCents)}, but the migrated charges up to that day only allow ${fmt(st.leftOwedCents || 0)} — check the date and the card's history.` : ''}` : "The card's migrated history now owes $0.00.";
     return `Migrated card charges marked as paid before Books: ${st.months || 0} monthly entries totalling ${fmt(st.totalCents || 0)}, booked as ${histAs === 'owner' ? 'owner contributions' : 'opening balance equity'}. ${problems ? `${problems} month(s) could not be updated (reconciled) — see details below.` : owedNote}`;
   });
   const rebuild = () => run(() => apiPost('/api/ledger/rebuild', { companyId }), (r) => `Rebuilt ${r.result.months} months from ${r.result.transactions} transactions.`);

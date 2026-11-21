@@ -44,7 +44,7 @@ const ReceiptSchema = z
 
 const MigrateSchema = z.object({ mode: z.enum(['dry-run', 'apply', 'rollback', 'settle', 'projects', 'legacy-report', 'legacy-notes', 'legacy-notes-undo', 'personal-preview', 'personal-move', 'personal-undo']), as: z.enum(['equity', 'owner']).optional(),
   // Card-statement cut-over for "Card payments before Books" (null clears it).
-  cutoff: z.union([z.null(), z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), owedCents: z.number().int().min(0).max(1e10) }).strict()]).optional() }).strict();
+  cutoff: z.union([z.null(), z.object({ date: z.string().regex(/^(20\d{2})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).refine((d) => !Number.isNaN(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d, 'Invalid date'), owedCents: z.number().int().min(0).max(1e10) }).strict()]).optional() }).strict();
 const RebuildSchema = z.object({ companyId }).strict();
 
 async function migrate(req, res) {

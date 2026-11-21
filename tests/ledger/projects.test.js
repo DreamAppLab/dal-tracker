@@ -312,3 +312,21 @@ test('import matching: migrated card rows (old fingerprints) match statement row
   const personal = cats.find((c) => c.slug === 'personal_spending');
   assert.deepEqual([personal.kind, personal.equityType, personal.name], ['equity', 'personal', 'Personal (not business)']);
 });
+
+test('review fixes: duplicates use up migrated rows; matched migrated rows leave the cut-over coverage; plan pick by amount and rule start', () => {
+  const mig = { id: 'dal_mig_s1', source: 'migration', date: '2026-08-14', amountCents: -50000, payee: 'SHARMIN SHEPU', role: 'main' };
+  const [dupRow] = core.withFingerprints('dal_card', [{ date: '2026-08-14', amountCents: -50000, payee: 'SHARMIN SHEPU' }]);
+  mig.fingerprint = dupRow.fingerprint;
+  const later = core.withFingerprints('dal_card', [{ date: '2026-08-15', amountCents: -50000, payee: 'SHARMIN SHEPU' }]);
+  const out = core.classifyRows([dupRow, ...later], [mig]);
+  assert.deepEqual(out.map((r) => r.status), ['duplicate', 'new'], 'the later $500 is not swallowed');
+  assert.equal(out[0].dupOfMigrated, true);
+  // A charge made 06/13 (migrated) that posts on the Jul statement: once matched, no longer covered.
+  const t = (id, date, amountCents, extra = {}) => ({ id, companyId: 'dal', accountId: 'dal_card', date, amountCents, source: 'migration', legacyExpenseId: id, role: 'main', ...extra });
+  const rows = [t('a', '2026-06-01', -100000), t('b', '2026-06-13', -5000, { importMatched: true })];
+  const plan = core.planHistoricalPayments(rows, [], 'x', { date: '2026-06-14', owedCents: 100000 - 0 });
+  assert.equal(plan.totalCents, 0, 'only the unmatched $1,000 is in the cut-over, and it stays owed');
+  // Plan pick: the $20+ charge near the 4th, not a small usage charge on the 3rd; nothing before the rule starts.
+  assert.equal(core.pickPlanCharge([{ date: '2026-10-03', amountCents: -512 }, { date: '2026-10-05', amountCents: -2000 }], 4, 2000).date, '2026-10-05');
+  assert.equal(core.pickPlanCharge([{ date: '2026-08-29', amountCents: -4000 }], 4, 2000, '2026-08-28'), null, 'August plan was billed before the rule');
+});

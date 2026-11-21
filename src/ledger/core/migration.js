@@ -147,7 +147,9 @@ function planHistoricalPayments(cardTxns, existing, categoryId, cutoff) {
   }
   for (const t of cardTxns) {
     if (t.deleted || t.accountId !== ACCOUNT || t.source !== 'migration' || !t.legacyExpenseId) continue;
-    if (cutDate && t.date > cutDate) continue;
+    // With a cut-over, a migrated row that a statement import matched belongs to
+    // that statement (charges made before the cut-over can post after it).
+    if (cutDate && (t.date > cutDate || t.importMatched)) continue;
     const m = t.date.slice(0, 7);
     if (!byMonth[m]) byMonth[m] = { net: 0, last: t.date };
     byMonth[m].net += t.amountCents;

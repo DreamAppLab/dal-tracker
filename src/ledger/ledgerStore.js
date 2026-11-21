@@ -192,7 +192,10 @@ export async function runPlans(entries, accounts, categories) {
 /** Save (create or edit) a main transaction with all derived records. */
 export async function saveTransaction({ id, draft, before, accounts, categories }) {
   const clean = stripId(draft);
-  const { plan, befores } = await runPlans([{ id, makeDraft: () => clean }], accounts, categories);
+  const hint = before ? stripId(before) : null;
+  const sync = ownersSyncEntries(id, hint, clean, accounts);
+  const accts = sync.length && icShareOf(clean) ? await ensureOwnerSettlementAccounts(clean.date, accounts) : accounts;
+  const { plan, befores } = await runPlans([{ id, makeDraft: () => clean }, ...sync], accts, categories);
   const prev = befores[0];
   // Audit edits that move money on an existing transaction.
   if (prev && (prev.amountCents !== clean.amountCents || prev.date !== clean.date || prev.accountId !== clean.accountId)) {
@@ -200,7 +203,6 @@ export async function saveTransaction({ id, draft, before, accounts, categories 
       companyId: prev.companyId, fromAmountCents: prev.amountCents, toAmountCents: clean.amountCents, fromDate: prev.date, toDate: clean.date,
     });
   }
-  await syncOwnersSettlement(id, prev, clean, accounts, categories);
   if ((prev && prev.coversHistoricalCents) || clean.coversHistoricalCents) {
     if (!prev || prev.amountCents !== clean.amountCents || prev.accountId !== clean.accountId || prev.coversHistoricalCents !== clean.coversHistoricalCents || !!prev.deleted !== !!clean.deleted) await resettleCardHistory();
   }
@@ -234,15 +236,14 @@ export async function setDeleted({ txn, deleted, accounts, categories }) {
       return { ...before, deleted: !!deleted };
     },
   }));
-  const { plan } = await runPlans(entries, accounts, categories);
+  const { id: tid, ...rest } = txn;
+  const sync = txn.role === 'main' ? ownersSyncEntries(tid, rest, { ...rest, deleted: !!deleted }, accounts) : [];
+  const accts = sync.length && !deleted && icShareOf(rest) ? await ensureOwnerSettlementAccounts(rest.date, accounts) : accounts;
+  const { plan } = await runPlans([...entries, ...sync], accts, categories);
   recordAuditEvent(deleted ? 'ledger_delete' : 'ledger_restore', `ledgerTransactions/${txn.id}`, {
     companyId: txn.companyId, accountId: txn.accountId, date: txn.date, amountCents: txn.amountCents, bothCompanies: entries.length > 1,
   });
   if (txn.coversHistoricalCents) await resettleCardHistory();
-  if (txn.role === 'main') {
-    const { id: tid, ...rest } = txn;
-    await syncOwnersSettlement(tid, rest, { ...rest, deleted: !!deleted }, accounts, categories);
-  }
   return plan;
 }
 
@@ -255,36 +256,48 @@ function icShareOf(t) {
 
 /**
  * On a card whose payments are paid personally, nobody repays the other
- * company's share: keep its owners settlement (keyed by the transaction id)
- * in step with the charge whenever it's saved, deleted or restored —
- * created, resized, flipped for a refund, or removed.
+ * company's share. runPlans entries that keep the charge's owners settlement
+ * (keyed by the charge id) in step, written in the SAME transaction as the
+ * charge: created for a new charge or a changed share, resized, flipped for a
+ * refund, or removed. A settlement the user deleted is never brought back, a
+ * reconciled one is never changed (the whole save is refused instead), and an
+ * older charge whose share didn't change gets none (it may have been settled
+ * by hand on the Intercompany screen).
  */
-async function syncOwnersSettlement(id, prev, next, accounts, categories) {
-  const acct = next && accounts[next.accountId];
-  const prevAcct = prev && accounts[prev.accountId];
+function ownersSyncEntries(id, before, next, accounts) {
   const personalCard = (a) => !!(a && a.kind === 'credit_card' && a.cardPaymentsPaidPersonally);
-  if (!personalCard(acct) && !personalCard(prevAcct)) return;
-  if ((next && next.role && next.role !== 'main') || (next && next.settlementId)) return;
+  const acct = next && accounts[next.accountId];
+  const prevAcct = before && accounts[before.accountId];
+  if (!personalCard(acct) && !personalCard(prevAcct)) return [];
+  if ((next && next.role && next.role !== 'main') || (next && next.settlementId) || (before && before.settlementId)) return [];
   const want = personalCard(acct) ? icShareOf(next) : 0;
-  const had = personalCard(prevAcct) ? icShareOf(prev) : 0;
-  if (want === had && (!want || (prev && next && prev.date === next.date))) return;
-  const companyId = (next || prev).companyId;
-  const date = (next || prev).date;
+  const had = personalCard(prevAcct) ? icShareOf(before) : 0;
+  const mayCreate = !before || want !== had || !!before.deleted !== !!(next && next.deleted);
+  const companyId = (next || before).companyId;
+  const date = (next || before).date;
   const amount = Math.abs(want) || 1;
   const fwd = core.ownersSettlementDrafts({ paidBy: companyId, key: id, amountCents: amount, date });
   const rev = core.ownersSettlementDrafts({ paidBy: core.otherCompany(companyId), key: id, amountCents: amount, date });
   const wanted = Object.fromEntries((want > 0 ? fwd : want < 0 ? rev : []).map((d) => [d.id, d.draft]));
-  const accts = want ? await ensureOwnerSettlementAccounts(date, accounts) : accounts;
-  const entries = [...fwd, ...rev].map((d) => ({
+  const locked = () => new Error('This charge’s owners settlement is reconciled. Undo that reconciliation on the Intercompany side first.');
+  return [...fwd, ...rev].map((d) => ({
     id: d.id,
-    makeDraft: (before) => {
-      if (wanted[d.id]) return { ...wanted[d.id], status: before && before.status === 'reconciled' ? 'reconciled' : wanted[d.id].status, reconciliationId: before ? before.reconciliationId || null : null };
-      return before && !before.deleted ? { ...before, deleted: true } : undefined;
+    makeDraft: (b) => {
+      const wd = wanted[d.id];
+      if (wd) {
+        if (!b) return mayCreate ? wd : undefined;
+        if (b.deleted && !b.deletedBySync) return undefined; // deleted by the user: stays deleted
+        if (!b.deleted && b.amountCents === wd.amountCents && b.date === wd.date) return undefined;
+        if (b.status === 'reconciled') throw locked();
+        return { ...b, ...wd, deleted: false, deletedBySync: null, status: b.status || wd.status, reconciliationId: b.reconciliationId || null };
+      }
+      if (!b || b.deleted) return undefined;
+      if (b.status === 'reconciled') throw locked();
+      return { ...b, deleted: true, deletedBySync: true };
     },
   }));
-  await runPlans(entries, accts, categories);
-  recordAuditEvent('ledger_update', `ledgerTransactions/${id}`, { action: 'owners_settlement_sync', companyId, fromCents: had, toCents: want });
 }
+
 
 /** Permanently remove a soft-deleted main transaction and its legs/mirrors. */
 export async function purgeDeleted({ txn, accounts, categories }) {
