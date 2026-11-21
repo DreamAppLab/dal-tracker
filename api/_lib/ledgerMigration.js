@@ -160,9 +160,24 @@ async function linkLegacyProjects(db) {
   return { created: plan.create.length, tagged: plan.tag.length };
 }
 
+/** Old receipts live at expenses/<legacyId>/<file>; which migrated rows still have one (one Storage listing). */
+async function legacyReceipts(getBucket, migrated) {
+  const withUrl = migrated.filter((t) => t.attachmentUrl && !t.attachmentPath && t.legacyExpenseId);
+  if (!withUrl.length) return { withLink: 0, fileFound: 0, fileMissing: 0, missingIds: [] };
+  let present;
+  try {
+    const [files] = await getBucket().getFiles({ prefix: 'expenses/', autoPaginate: true });
+    present = new Set(files.map((f) => String(f.name).split('/')[1]));
+  } catch (_) {
+    return { withLink: withUrl.length, fileFound: null, fileMissing: null, missingIds: [] };
+  }
+  const missing = withUrl.filter((t) => !present.has(t.legacyExpenseId)).map((t) => t.id);
+  return { withLink: withUrl.length, fileFound: withUrl.length - missing.length, fileMissing: missing.length, missingIds: missing.slice(0, 50) };
+}
+
 /**
  * @param {FirebaseFirestore.Firestore} db  Admin Firestore
- * @param {object} opts { mode: 'dry-run'|'apply'|'rollback'|'settle'|'projects', as?: 'owner'|'equity', runId?: string }
+ * @param {object} opts { mode: 'dry-run'|'apply'|'rollback'|'settle'|'projects'|'legacy-report'|'legacy-notes'|'legacy-notes-undo', bucket?, as?: 'owner'|'equity', runId?: string }
  */
 async function migrateExpenses(db, opts) {
   const mode = (opts && opts.mode) || 'dry-run';
@@ -174,6 +189,29 @@ async function migrateExpenses(db, opts) {
 
   if (mode === 'projects') {
     return { mode, projects: await linkLegacyProjects(db) };
+  }
+
+  if (mode === 'legacy-report') {
+    // Read-only.
+    const report = core.legacyExpenseReport(expenses, dalTxns);
+    report.receipts = opts.getBucket ? await legacyReceipts(opts.getBucket, migrated.filter((t) => !t.deleted)) : null;
+    report.notesToAdd = core.planLegacyNotes(expenses, dalTxns).length;
+    return { mode, report };
+  }
+
+  if (mode === 'legacy-notes') {
+    // Memo-only changes: no money moves, so totals are untouched. Marked with
+    // legacyNotesAdded so they can be undone.
+    const updates = core.planLegacyNotes(expenses, dalTxns);
+    await commitInChunks(db, updates.map((u) => (b) => b.set(db.collection('ledgerTransactions').doc(u.id), { memo: u.memo, legacyNotesAdded: u.legacyNotesAdded, updatedAt: FieldValue.serverTimestamp() }, { merge: true })));
+    const projects = await linkLegacyProjects(db);
+    return { mode, notesAdded: updates.length, projects };
+  }
+
+  if (mode === 'legacy-notes-undo') {
+    const undo = core.planLegacyNotesUndo(dalTxns);
+    await commitInChunks(db, undo.map((u) => (b) => b.set(db.collection('ledgerTransactions').doc(u.id), { ...(u.memo === null ? {} : { memo: u.memo }), legacyNotesAdded: FieldValue.delete(), updatedAt: FieldValue.serverTimestamp() }, { merge: true })));
+    return { mode, notesRemoved: undo.filter((u) => u.memo !== null).length, markersCleared: undo.length };
   }
 
   if (mode === 'settle') {

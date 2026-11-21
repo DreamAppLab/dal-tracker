@@ -272,3 +272,56 @@ test('historical card payments: migrated card owes 0, P&L and checking unchanged
   assert.equal(rb.statusCode, 200);
   assert.equal(txnsOf(db, 'dal').filter((t) => t.source === 'historical_payment').length, 0);
 });
+
+test('migration legacy-report is read-only; legacy-notes adds only dropped notes (audited, undoable)', async () => {
+  const seed = legacySeed();
+  seed['expenses/e3'] = { ...seed['expenses/e3'], notes: 'RV Vault icons', description: 'April invoice' };
+  const db = setup(seed);
+  await call('migrate', { mode: 'apply' });
+  const before = snapshot(db, '');
+  const r = await call('migrate', { mode: 'legacy-report' });
+  assert.equal(r.statusCode, 200, JSON.stringify(r.body));
+  assert.equal(snapshot(db, ''), before, 'report writes nothing');
+  const rep = r.body.summary.report;
+  assert.equal(rep.legacy.total, 3);
+  assert.equal(rep.legacy.droppedNotes, 1);
+  assert.equal(rep.notesToAdd, 1);
+  assert.equal(rep.books.migrated, 3);
+  assert.deepEqual(rep.receipts, { withLink: 0, fileFound: 0, fileMissing: 0, missingIds: [] });
+  const add = await call('migrate', { mode: 'legacy-notes' });
+  assert.equal(add.statusCode, 200);
+  assert.equal(add.body.summary.notesAdded, 1);
+  assert.equal(db.store.get('ledgerTransactions/dal_mig_e3').memo, 'April invoice · RV Vault icons');
+  assert.equal((await call('migrate', { mode: 'legacy-notes' })).body.summary.notesAdded, 0, 'idempotent');
+  const undo = await call('migrate', { mode: 'legacy-notes-undo' });
+  assert.equal(undo.body.summary.notesRemoved, 1);
+  assert.equal(db.store.get('ledgerTransactions/dal_mig_e3').memo, 'April invoice');
+  assert.ok([...db.store.keys()].some((k) => k.startsWith('auditLog/')), 'audited');
+});
+
+test('ledger receipt-url: old Expenses receipts get a fresh link to their own file only', async () => {
+  const firebaseAdmin = require('../../api/_lib/firebaseAdmin');
+  const signed = [];
+  const bucket = {
+    file: (name) => ({ getSignedUrl: async () => { signed.push(name); return [`https://signed/${name}`]; } }),
+    getFiles: async ({ prefix }) => [prefix === 'expenses/e9/' ? [{ name: 'expenses/e9/scan.pdf' }] : []],
+  };
+  const db = setup({
+    'ledgerTransactions/dal_mig_e1': { companyId: 'dal', source: 'migration', legacyExpenseId: 'e1', attachmentUrl: 'https://storage.googleapis.com/b/expenses/e1/receipt%201.pdf?GoogleAccessId=x' },
+    'ledgerTransactions/dal_mig_e2': { companyId: 'dal', source: 'migration', legacyExpenseId: 'e2', attachmentUrl: 'https://storage.googleapis.com/b/expenses/other/receipt.pdf?x' },
+    'ledgerTransactions/dal_mig_e3': { companyId: 'dal', source: 'migration', legacyExpenseId: 'e3', attachmentUrl: '' },
+    'ledgerTransactions/dal_mig_e9': { companyId: 'dal', source: 'migration', legacyExpenseId: 'e9', attachmentUrl: 'https://weird.example/x' },
+    'ledgerTransactions/dal_mig_bad': { companyId: 'dal', source: 'migration', legacyExpenseId: '../x', attachmentUrl: 'https://storage.googleapis.com/b/expenses/../x/a.pdf' },
+  });
+  firebaseAdmin.__setTestOverrides({ db, auth: require('../helpers').fakeAuth, bucket });
+  const ok = await call('receipt-url', { companyId: 'dal', txnId: 'dal_mig_e1' });
+  assert.equal(ok.statusCode, 200);
+  assert.equal(signed.pop(), 'expenses/e1/receipt 1.pdf', 'the file named in the stored link');
+  assert.equal((await call('receipt-url', { companyId: 'dal', txnId: 'dal_mig_e2' })).statusCode, 404, "another expense's file is never served");
+  assert.equal((await call('receipt-url', { companyId: 'dal', txnId: 'dal_mig_e3' })).statusCode, 404, 'cleared receipt');
+  assert.equal((await call('receipt-url', { companyId: 'dal', txnId: 'dal_mig_e9' })).statusCode, 200, 'unparseable link: listed by prefix');
+  assert.equal(signed.pop(), 'expenses/e9/scan.pdf');
+  assert.equal((await call('receipt-url', { companyId: 'dal', txnId: 'dal_mig_bad' })).statusCode, 404);
+  assert.equal(ledger.legacyReceiptPath('https://s/b/expenses/e1/..', 'e1'), null);
+  assert.equal(ledger.legacyReceiptPath('https://s/b/expenses/e1/a%2Fb.pdf', 'e1'), null);
+});

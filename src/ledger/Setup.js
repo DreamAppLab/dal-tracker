@@ -8,6 +8,7 @@ import { useLedger } from './LedgerContext';
 import { apiPost, COL, createFixedAsset, db, deleteRule, disposeAsset, newId, saveDoc, seedCompany } from './ledgerStore';
 import { Empty, fmt } from './ui';
 import BulkRecategorize from './BulkRecategorize';
+import LegacyReport from './LegacyReport';
 import { recordAuditEvent } from '../lib/audit';
 
 function useVault(companyId) {
@@ -423,6 +424,13 @@ export default function Setup() {
 
       <h3 className="bk-h3">Change category in bulk</h3>
       <BulkRecategorize ledger={ledger} />
+
+      {companyId === 'dal' && (
+        <>
+          <h3 className="bk-h3">Old Expenses: notes, app tags and receipts</h3>
+          <div className="bk-panel"><LegacyReport ledger={ledger} /></div>
+        </>
+      )}
 
       <h3 className="bk-h3">Maintenance</h3>
       <div className="bk-panel bk-maint">

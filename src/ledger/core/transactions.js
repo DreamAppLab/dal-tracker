@@ -46,7 +46,7 @@ const TXN_FIELDS = [
   'splits', 'needsCategory', 'deleted', 'parentId', 'parentLine', 'role',
   'settlementId', 'fingerprint', 'importId', 'source', 'project', 'attachmentUrl',
   'checkNumber', 'legacyExpenseId', 'parentLineKey', 'attachmentPath', 'lineId',
-  'projectId', 'convertedFromCategoryId', 'legacyProjectLinked',
+  'projectId', 'convertedFromCategoryId', 'legacyProjectLinked', 'legacyNotesAdded',
 ];
 
 // Fields a linked leg/mirror keeps for itself across re-plans (its own
