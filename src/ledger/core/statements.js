@@ -9,7 +9,7 @@
 //            + owner contributions/draws (equity lines) + uncategorized lines.
 
 const { UNCAT, contributions } = require('./aggregates');
-const { catTotalsFromMonthly, pnlFromCatTotals, monthStart, monthEnd, addMonths } = require('./reports');
+const { catTotalsFromMonthly, pnlFromCatTotals, monthStart, monthEnd, addMonths, addDays: core_addDays } = require('./reports');
 
 /** acct/cat totals for all activity with date ≤ asOf (month docs before asOf's month + that month's txns). */
 function totalsAsOf({ monthly, monthTxns, companyId, asOf }) {
@@ -44,6 +44,12 @@ function needsMonthTxns(asOf) {
 
 const KIND_ORDER = { checking: 1, credit_card: 2, intercompany: 3, fixed_asset: 4 };
 
+/** An account's opening balance counts only from its opening date. */
+function openingAsOf(a, asOf) {
+  if (asOf && a.openingDate && asOf < a.openingDate) return 0;
+  return a.openingBalanceCents || 0;
+}
+
 function equityCategoryRows(cat, categories) {
   const rows = [];
   for (const [id, cents] of Object.entries(cat)) {
@@ -69,8 +75,9 @@ function balanceSheet(p) {
   let openingEquity = 0;
   for (const a of accounts) {
     if (a.companyId !== companyId) continue;
-    const bal = (a.openingBalanceCents || 0) + (totals.acct[a.id] || 0);
-    openingEquity += a.openingBalanceCents || 0;
+    const ob = openingAsOf(a, p.asOf);
+    const bal = ob + (totals.acct[a.id] || 0);
+    openingEquity += ob;
     if (!bal && a.archived) continue;
     const row = { accountId: a.id, name: a.name, kind: a.kind, cents: bal };
     if (a.kind === 'fixed_asset' && p.fixedAssets && p.fixedAssets[a.id]) {
@@ -123,8 +130,9 @@ function trialBalance(p) {
   let opening = 0;
   for (const a of accounts) {
     if (a.companyId !== companyId) continue;
-    opening += a.openingBalanceCents || 0;
-    push(a.name, a.kind === 'credit_card' ? 'Liabilities' : a.kind === 'intercompany' ? 'Intercompany' : 'Assets', (a.openingBalanceCents || 0) + (totals.acct[a.id] || 0));
+    const ob = openingAsOf(a, p.asOf);
+    opening += ob;
+    push(a.name, a.kind === 'credit_card' ? 'Liabilities' : a.kind === 'intercompany' ? 'Intercompany' : 'Assets', ob + (totals.acct[a.id] || 0));
   }
   push('Opening balance equity', 'Equity', -opening);
   const prior = pnlFromCatTotals(totalsBeforeFy.cat, categories);
@@ -165,7 +173,7 @@ function generalLedger(p) {
   const inRange = txns.filter((t) => t.companyId === companyId && !t.deleted && t.date >= from && t.date <= to)
     .sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)));
   const accountSections = accounts.filter((a) => a.companyId === companyId).map((a) => {
-    const opening = (a.openingBalanceCents || 0) + (totalsBefore.acct[a.id] || 0);
+    const opening = openingAsOf(a, core_addDays(from, -1)) + (totalsBefore.acct[a.id] || 0);
     let bal = opening;
     const lines = inRange.filter((t) => t.accountId === a.id).map((t) => {
       bal += t.amountCents;
@@ -190,9 +198,17 @@ function generalLedger(p) {
     const isEquity = c && c.kind === 'equity';
     const openingRaw = isEquity || !c ? totalsBefore.cat[id] || 0 : (totalsBefore.cat[id] || 0) - (totalsBeforeFyOfFrom.cat[id] || 0);
     let run = openingRaw;
+    let year = from.slice(0, 4);
     const lines = (catLines[id] || []).map((l) => {
+      // Income and expense close into retained earnings each fiscal year (Jan 1).
+      let yearStart = false;
+      if (!isEquity && c && l.date.slice(0, 4) !== year) {
+        year = l.date.slice(0, 4);
+        run = 0;
+        yearStart = true;
+      }
       run += l.cents;
-      return { ...l, balance: run };
+      return { ...l, balance: run, yearStart };
     });
     return { id, name: id === UNCAT ? 'Uncategorized' : c ? c.name : 'Unknown category', kind: c ? c.kind : 'uncategorized', opening: openingRaw, closing: run, lines };
   }).sort((a, b) => ['income', 'expense', 'equity', 'uncategorized'].indexOf(a.kind) - ['income', 'expense', 'equity', 'uncategorized'].indexOf(b.kind) || a.name.localeCompare(b.name));

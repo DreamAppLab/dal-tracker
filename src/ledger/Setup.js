@@ -5,7 +5,7 @@ import React, { useEffect, useState } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import * as core from './core';
 import { useLedger } from './LedgerContext';
-import { apiPost, COL, createFixedAsset, db, deleteRule, newId, saveDoc, seedCompany } from './ledgerStore';
+import { apiPost, COL, createFixedAsset, db, deleteRule, disposeAsset, newId, saveDoc, seedCompany } from './ledgerStore';
 import { Empty, fmt } from './ui';
 import { recordAuditEvent } from '../lib/audit';
 
@@ -117,23 +117,47 @@ function CategoryRow({ cat, inUse }) {
 }
 
 function FixedAssets({ ledger, run, busy }) {
-  const { companyId, accounts, balances, categoriesById } = ledger;
+  const { companyId, accounts, balances, categoriesById, accountsById } = ledger;
   const assets = accounts.filter((a) => a.kind === 'fixed_asset');
-  const blank = { name: '', acquiredDate: '', inServiceDate: '', lifeYears: '5', salvage: '', cost: '' };
+  const banks = accounts.filter((a) => a.kind === 'checking' || a.kind === 'credit_card');
+  const booksStart = (accounts.find((a) => a.kind === 'checking') || {}).openingDate || '';
+  const blank = { name: '', acquiredDate: '', inServiceDate: '', lifeYears: '5', salvage: '', cost: '', taken: '' };
   const [f, setF] = useState(blank);
   const [err, setErr] = useState('');
+  const [editing, setEditing] = useState(null); // { id, name, lifeYears, salvage }
+  const [disposing, setDisposing] = useState(null); // { asset, date, proceeds, to }
+  const saveEdit = () => {
+    const a = accountsById[editing.id];
+    const lifeMonths = Math.round(Number(editing.lifeYears) * 12);
+    const salvage = editing.salvage ? core.parseMoneyToCents(editing.salvage) : 0;
+    if (!editing.name.trim() || !lifeMonths || lifeMonths < 1 || lifeMonths > 600 || salvage == null || salvage < 0) { setErr('Check the name, life (1 month to 50 years) and salvage value.'); return; }
+    const { id, updatedAt, createdAt, ...rest } = a;
+    run(() => saveDoc(COL.accounts, id, { ...rest, name: editing.name.trim().slice(0, 80), lifeMonths, salvageCents: salvage }), () => { setEditing(null); return 'Asset updated. Future depreciation uses the new life and salvage value.'; });
+  };
+  const dispose = () => {
+    const proceeds = disposing.proceeds ? core.parseMoneyToCents(disposing.proceeds) : 0;
+    if (!core.DATE_RE.test(disposing.date)) { setErr('Enter the disposal date.'); return; }
+    if (proceeds == null || proceeds < 0) { setErr('Proceeds must be zero or positive.'); return; }
+    if (proceeds && !disposing.to) { setErr('Pick the account that received the money.'); return; }
+    run(() => disposeAsset(disposing.asset, { date: disposing.date, proceedsCents: proceeds, proceedsAccountId: disposing.to }, accountsById, categoriesById),
+      (r) => { setDisposing(null); return `Disposed of ${disposing.asset.name}: book value ${fmt(r.bookValueCents)}, ${r.gainCents >= 0 ? 'gain' : 'loss'} ${fmt(Math.abs(r.gainCents))}. The asset is archived.`; });
+  };
   const add = () => {
     setErr('');
     const lifeMonths = Math.round(Number(f.lifeYears) * 12);
     const salvage = f.salvage ? core.parseMoneyToCents(f.salvage) : 0;
     const cost = f.cost ? core.parseMoneyToCents(f.cost) : 0;
+    const taken = f.taken ? core.parseMoneyToCents(f.taken) : 0;
     if (!f.name.trim()) { setErr('Name the asset.'); return; }
     if (!core.DATE_RE.test(f.acquiredDate)) { setErr('Enter the date you bought it.'); return; }
     const inService = f.inServiceDate || f.acquiredDate;
     if (!core.DATE_RE.test(inService) || inService < f.acquiredDate) { setErr('In-service date must be on or after the purchase date.'); return; }
     if (!lifeMonths || lifeMonths < 1 || lifeMonths > 600) { setErr('Useful life must be between 1 month and 50 years.'); return; }
-    if (salvage == null || cost == null || salvage < 0 || cost < 0) { setErr('Amounts must be positive.'); return; }
-    run(() => createFixedAsset(companyId, { name: f.name.trim().slice(0, 80), acquiredDate: f.acquiredDate, inServiceDate: inService, lifeMonths, salvageCents: salvage, openingCostCents: cost }, categoriesById),
+    if (salvage == null || cost == null || taken == null || salvage < 0 || cost < 0 || taken < 0) { setErr('Amounts must be positive.'); return; }
+    if (taken > cost) { setErr('Depreciation already taken cannot exceed the cost.'); return; }
+    // Owned before the books started: it enters the books on their start date at book value.
+    const openingDate = cost && booksStart && booksStart > f.acquiredDate ? booksStart : f.acquiredDate;
+    run(() => createFixedAsset(companyId, { name: f.name.trim().slice(0, 80), acquiredDate: f.acquiredDate, openingDate, inServiceDate: inService, lifeMonths, salvageCents: salvage, openingCostCents: cost, openingAccumulatedCents: taken }, categoriesById),
       () => { setF(blank); return `Added fixed asset "${f.name.trim()}". ${cost ? '' : 'Record its purchase in the register as a transfer to it from checking or the card.'}`; });
   };
   return (
@@ -151,6 +175,7 @@ function FixedAssets({ ledger, run, busy }) {
           <label className="bk-field"><span>Useful life (years)</span><input className="bk-input bk-amt" value={f.lifeYears} onChange={(e) => setF({ ...f, lifeYears: e.target.value })} inputMode="decimal" /></label>
           <label className="bk-field"><span>Salvage value</span><input className="bk-input bk-amt" value={f.salvage} onChange={(e) => setF({ ...f, salvage: e.target.value })} inputMode="decimal" placeholder="0.00" /></label>
           <label className="bk-field"><span>Cost if bought before these books</span><input className="bk-input bk-amt" value={f.cost} onChange={(e) => setF({ ...f, cost: e.target.value })} inputMode="decimal" placeholder="0.00" /></label>
+          {f.cost && <label className="bk-field"><span>Depreciation already taken (before {booksStart || 'the books'})</span><input className="bk-input bk-amt" value={f.taken} onChange={(e) => setF({ ...f, taken: e.target.value })} inputMode="decimal" placeholder="0.00" /></label>}
         </div>
         {err && <div className="bk-error">{err}</div>}
         <div className="bk-row-actions"><button type="button" className="btn btn-primary btn-sm" onClick={add} disabled={busy}>Add fixed asset</button></div>
@@ -158,9 +183,19 @@ function FixedAssets({ ledger, run, busy }) {
       {assets.length > 0 && (
         <div className="bk-table-wrap bk-mt">
           <table className="bk-table">
-            <thead><tr><th>Asset</th><th>Purchased</th><th>In service</th><th className="num">Life</th><th className="num">Salvage</th><th className="num">Book value</th></tr></thead>
+            <thead><tr><th>Asset</th><th>On books from</th><th>In service</th><th className="num">Life</th><th className="num">Salvage</th><th className="num">Book value</th><th aria-label="Actions" /></tr></thead>
             <tbody>
-              {assets.map((a) => (
+              {assets.map((a) => (editing && editing.id === a.id ? (
+                <tr key={a.id} className="bk-edit-row">
+                  <td><input className="bk-input" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} aria-label="Asset name" /></td>
+                  <td>{a.openingDate}</td>
+                  <td>{a.inServiceDate || a.openingDate}</td>
+                  <td className="num"><input className="bk-input bk-amt" value={editing.lifeYears} onChange={(e) => setEditing({ ...editing, lifeYears: e.target.value })} aria-label="Life in years" /></td>
+                  <td className="num"><input className="bk-input bk-amt" value={editing.salvage} onChange={(e) => setEditing({ ...editing, salvage: e.target.value })} aria-label="Salvage" /></td>
+                  <td className="num">{fmt(balances[a.id] || 0)}</td>
+                  <td className="bk-actions"><button type="button" className="btn btn-primary btn-sm" onClick={saveEdit} disabled={busy}>Save</button><button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditing(null)}>✕</button></td>
+                </tr>
+              ) : (
                 <tr key={a.id} className="bk-row">
                   <td>{a.name}</td>
                   <td>{a.openingDate}</td>
@@ -168,10 +203,31 @@ function FixedAssets({ ledger, run, busy }) {
                   <td className="num">{a.lifeMonths % 12 === 0 ? `${a.lifeMonths / 12} yr` : `${a.lifeMonths} mo`}</td>
                   <td className="num">{fmt(a.salvageCents || 0)}</td>
                   <td className="num">{fmt(balances[a.id] || 0)}</td>
+                  <td className="bk-actions">
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditing({ id: a.id, name: a.name, lifeYears: String(a.lifeMonths / 12), salvage: core.centsToDecimalString(a.salvageCents || 0) })}>Edit</button>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDisposing({ asset: a, date: '', proceeds: '', to: (banks.find((b) => b.kind === 'checking') || {}).id || '' })}>Sell / dispose</button>
+                  </td>
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
+        </div>
+      )}
+      {disposing && (
+        <div className="bk-panel bk-mt">
+          <div className="bk-kicker">Sell or dispose of {disposing.asset.name}</div>
+          <div className="bk-muted bk-small bk-mb">Depreciation is posted through the disposal date first. The remaining book value is removed, the proceeds go to the account you pick, and the difference is booked as a gain or loss. The asset is then archived.</div>
+          <div className="bk-form-grid bk-fa-grid">
+            <label className="bk-field"><span>Disposal date</span><input className="bk-input bk-date" type="date" value={disposing.date} onChange={(e) => setDisposing({ ...disposing, date: e.target.value })} /></label>
+            <label className="bk-field"><span>Sale proceeds (0 if scrapped)</span><input className="bk-input bk-amt" value={disposing.proceeds} onChange={(e) => setDisposing({ ...disposing, proceeds: e.target.value })} inputMode="decimal" placeholder="0.00" /></label>
+            <label className="bk-field"><span>Money received in</span>
+              <select className="bk-input" value={disposing.to} onChange={(e) => setDisposing({ ...disposing, to: e.target.value })}>{banks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
+            </label>
+          </div>
+          <div className="bk-row-actions">
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setDisposing(null)}>Cancel</button>
+            <button type="button" className="btn btn-danger btn-sm" onClick={dispose} disabled={busy}>Record disposal</button>
+          </div>
         </div>
       )}
     </>

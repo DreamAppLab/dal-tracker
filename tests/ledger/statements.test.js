@@ -139,3 +139,107 @@ test('general ledger: opening + lines + running balance per account and category
   assert.equal(owner.months[11].distributions, 50000);
   assert.equal(owner.closingNetCents, 450000);
 });
+
+// ── Review fixes (third review) ──────────────────────────────────────────
+function assetLedger(asset) {
+  const L = makeLedger();
+  L.accounts.dal_checking.openingDate = '2020-01-01';
+  L.accounts.dal_fa_x = { companyId: 'dal', kind: 'fixed_asset', name: 'Asset', depreciationCategoryId: cat('dal', 'depreciation'), salvageCents: 0, ...asset };
+  const acct = () => ({ id: 'dal_fa_x', ...L.accounts.dal_fa_x });
+  const post = (through) => core.depreciationToPost(acct(), L.txnList(), through).forEach((e) => L.save(e.id, e.draft));
+  return { L, acct, post };
+}
+
+test('depreciation uses each month\'s own cost basis; later additions do not inflate earlier months', () => {
+  const { L, acct, post } = assetLedger({ openingBalanceCents: 0, openingDate: '2026-01-01', inServiceDate: '2026-01-01', lifeMonths: 12 });
+  L.add('dal', { accountId: 'dal_checking', date: '2026-01-01', amountCents: -120000, payee: 'Buy', transferAccountId: 'dal_fa_x' });
+  L.add('dal', { accountId: 'dal_checking', date: '2026-06-15', amountCents: -60000, payee: 'Improvement', transferAccountId: 'dal_fa_x' });
+  post('2026-02-28'); // back-filled after the June improvement was entered
+  assert.deepEqual(L.txnList().filter((t) => t.source === 'depreciation').map((t) => t.amountCents), [-10000, -10000]);
+  post('2026-12-31');
+  const s = core.assetSummary(acct(), L.txnList(), '2026-12-31');
+  assert.equal(s.accumulatedCents, 180000);
+  assert.equal(s.pastLifeRemainingCents, 0);
+  // An addition after the life ended is flagged instead of silently ignored.
+  L.add('dal', { accountId: 'dal_checking', date: '2027-03-01', amountCents: -5000, payee: 'Late part', transferAccountId: 'dal_fa_x' });
+  assert.equal(core.assetSummary(acct(), L.txnList(), '2027-03-31').pastLifeRemainingCents, 5000);
+});
+
+test('asset owned before the books: opens at book value, no back-filled years', () => {
+  const { L, acct, post } = assetLedger({ openingCostCents: 360000, openingAccumulatedCents: 240000, openingBalanceCents: 120000, openingDate: '2026-01-01', inServiceDate: '2024-01-01', lifeMonths: 36 });
+  post('2026-12-31');
+  const dep = L.txnList().filter((t) => t.source === 'depreciation');
+  assert.equal(dep.length, 12, 'only 2026 months');
+  assert.equal(dep[0].date, '2026-01-31');
+  const s = core.assetSummary(acct(), L.txnList(), '2026-12-31');
+  assert.equal(s.costCents, 360000);
+  assert.equal(s.accumulatedCents, 360000);
+  assert.equal(s.bookValueCents, 0);
+  assert.equal(L.balance('dal_fa_x'), 0);
+  assert.equal(core.assetSummary(acct(), L.txnList(), '2025-06-30').costCents, 0, 'not on the books before its opening date');
+});
+
+test('positive Depreciation corrections count as depreciation, not cost; ids decide posted/skipped months', () => {
+  const { L, acct, post } = assetLedger({ openingBalanceCents: 100000, openingDate: '2026-01-01', inServiceDate: '2026-01-01', lifeMonths: 10 });
+  post('2026-02-28');
+  L.add('dal', { accountId: 'dal_fa_x', date: '2026-02-28', amountCents: 5000, payee: 'Reversal', categoryId: cat('dal', 'depreciation') });
+  const s = core.assetSummary(acct(), L.txnList(), '2026-02-28');
+  assert.equal(s.costCents, 100000);
+  assert.equal(s.accumulatedCents, 15000);
+  // Moving an auto entry's date does not make its month "due" again.
+  const jan = 'dal_fa_x_dep_2026-01';
+  L.save(jan, { ...L.txns[jan], date: '2026-02-10' });
+  assert.equal(core.depreciationToPost(acct(), L.txnList(), '2026-02-28').length, 0);
+  // A deleted auto entry is respected, and the skip list survives a purge.
+  L.softDelete('dal_fa_x_dep_2026-02', true);
+  assert.equal(core.depreciationToPost(acct(), L.txnList(), '2026-02-28').length, 0);
+  L.accounts.dal_fa_x.depreciationSkipMonths = ['2026-02'];
+  delete L.txns['dal_fa_x_dep_2026-02'];
+  assert.equal(core.depreciationToPost(acct(), L.txnList(), '2026-02-28').length, 0);
+  assert.equal(core.depreciationToPost(acct(), L.txnList(), '2026-03-31').length, 1);
+});
+
+test('disposal: sale books proceeds and gain, clears the asset, stops depreciation; balance sheet stays balanced', () => {
+  const { L, acct, post } = assetLedger({ openingBalanceCents: 120000, openingDate: '2026-01-01', inServiceDate: '2026-01-01', lifeMonths: 12 });
+  post('2026-06-30'); // 6 × 100 → book value 600
+  const bv = core.assetSummary(acct(), L.txnList(), '2026-07-15').bookValueCents;
+  assert.equal(bv, 60000);
+  const draft = core.disposalDraft({ account: acct(), bookValueCents: bv, date: '2026-07-15', proceedsCents: 80000, proceedsAccountId: 'dal_checking', gainLossCategoryId: cat('dal', 'asset_gain_loss') });
+  L.save('dal_fa_x_disposal', draft);
+  assert.equal(L.balance('dal_fa_x'), 0);
+  assert.equal(L.balance('dal_checking'), 80000);
+  const pnl = core.pnlFromMonthly(L.monthlyList(), L.categories, 'dal', '2026-07-01', '2026-07-31');
+  assert.equal(pnl.income.find((r) => r.categoryId === cat('dal', 'asset_gain_loss')).cents, 20000, 'gain 800 − 600');
+  const s = core.assetSummary(acct(), L.txnList(), '2026-12-31');
+  assert.equal(s.disposedDate, '2026-07-15');
+  assert.equal(s.bookValueCents, 0);
+  assert.deepEqual(core.depreciationToPost(acct(), L.txnList(), '2026-12-31'), [], 'no depreciation after disposal');
+  const totals = core.totalsAsOf({ monthly: L.monthlyList(), monthTxns: L.txnList(), companyId: 'dal', asOf: '2026-12-31' });
+  const totalsBeforeFy = core.totalsAsOf({ monthly: L.monthlyList(), monthTxns: [], companyId: 'dal', asOf: '2025-12-31' });
+  const accounts = Object.entries(L.accounts).map(([id, a]) => ({ id, ...a }));
+  assert.ok(core.balanceSheet({ accounts, categories: L.categories, totals, totalsBeforeFy, companyId: 'dal', asOf: '2026-12-31' }).balanced);
+  // A loss on write-off (no proceeds).
+  const w = assetLedger({ openingBalanceCents: 50000, openingDate: '2026-01-01', inServiceDate: '2026-01-01', lifeMonths: 10 });
+  w.L.save('dal_fa_x_disposal', core.disposalDraft({ account: w.acct(), bookValueCents: 50000, date: '2026-01-10', proceedsCents: 0, proceedsAccountId: 'dal_checking', gainLossCategoryId: cat('dal', 'asset_gain_loss') }));
+  assert.equal(w.L.balance('dal_fa_x'), 0);
+  assert.equal(core.pnlFromMonthly(w.L.monthlyList(), w.L.categories, 'dal', '2026-01-01', '2026-01-31').income[0].cents, -50000);
+});
+
+test('general ledger resets income/expense running balances at the fiscal year boundary', () => {
+  const L = makeLedger();
+  L.accounts.dal_checking.openingDate = '2025-01-01';
+  L.add('dal', { accountId: 'dal_checking', date: '2025-11-10', amountCents: 10000, payee: 'A', categoryId: cat('dal', 'client_projects') });
+  L.add('dal', { accountId: 'dal_checking', date: '2026-01-05', amountCents: 3000, payee: 'B', categoryId: cat('dal', 'client_projects') });
+  const monthly = L.monthlyList();
+  const accounts = Object.entries(L.accounts).map(([id, a]) => ({ id, ...a }));
+  const gl = core.generalLedger({
+    accounts, categories: L.categories, txns: L.txnList(), companyId: 'dal', from: '2025-11-01', to: '2026-02-28',
+    totalsBefore: core.totalsAsOf({ monthly, monthTxns: [], companyId: 'dal', asOf: '2025-10-31' }),
+    totalsBeforeFyOfFrom: core.totalsAsOf({ monthly, monthTxns: [], companyId: 'dal', asOf: '2024-12-31' }),
+  });
+  const inc = gl.categories.find((s) => s.id === cat('dal', 'client_projects'));
+  assert.deepEqual(inc.lines.map((l) => [l.balance, l.yearStart]), [[10000, false], [3000, true]]);
+  assert.equal(inc.closing, 3000);
+  const chk = gl.accounts.find((s) => s.id === 'dal_checking');
+  assert.equal(chk.closing, 13000, 'balance-sheet accounts keep running');
+});

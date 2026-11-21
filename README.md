@@ -119,7 +119,12 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
    - A purchase is a *transfer* into the asset from checking or the card: it is capitalized and never
      counted as an expense.
    - An asset bought before the books started gets its cost as the opening balance instead.
-   - Depreciation is straight-line, full month from the in-service month. Reports → Fixed assets posts
+   - Assets owned before the books started open at book value (cost − depreciation already taken)
+     and are depreciated only from the books' start. Selling or scrapping uses Setup → Sell / dispose:
+     it posts depreciation through that date, moves the proceeds to a bank account, books the
+     gain or loss, and archives the asset.
+   - Depreciation is straight-line, full month from the in-service month, and only for months that
+     have ended. Reports → Fixed assets posts
      one entry per month (category Depreciation, id `<assetId>_dep_<YYYY-MM>`), so posting is idempotent.
    - The asset's balance is its book value.
 7. **Reconciled rows are locked by the rules.** Their amount, date, account, status and delete flag can't

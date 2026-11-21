@@ -84,21 +84,22 @@ export default function Reports({ onOpenTxn }) {
   const key = (r) => `${companyId}|${r.from}|${r.to}|${sig}`;
 
   // Load transactions only for non month-aligned ranges (and for drill-downs).
+  const inFlight = useRef(new Set());
+  const PNL_TABS = ['pnl', 'categories', 'income', 'trends'];
   useEffect(() => {
-    if (!validRange) return;
-    const wanted = [range, ...(compare ? [prior] : [])].filter(needsTx).filter((r) => !txCache[key(r)]);
+    if (!validRange || !PNL_TABS.includes(tab)) return;
+    const wanted = [range, ...(compare && tab === 'pnl' ? [prior] : [])].filter(needsTx).filter((r) => !txCache[key(r)] && !inFlight.current.has(key(r)));
     if (!wanted.length) return;
     let cancelled = false;
     setLoading(true);
-    Promise.all(wanted.map((r) => fetchRange(companyId, r.from, r.to).then((rows) => [key(r), rows])))
-      .then((pairs) => { if (!cancelled) setTxCache((c) => ({ ...c, ...Object.fromEntries(pairs) })); })
-      .catch((e) => setError(e.message))
-      .finally(() => { if (!cancelled) setLoading(false); });
+    loadInto(wanted, () => cancelled);
     return () => { cancelled = true; };
-  }, [range, prior, compare, companyId, validRange, sig]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [range, prior, compare, companyId, validRange, sig, tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Statements: balance sheet, trial balance, general ledger, owner equity, fixed assets ──
   const asOf = range.to;
+  // Depreciation is only ever posted for months that have ended (never future-dated).
+  const postThrough = asOf < todayISO() ? asOf : todayISO();
   const statementRanges = useMemo(() => {
     const list = [];
     if (['bs', 'tb'].includes(tab) && core.needsMonthTxns(asOf)) list.push({ from: core.monthStart(asOf), to: asOf });
@@ -110,20 +111,17 @@ export default function Reports({ onOpenTxn }) {
   }, [tab, asOf, range]);
   useEffect(() => {
     if (!validRange) return undefined;
-    const wanted = statementRanges.filter((r) => !txCache[key(r)]);
+    const wanted = statementRanges.filter((r) => !txCache[key(r)] && !inFlight.current.has(key(r)));
     if (!wanted.length) return undefined;
     let cancelled = false;
-    setLoading(true);
-    Promise.all(wanted.map((r) => fetchRange(companyId, r.from, r.to).then((rows) => [key(r), rows])))
-      .then((pairs) => { if (!cancelled) setTxCache((c) => ({ ...c, ...Object.fromEntries(pairs) })); })
-      .catch((e) => setError(e.message))
-      .finally(() => { if (!cancelled) setLoading(false); });
+    loadInto(wanted, () => cancelled);
     return () => { cancelled = true; };
   }, [statementRanges, companyId, validRange, sig]); // eslint-disable-line react-hooks/exhaustive-deps
   const haveAll = statementRanges.every((r) => txCache[key(r)]);
   const rangeTxns = useMemo(() => statementRanges.flatMap((r) => txCache[key(r)] || []), [statementRanges, txCache, sig]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const assetAccounts = useMemo(() => ledger.accounts.filter((a) => a.kind === 'fixed_asset'), [ledger.accounts]);
+  // Include disposed (archived) assets so the schedule still shows them.
+  const assetAccounts = useMemo(() => ledger.raw.accountsMine.filter((a) => a.kind === 'fixed_asset').sort((a, b) => a.name.localeCompare(b.name)), [ledger.raw.accountsMine]);
   const [assetTx, setAssetTx] = useState(null); // { key, byId }
   const assetKey = `${companyId}|${sig}|${assetAccounts.map((a) => a.id).join(',')}`;
   useEffect(() => {
@@ -142,9 +140,9 @@ export default function Reports({ onOpenTxn }) {
     return assetAccounts.reduce((n, a) => {
       const rows = assetTx.byId[a.id] || [];
       const skip = rows.filter((t) => t.deleted && t.source === 'depreciation').map((t) => t.date.slice(0, 7));
-      return n + core.depreciationToPost(a, rows.filter((t) => !t.deleted), asOf, skip).length;
+      return n + core.depreciationToPost(a, rows, postThrough, skip).length;
     }, 0);
-  }, [assetsReady, assetAccounts, assetTx, asOf]);
+  }, [assetsReady, assetAccounts, assetTx, postThrough]);
   const [posting, setPosting] = useState(false);
   const [notice, setNotice] = useState('');
   const postAll = async () => {
@@ -152,8 +150,8 @@ export default function Reports({ onOpenTxn }) {
     setError('');
     try {
       let n = 0;
-      for (const a of assetAccounts) n += await postDepreciation(a, asOf, accountsById, categoriesById);
-      setNotice(`Posted ${n} monthly depreciation entr${n === 1 ? 'y' : 'ies'} through ${fmtDate(asOf)}.`);
+      for (const a of assetAccounts) n += await postDepreciation(a, postThrough, accountsById, categoriesById);
+      setNotice(`Posted ${n} monthly depreciation entr${n === 1 ? 'y' : 'ies'} through ${fmtDate(postThrough)}.`);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -171,7 +169,7 @@ export default function Reports({ onOpenTxn }) {
       const fixedAssets = assetSummaries ? Object.fromEntries(assetSummaries.map((x) => [x.accountId, x])) : null;
       return {
         bs: core.balanceSheet({ accounts: allAccounts, categories: categoriesById, totals, totalsBeforeFy, companyId, asOf, fixedAssets }),
-        tb: core.trialBalance({ accounts: allAccounts, categories: categoriesById, totals, totalsBeforeFy, companyId }),
+        tb: core.trialBalance({ accounts: allAccounts, categories: categoriesById, totals, totalsBeforeFy, companyId, asOf }),
       };
     }
     if (['gl', 'owner'].includes(tab)) {
@@ -183,6 +181,23 @@ export default function Reports({ onOpenTxn }) {
     }
     return {};
   }, [tab, validRange, haveAll, rangeTxns, monthly, companyId, asOf, range, categoriesById, ledger.raw.accountsMine, assetSummaries]);
+
+  function loadInto(wanted, isCancelled) {
+    if (!wanted.length) return;
+    wanted.forEach((r) => inFlight.current.add(key(r)));
+    setLoading(true);
+    Promise.all(wanted.map((r) => fetchRange(companyId, r.from, r.to).then((rows) => [key(r), rows])))
+      .then((pairs) => {
+        if (isCancelled()) return;
+        // Keep only entries for the current aggregate state (old copies are dropped).
+        setTxCache((c) => Object.fromEntries([...Object.entries(c).filter(([k]) => k.endsWith(`|${sig}`)), ...pairs]));
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => {
+        wanted.forEach((r) => inFlight.current.delete(key(r)));
+        if (!isCancelled()) setLoading(false);
+      });
+  }
 
   const pnlFor = (r) => {
     if (!core.isMonthAligned(r.from, r.to)) {
@@ -428,7 +443,7 @@ export default function Reports({ onOpenTxn }) {
         {tab === 'assets' && (
           <>
             {notice && <div className="bk-notice">{notice}</div>}
-            <FixedAssetsView summaries={assetSummaries} asOf={asOf} onPost={postAll} busy={posting} toPostCount={depreciationDue} />
+            <FixedAssetsView summaries={assetSummaries} asOf={asOf} postThrough={postThrough} onPost={postAll} busy={posting} toPostCount={depreciationDue} />
           </>
         )}
 

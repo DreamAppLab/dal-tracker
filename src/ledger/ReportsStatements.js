@@ -57,8 +57,8 @@ export function TrialBalanceView({ tb, asOf }) {
         <table className="bk-table bk-statement">
           <thead><tr><th>Account / category (as of {fmtDate(asOf)})</th><th>Type</th><th className="num bk-dc">Debit</th><th className="num bk-dc">Credit</th></tr></thead>
           <tbody>
-            {tb.rows.map((r) => (
-              <tr key={`${r.group}-${r.name}`} className="bk-row">
+            {tb.rows.map((r, i) => (
+              <tr key={`${r.group}-${r.name}-${i}`} className="bk-row">
                 <td>{r.name}</td>
                 <td className="bk-muted">{r.group}</td>
                 <td className="num">{r.debit ? fmt(r.debit) : ''}</td>
@@ -85,8 +85,10 @@ export function GeneralLedgerView({ gl, accountsById, onOpenTxn }) {
         </thead>
         <tbody>
           <tr className="bk-gl-head"><td colSpan={isAccount ? 3 : 4}>Opening balance</td><td /><td className="num">{fmt(s.opening)}</td></tr>
-          {s.lines.map((l) => (
-            <tr key={`${l.txnId}-${l.cents}-${l.balance}`} className="bk-row bk-click" onClick={() => onOpenTxn && onOpenTxn({ id: l.txnId, accountId: l.accountId || s.id, date: l.date })}>
+          {s.lines.map((l, i) => (
+            <React.Fragment key={`${l.txnId}-${i}`}>
+            {l.yearStart && <tr className="bk-gl-head"><td colSpan={isAccount ? 5 : 6}>Fiscal year {l.date.slice(0, 4)}: income and expense restart at zero (prior year closed to retained earnings)</td></tr>}
+            <tr className="bk-row bk-click" onClick={() => onOpenTxn && onOpenTxn({ id: l.txnId, accountId: l.accountId || s.id, date: l.date })}>
               <td className="bk-nowrap">{fmtDate(l.date)}</td>
               <td className="bk-payee">{l.payee}</td>
               <td className="bk-memo">{l.memo}</td>
@@ -94,6 +96,7 @@ export function GeneralLedgerView({ gl, accountsById, onOpenTxn }) {
               <td className={`num ${l.cents > 0 ? 'bk-pos' : ''}`}>{fmt(l.cents)}</td>
               <td className="num">{fmt(l.balance)}</td>
             </tr>
+            </React.Fragment>
           ))}
           <tr className="bk-subtotal"><td colSpan={isAccount ? 3 : 4}>Closing balance · {s.lines.length} entr{s.lines.length === 1 ? 'y' : 'ies'}</td><td /><td className="num">{fmt(s.closing)}</td></tr>
         </tbody>
@@ -113,15 +116,15 @@ export function GeneralLedgerView({ gl, accountsById, onOpenTxn }) {
   );
 }
 
-export function FixedAssetsView({ summaries, asOf, onPost, busy, toPostCount }) {
+export function FixedAssetsView({ summaries, asOf, postThrough, onPost, busy, toPostCount }) {
   if (!summaries) return <Empty>Loading…</Empty>;
   if (!summaries.length) return <Empty>No fixed assets yet. Add them in Setup → Fixed assets.</Empty>;
   const t = summaries.reduce((acc, s) => ({ cost: acc.cost + s.costCents, acc: acc.acc + s.accumulatedCents, book: acc.book + s.bookValueCents }), { cost: 0, acc: 0, book: 0 });
   return (
     <>
       <div className="bk-row-actions bk-mb">
-        <span className="bk-muted bk-small">{toPostCount ? `${toPostCount} monthly depreciation entr${toPostCount === 1 ? 'y is' : 'ies are'} due through ${fmtDate(asOf)}.` : `Depreciation is posted through ${fmtDate(asOf)}.`}</span>
-        <button type="button" className="btn btn-primary btn-sm" onClick={onPost} disabled={busy || !toPostCount}>Post depreciation through {fmtDate(asOf)}</button>
+        <span className="bk-muted bk-small">{toPostCount ? `${toPostCount} monthly depreciation entr${toPostCount === 1 ? 'y is' : 'ies are'} due for months ended by ${fmtDate(postThrough)}.` : `Depreciation is up to date for months ended by ${fmtDate(postThrough)}.`}</span>
+        <button type="button" className="btn btn-primary btn-sm" onClick={onPost} disabled={busy || !toPostCount}>Post depreciation</button>
       </div>
       <div className="bk-table-wrap">
         <table className="bk-table bk-statement">
@@ -136,7 +139,10 @@ export function FixedAssetsView({ summaries, asOf, onPost, busy, toPostCount }) 
                 <td className="num">{fmt(s.salvageCents)}</td>
                 <td className="num">{fmt(s.accumulatedCents)}</td>
                 <td className="num">{fmt(s.bookValueCents)}</td>
-                <td>{s.endMonth ? monthLabel(s.endMonth) : '—'}</td>
+                <td>
+                  {s.disposedDate ? `Disposed ${fmtDate(s.disposedDate)}` : s.endMonth ? monthLabel(s.endMonth) : '—'}
+                  {s.pastLifeRemainingCents > 0 && <div className="bk-bad bk-small">{fmt(s.pastLifeRemainingCents)} added after its life ended — extend the life in Setup or write it off</div>}
+                </td>
               </tr>
             ))}
             <tr className="bk-total"><td colSpan={3}>Totals as of {fmtDate(asOf)}</td><td className="num">{fmt(t.cost)}</td><td /><td className="num">{fmt(t.acc)}</td><td className="num">{fmt(t.book)}</td><td /></tr>
