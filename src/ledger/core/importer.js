@@ -114,16 +114,22 @@ function classifyRows(rows, existing, opts) {
 }
 
 // ── Vendor rules ──────────────────────────────────────────────────────────
-function applyVendorRules(payee, rules) {
+/** Best matching vendor rule (longest pattern contained in the payee), or null. */
+function matchVendorRule(payee, rules) {
   const hay = normalizePayee(payee);
   if (!hay) return null;
   let best = null;
   for (const r of rules || []) {
     const pat = normalizePayee(r.pattern);
     if (!pat || !hay.includes(pat)) continue;
-    if (!best || pat.length > best.len) best = { len: pat.length, categoryId: r.categoryId, ruleId: r.id };
+    if (!best || pat.length > best.len) best = { len: pat.length, rule: r };
   }
-  return best ? best.categoryId : null;
+  return best ? best.rule : null;
+}
+
+function applyVendorRules(payee, rules) {
+  const r = matchVendorRule(payee, rules);
+  return r ? r.categoryId : null;
 }
 
 // ── Card payments (transfers) ─────────────────────────────────────────────
@@ -394,6 +400,7 @@ module.exports = {
   withFingerprints,
   classifyRows,
   applyVendorRules,
+  matchVendorRule,
   isLikelyCardPayment,
   suggestTransfer,
   detectDelimiter,

@@ -1,7 +1,7 @@
 // Split transaction editor (also used for Stripe payouts: gross revenue + fee).
 import React, { useMemo, useState } from 'react';
 import * as core from './core';
-import { CategorySelect, fmt, lineFromPick, pickFromLine } from './ui';
+import { CategorySelect, fmt, lineFromPick, pickFromLine, ProjectSelect } from './ui';
 
 // Stable line ids: existing lines keep their key (lines saved before ids
 // existed use their index, matching their leg/mirror ids); new lines get a
@@ -22,7 +22,7 @@ export default function SplitEditor({ ledger, accountId, totalCents, lines, paye
   const [total, setTotal] = useState(centsToInput(Math.abs(totalCents || 0)));
   const [rows, setRows] = useState(() => {
     const src = lines && lines.length ? lines : [{ amountCents: totalCents || 0 }];
-    return src.map((l, i) => ({ key: i, lineId: core.lineKey(l, i), pick: pickFromLine(l), amount: centsToInput((l.amountCents || 0) * initialDir), memo: l.memo || '' }));
+    return src.map((l, i) => ({ key: i, lineId: core.lineKey(l, i), pick: pickFromLine(l), projectId: l.projectId || null, amount: centsToInput((l.amountCents || 0) * initialDir), memo: l.memo || '' }));
   });
   const [gross, setGross] = useState('');
   const [fee, setFee] = useState('');
@@ -54,7 +54,7 @@ export default function SplitEditor({ ledger, accountId, totalCents, lines, paye
   const save = () => {
     if (!totalAbs) { setError('Enter the transaction total.'); return; }
     if (remaining !== 0) { setError(`Lines must add up to the total. ${fmt(remaining)} left to assign.`); return; }
-    const out = rows.map((r, i) => ({ lineId: r.lineId, ...lineFromPick(r.pick, ledger.companyId), amountCents: parsed[i] * dir, memo: r.memo }));
+    const out = rows.map((r, i) => ({ lineId: r.lineId, ...lineFromPick(r.pick, ledger.companyId), ...(r.projectId ? { projectId: r.projectId } : {}), amountCents: parsed[i] * dir, memo: r.memo }));
     if (out.some((l) => l.amountCents === 0)) { setError('Remove lines with a zero amount.'); return; }
     onSave(out, totalAbs * dir);
   };
@@ -89,12 +89,13 @@ export default function SplitEditor({ ledger, accountId, totalCents, lines, paye
 
           <table className="bk-table bk-split-table">
             <thead>
-              <tr><th>Category / transfer</th><th>Memo</th><th className="num">Amount</th><th aria-label="Remove" /></tr>
+              <tr><th>Category / transfer</th><th>Project / app</th><th>Notes</th><th className="num">Amount</th><th aria-label="Remove" /></tr>
             </thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.key}>
                   <td><CategorySelect ledger={ledger} accountId={accountId} value={r.pick} allowSplit={false} onChange={(v) => patch(r.key, { pick: v })} /></td>
+                  <td><ProjectSelect ledger={ledger} value={r.projectId} onChange={(v) => patch(r.key, { projectId: v })} /></td>
                   <td><input className="bk-input" value={r.memo} onChange={(e) => patch(r.key, { memo: e.target.value })} /></td>
                   <td className="num"><input className="bk-input bk-amt" value={r.amount} onChange={(e) => patch(r.key, { amount: e.target.value })} inputMode="decimal" /></td>
                   <td><button type="button" className="btn btn-ghost btn-sm" onClick={() => setRows((p) => p.filter((x) => x.key !== r.key))} disabled={rows.length <= 1} aria-label="Remove line">✕</button></td>
@@ -104,6 +105,7 @@ export default function SplitEditor({ ledger, accountId, totalCents, lines, paye
             <tfoot>
               <tr>
                 <td><button type="button" className="btn btn-secondary btn-sm" onClick={addRow}>+ Add line</button></td>
+                <td />
                 <td className="bk-muted">Assigned {fmt(sum)}</td>
                 <td className={`num ${remaining === 0 ? 'bk-ok' : 'bk-bad'}`}>{remaining === 0 ? 'Balanced' : `${fmt(remaining)} left`}</td>
                 <td />

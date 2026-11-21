@@ -202,8 +202,11 @@ export default function ImportPanel({ onDone }) {
             row.pairLabel = pt ? `${pt.payee || '—'} · ${fmtDate(pt.date)}` : '';
           }
         } else {
-          const cat = core.applyVendorRules(r.payee, rules);
-          if (cat) row.pick = `cat:${cat}`;
+          const rule = core.matchVendorRule(r.payee, rules);
+          if (rule) {
+            row.pick = `cat:${rule.categoryId}`;
+            row.projectId = rule.projectId || null;
+          }
         }
       }
       if (r.status === 'match') {
@@ -278,6 +281,7 @@ export default function ImportPanel({ onDone }) {
             makeDraft: (before) => (before ? undefined : {
               companyId, accountId: account.id, date: r.date, payee: r.payee, memo: r.memo || '', amountCents: r.amountCents,
               ...lineFromPick(r.pick, companyId), splits: [], status: 'cleared', source: 'import',
+              projectId: r.pick.startsWith('cat:') ? (r.projectId || null) : null,
               fingerprint: r.fingerprint, importId: r.importId,
             }),
           };

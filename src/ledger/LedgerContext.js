@@ -57,12 +57,15 @@ export function LedgerProvider({ children }) {
   const categoriesMine = useCompanyCollection(COL.categories, companyId, setError);
   const categoriesOther = useCompanyCollection(COL.categories, other, setError);
   const rules = useCompanyCollection(COL.vendorRules, companyId, setError);
+  const projectsRaw = useCompanyCollection(COL.projects, companyId, setError);
   const monthly = useCompanyCollection(COL.monthly, companyId, setError);
   const monthlyOther = useCompanyCollection(COL.monthly, other, setError);
   const reconciliations = useCompanyCollection(COL.reconciliations, companyId, setError);
 
   const value = useMemo(() => {
-    const ready = [accountsMine, accountsOther, categoriesMine, categoriesOther, rules, monthly, monthlyOther, reconciliations].every(Boolean);
+    const ready = [accountsMine, accountsOther, categoriesMine, categoriesOther, rules, monthly, monthlyOther, reconciliations, projectsRaw].every(Boolean);
+    const allProjects = [...(projectsRaw || [])].sort((a, b) => a.name.localeCompare(b.name));
+    const projectsById = Object.fromEntries(allProjects.map((p) => [p.id, p]));
     const accountsById = {};
     const categoriesById = {};
     [...(accountsMine || []), ...(accountsOther || [])].forEach((a) => { accountsById[a.id] = a; });
@@ -88,6 +91,9 @@ export function LedgerProvider({ children }) {
       otherCategories: [...(categoriesOther || [])].sort((a, b) => (a.sort ?? 999) - (b.sort ?? 999) || a.name.localeCompare(b.name)),
       categoriesById,
       rules: rules || [],
+      projects: allProjects.filter((p) => !p.archived),
+      allProjects,
+      projectsById,
       monthly: monthly || [],
       monthlyOther: monthlyOther || [],
       reconciliations: reconciliations || [],
@@ -95,7 +101,7 @@ export function LedgerProvider({ children }) {
       otherBalances,
       raw: { accountsMine: accountsMine || [], categoriesMine: categoriesMine || [], rules: rules || [] },
     };
-  }, [companyId, setCompanyId, other, error, accountsMine, accountsOther, categoriesMine, categoriesOther, rules, monthly, monthlyOther, reconciliations]);
+  }, [companyId, setCompanyId, other, error, accountsMine, accountsOther, categoriesMine, categoriesOther, rules, monthly, monthlyOther, reconciliations, projectsRaw]);
 
   return <LedgerContext.Provider value={value}>{children}</LedgerContext.Provider>;
 }

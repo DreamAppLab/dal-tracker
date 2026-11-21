@@ -97,6 +97,25 @@ export function CategorySelect({ ledger, value, onChange, accountId, allowSplit 
   );
 }
 
+/** Optional project / app picker (company-scoped). */
+export function ProjectSelect({ ledger, value, onChange, className = 'bk-input bk-proj-select', onKeyDown, disabled, label = 'Project / app' }) {
+  const list = ledger.projects;
+  const archived = value && ledger.projectsById[value] && ledger.projectsById[value].archived ? ledger.projectsById[value] : null;
+  return (
+    <select className={className} value={value || ''} onChange={(e) => onChange(e.target.value || null)} onKeyDown={onKeyDown} disabled={disabled} aria-label={label} title={label}>
+      <option value="">No project</option>
+      {list.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+      {archived && <option value={archived.id}>{archived.name} (archived)</option>}
+    </select>
+  );
+}
+
+export function ProjectChip({ ledger, projectId }) {
+  if (!projectId) return null;
+  const p = ledger.projectsById[projectId];
+  return <span className="bk-proj-chip" title="Project / app">{p ? p.name : 'Unknown project'}</span>;
+}
+
 export function CompanyBadge({ meta, size = 'sm' }) {
   return (
     <span className={`bk-company-badge bk-company-badge-${size}`} style={{ color: meta.color, background: meta.tint, borderColor: meta.color }}>

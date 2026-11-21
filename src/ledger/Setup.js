@@ -101,6 +101,17 @@ function AccountRow({ account, vault, ledger }) {
   );
 }
 
+function ProjectRow({ project, run }) {
+  const [name, setName] = useState(project.name);
+  const save = (patch) => run(() => saveDoc(COL.projects, project.id, { companyId: project.companyId, name: project.name, ...patch }), () => (patch.archived != null ? (patch.archived ? `Archived “${project.name}”.` : `Restored “${project.name}”.`) : 'Project renamed.'));
+  return (
+    <tr className={`bk-row ${project.archived ? 'bk-row-dim' : ''}`}>
+      <td><input className="bk-input" value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name.trim() && name !== project.name && save({ name: name.trim().slice(0, 80) })} aria-label="Project name" /></td>
+      <td className="bk-actions"><button type="button" className="btn btn-ghost btn-sm" onClick={() => save({ archived: !project.archived })}>{project.archived ? 'Restore' : 'Archive'}</button></td>
+    </tr>
+  );
+}
+
 function CategoryRow({ cat, inUse }) {
   const [name, setName] = useState(cat.name);
   const save = (patch) => saveDoc(COL.categories, cat.id, { companyId: cat.companyId, kind: cat.kind, name: cat.name, ...patch });
@@ -241,7 +252,8 @@ export default function Setup() {
   const { companyId, meta, accounts, categories, rules, raw, monthly } = ledger;
   const vault = useVault(companyId);
   const [newCat, setNewCat] = useState({ name: '', kind: 'expense' });
-  const [newRule, setNewRule] = useState({ pattern: '', categoryId: '' });
+  const [newRule, setNewRule] = useState({ pattern: '', categoryId: '', projectId: '' });
+  const [newProject, setNewProject] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [migration, setMigration] = useState(null);
@@ -274,7 +286,13 @@ export default function Setup() {
   const addRule = () => {
     const pattern = newRule.pattern.trim().toUpperCase();
     if (!pattern || !newRule.categoryId) return;
-    run(() => saveDoc(COL.vendorRules, newId(companyId, 'rule'), { companyId, pattern: pattern.slice(0, 100), categoryId: newRule.categoryId, isDefault: false }, false), () => { setNewRule({ pattern: '', categoryId: newRule.categoryId }); return `Rule added: payees containing “${pattern}”.`; });
+    run(() => saveDoc(COL.vendorRules, newId(companyId, 'rule'), { companyId, pattern: pattern.slice(0, 100), categoryId: newRule.categoryId, projectId: newRule.projectId || null, isDefault: false }, false), () => { setNewRule({ pattern: '', categoryId: newRule.categoryId, projectId: '' }); return `Rule added: payees containing “${pattern}”.`; });
+  };
+  const addProject = () => {
+    const name = newProject.trim();
+    if (!name) return;
+    const id = `${companyId}_proj_${core.projectSlug(name)}_${Date.now().toString(36).slice(-4)}`;
+    run(() => saveDoc(COL.projects, id, { companyId, name: name.slice(0, 80), archived: false }, false), () => { setNewProject(''); return `Project “${name}” added.`; });
   };
   const migrate = (mode) => run(() => apiPost('/api/ledger/migrate', { mode }), (r) => { setMigration(r.summary); return mode === 'dry-run' ? 'Dry run finished (nothing written).' : mode === 'apply' ? (r.summary.verified ? 'Migration complete and verified.' : 'Migration finished but totals did not verify — see details.') : 'Rollback complete.'; });
   const card = accounts.find((a) => a.id === 'dal_card');
@@ -318,6 +336,25 @@ export default function Setup() {
       </div>
       <div className="bk-muted bk-small">Credit card balances are entered as the amount owed. Linking a vault record copies its nickname and last 4 so both modules show the same account; full numbers stay encrypted in the vault.</div>
 
+      <h3 className="bk-h3">Projects / apps</h3>
+      <div className="bk-panel">
+        <div className="bk-muted bk-small bk-mb">Tag transactions (or individual split lines) with the app or project they belong to, then see totals in Reports → By project. Untagged amounts show as “No project”.</div>
+        <div className="bk-inline-form">
+          <input className="bk-input" placeholder="New project / app name (e.g. Logabode)" value={newProject} onChange={(e) => setNewProject(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addProject()} />
+          <button type="button" className="btn btn-primary btn-sm" onClick={addProject} disabled={busy || !newProject.trim()}>Add</button>
+          {companyId === 'dal' && <button type="button" className="btn btn-secondary btn-sm" onClick={() => run(() => apiPost('/api/ledger/migrate', { mode: 'projects' }), (r) => `Created ${r.summary.projects.created} projects from the old Expenses app names and tagged ${r.summary.projects.tagged} transactions.`)} disabled={busy} title="Uses the app names saved on the migrated Expenses rows">Create from old app tags</button>}
+        </div>
+        <div className="bk-table-wrap bk-scroll-y">
+          <table className="bk-table">
+            <thead><tr><th>Name</th><th aria-label="Actions" /></tr></thead>
+            <tbody>
+              {!ledger.allProjects.length && <tr><td colSpan={2}><Empty>No projects yet.</Empty></td></tr>}
+              {ledger.allProjects.map((p) => <ProjectRow key={p.id} project={p} run={run} />)}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <FixedAssets ledger={ledger} run={run} busy={busy} />
 
       <div className="bk-two-col">
@@ -347,13 +384,17 @@ export default function Setup() {
               <option value="">Category…</option>
               {categories.filter((c) => !c.archived).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
+            <select className="bk-input" value={newRule.projectId} onChange={(e) => setNewRule({ ...newRule, projectId: e.target.value })} aria-label="Rule project">
+              <option value="">No project</option>
+              {ledger.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
             <button type="button" className="btn btn-primary btn-sm" onClick={addRule} disabled={busy || !newRule.pattern.trim() || !newRule.categoryId}>Add</button>
           </div>
           <div className="bk-table-wrap bk-scroll-y">
             <table className="bk-table">
-              <thead><tr><th>Payee contains</th><th>Category</th><th aria-label="Actions" /></tr></thead>
+              <thead><tr><th>Payee contains</th><th>Category</th><th>Project</th><th aria-label="Actions" /></tr></thead>
               <tbody>
-                {!rules.length && <tr><td colSpan={3}><Empty>No rules yet.</Empty></td></tr>}
+                {!rules.length && <tr><td colSpan={4}><Empty>No rules yet.</Empty></td></tr>}
                 {[...rules].sort((a, b) => a.pattern.localeCompare(b.pattern)).map((r) => (
                   <tr key={r.id} className="bk-row">
                     <td className="bk-mono">{r.pattern}</td>
@@ -361,6 +402,12 @@ export default function Setup() {
                       <select className="bk-input" value={r.categoryId} onChange={(e) => saveDoc(COL.vendorRules, r.id, { companyId, pattern: r.pattern, categoryId: e.target.value })} aria-label="Rule category">
                         {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                         {!ledger.categoriesById[r.categoryId] && <option value={r.categoryId}>{catName(r.categoryId)}</option>}
+                      </select>
+                    </td>
+                    <td>
+                      <select className="bk-input" value={r.projectId || ''} onChange={(e) => saveDoc(COL.vendorRules, r.id, { companyId, pattern: r.pattern, categoryId: r.categoryId, projectId: e.target.value || null })} aria-label="Rule project">
+                        <option value="">No project</option>
+                        {ledger.allProjects.map((p) => <option key={p.id} value={p.id}>{p.name}{p.archived ? ' (archived)' : ''}</option>)}
                       </select>
                     </td>
                     <td className="bk-actions"><button type="button" className="btn btn-ghost btn-sm bk-del" onClick={() => run(() => deleteRule(r), () => 'Rule deleted.')}>✕</button></td>

@@ -6,11 +6,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as core from './core';
 import { useLedger } from './LedgerContext';
 import {
-  fetchAccountRange, getTxn, newTxnId, openReceipt, purgeDeleted, saveTransaction, uploadReceipt, setDeleted, setStatus, watchAccountWindow, watchFlag,
+  convertToFixedAsset, fetchAccountRange, getTxn, newTxnId, openReceipt, purgeDeleted, saveTransaction, undoFixedAsset, uploadReceipt, setDeleted, setStatus, watchAccountWindow, watchFlag,
 } from './ledgerStore';
 import SplitEditor from './SplitEditor';
 import {
-  CategorySelect, describeLine, describeTxn, Empty, fmt, fmtDate, lineFromPick, pickFromTxn, StatusFlag, todayISO,
+  CategorySelect, describeLine, describeTxn, Empty, fmt, fmtDate, lineFromPick, pickFromTxn, ProjectChip, ProjectSelect, StatusFlag, todayISO,
 } from './ui';
 
 const LS_ACCOUNT = 'mc.books.account.';
@@ -21,7 +21,7 @@ function windowStartFor(months) {
 }
 
 function blankForm(date) {
-  return { date: date || todayISO(), payee: '', pick: '', memo: '', out: '', in: '', splits: null };
+  return { date: date || todayISO(), payee: '', pick: '', memo: '', projectId: null, out: '', in: '', splits: null };
 }
 
 function formFromTxn(t) {
@@ -30,6 +30,7 @@ function formFromTxn(t) {
     payee: t.payee || '',
     pick: pickFromTxn(t),
     memo: t.memo || '',
+    projectId: t.projectId || null,
     out: t.amountCents < 0 ? core.centsToDecimalString(-t.amountCents) : '',
     in: t.amountCents > 0 ? core.centsToDecimalString(t.amountCents) : '',
     splits: t.splits && t.splits.length ? t.splits : null,
@@ -59,7 +60,9 @@ export default function Register({ focusTxn, onFocusHandled }) {
   const [rows, setRows] = useState(null);
   const [extra, setExtra] = useState([]); // rows loaded by an explicit date filter before the window
   const [loadError, setLoadError] = useState('');
-  const [filters, setFilters] = useState({ search: '', from: '', to: '', pick: '*', status: '', min: '', max: '' });
+  const [filters, setFilters] = useState({ search: '', from: '', to: '', pick: '*', status: '', min: '', max: '', project: '*' });
+  const [assetModal, setAssetModal] = useState(null); // { txn, name, inService, lifeYears, salvage }
+  const [menuFor, setMenuFor] = useState(null); // row id whose ⋯ menu is open
   const [sort, setSort] = useState({ key: 'date', dir: 'desc' });
   const [newForm, setNewForm] = useState(blankForm());
   const [editId, setEditId] = useState(null);
@@ -165,7 +168,7 @@ export default function Register({ focusTxn, onFocusHandled }) {
     });
   }, [live, account, accountId, monthly, windowStart]);
 
-  const filtersActive = !!(filters.search || filters.to || filters.pick !== '*' || filters.status || filters.min || filters.max || (filters.from && filters.from > windowStart));
+  const filtersActive = !!(filters.search || filters.to || filters.pick !== '*' || filters.project !== '*' || filters.status || filters.min || filters.max || (filters.from && filters.from > windowStart));
   const visible = useMemo(() => {
     const q = filters.search.trim().toLowerCase();
     const min = core.parseMoneyToCents(filters.min);
@@ -182,8 +185,13 @@ export default function Register({ focusTxn, onFocusHandled }) {
         const want = filters.pick.startsWith('ic') ? 'ic' : filters.pick;
         if (!picks.includes(want)) return false;
       }
+      if (filters.project !== '*') {
+        const pids = core.linesOf(t).map((l) => l.projectId || t.projectId || '');
+        if (!pids.includes(filters.project)) return false;
+      }
       if (q) {
-        const hay = `${t.payee} ${t.memo} ${describeTxn(t, ledger)} ${core.centsToDecimalString(Math.abs(t.amountCents))}`.toLowerCase();
+        const projNames = core.linesOf(t).map((l) => { const p = ledger.projectsById[l.projectId || t.projectId]; return p ? p.name : ''; }).join(' ');
+        const hay = `${t.payee} ${t.memo} ${(t.splits || []).map((l) => l.memo || '').join(' ')} ${projNames} ${describeTxn(t, ledger)} ${core.centsToDecimalString(Math.abs(t.amountCents))}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -231,14 +239,19 @@ export default function Register({ focusTxn, onFocusHandled }) {
       amountCents,
       ...lineFields,
       splits,
+      projectId: f.pick === 'split' ? null : (f.projectId || null),
       role: 'main',
     };
   };
 
   const applyRule = (f) => {
-    if (f.pick || !f.payee) return f;
-    const catId = core.applyVendorRules(f.payee, rules);
-    return catId ? { ...f, pick: `cat:${catId}` } : f;
+    if (!f.payee) return f;
+    const r = core.matchVendorRule(f.payee, rules);
+    if (!r) return f;
+    const next = { ...f };
+    if (!f.pick) next.pick = `cat:${r.categoryId}`;
+    if (!f.projectId && r.projectId) next.projectId = r.projectId;
+    return next;
   };
 
   const saveNew = async () => {
@@ -385,6 +398,41 @@ export default function Register({ focusTxn, onFocusHandled }) {
     setSplit(null);
   };
 
+  // ── Fixed asset from an expense ──────────────────────────────────────
+  const isConvertedAsset = (t) => !!(t.convertedFromCategoryId && accountsById[t.transferAccountId] && accountsById[t.transferAccountId].kind === 'fixed_asset');
+  const canBecomeAsset = (t) => t.role === 'main' && !isIc && !(t.splits && t.splits.length) && t.amountCents < 0
+    && t.categoryId && categoriesById[t.categoryId] && categoriesById[t.categoryId].kind === 'expense';
+  const saveAsset = async () => {
+    const m = assetModal;
+    const lifeMonths = Math.round(Number(m.lifeYears) * 12);
+    const salvage = m.salvage ? core.parseMoneyToCents(m.salvage) : 0;
+    if (!m.name.trim()) { setError('Name the asset.'); return; }
+    if (!core.DATE_RE.test(m.inService) || m.inService < m.txn.date) { setError('The in-service date must be on or after the purchase date.'); return; }
+    if (!lifeMonths || lifeMonths < 1 || lifeMonths > 600) { setError('Useful life must be between 1 month and 50 years.'); return; }
+    if (salvage == null || salvage < 0 || salvage > -m.txn.amountCents) { setError('Salvage must be between 0 and the cost.'); return; }
+    try {
+      setBusy(true);
+      await convertToFixedAsset(m.txn, { name: m.name.trim().slice(0, 80), inServiceDate: m.inService, lifeMonths, salvageCents: salvage }, accountsById, categoriesById);
+      setAssetModal(null);
+      showToast({ text: `${m.name.trim()} is now a fixed asset (off the P&L; depreciation in Reports → Fixed assets).` });
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const undoAsset = async (t) => {
+    try {
+      setBusy(true);
+      const n = await undoFixedAsset(t, accountsById, categoriesById);
+      showToast({ text: `${t.payee || 'Transaction'} is an expense again${n ? ` (${n} depreciation entr${n === 1 ? 'y' : 'ies'} removed)` : ''}.` });
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // ── Keyboard ─────────────────────────────────────────────────────────
   const onTableKey = (e) => {
     const tag = (e.target.tagName || '').toLowerCase();
@@ -427,8 +475,11 @@ export default function Register({ focusTxn, onFocusHandled }) {
       <>
         <td><input ref={opts.dateRef} className="bk-input bk-date" type="date" value={f.date} onChange={(e) => set({ date: e.target.value })} onKeyDown={keys} disabled={lockMoney} aria-label="Date" /></td>
         <td>
-          <input className="bk-input" list="bk-payees" value={f.payee} placeholder="Payee" onChange={(e) => set({ payee: e.target.value })}
-            onBlur={() => setF((prev) => applyRule(prev))} onKeyDown={keys} disabled={opts.lockPayee} aria-label="Payee" />
+          <div className="bk-stack">
+            <input className="bk-input" list="bk-payees" value={f.payee} placeholder="Payee" onChange={(e) => set({ payee: e.target.value })}
+              onBlur={() => setF((prev) => applyRule(prev))} onKeyDown={keys} disabled={opts.lockPayee} aria-label="Payee" />
+            <input className="bk-input bk-notes-input" value={f.memo} placeholder="Description / notes (what was it for?)" onChange={(e) => set({ memo: e.target.value })} onKeyDown={keys} disabled={opts.lockPayee} aria-label="Description / notes" />
+          </div>
         </td>
         <td>
           {opts.mirror ? (
@@ -439,14 +490,18 @@ export default function Register({ focusTxn, onFocusHandled }) {
           ) : opts.leg ? (
             <span className="bk-muted bk-cell-note">{opts.legLabel}</span>
           ) : (
-            <div className="bk-cat-cell">
-              <CategorySelect ledger={ledger} accountId={accountId} value={f.pick} onKeyDown={keys}
-                onChange={(v) => { if (v === 'split') { set({ pick: 'split' }); setTimeout(() => openSplit(opts.target), 0); } else set({ pick: v, splits: null }); }} />
-              {f.pick === 'split' && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openSplit(opts.target)}>Edit split</button>}
+            <div className="bk-stack">
+              <div className="bk-cat-cell">
+                <CategorySelect ledger={ledger} accountId={accountId} value={f.pick} onKeyDown={keys}
+                  onChange={(v) => { if (v === 'split') { set({ pick: 'split' }); setTimeout(() => openSplit(opts.target), 0); } else set({ pick: v, splits: null }); }} />
+                {f.pick === 'split' && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openSplit(opts.target)}>Edit split</button>}
+              </div>
+              {f.pick === 'split'
+                ? <span className="bk-muted bk-small">Projects are set per split line</span>
+                : <ProjectSelect ledger={ledger} value={f.projectId} onChange={(v) => set({ projectId: v })} onKeyDown={keys} />}
             </div>
           )}
         </td>
-        <td><input className="bk-input" value={f.memo} placeholder="Memo" onChange={(e) => set({ memo: e.target.value })} onKeyDown={keys} disabled={opts.lockPayee} aria-label="Memo" /></td>
         <td className="num"><input className="bk-input bk-amt" value={f.out} inputMode="decimal" placeholder="0.00" onChange={(e) => set({ out: e.target.value, in: e.target.value ? '' : f.in })} onKeyDown={keys} disabled={lockMoney} aria-label={outLabel} /></td>
         <td className="num"><input className="bk-input bk-amt" value={f.in} inputMode="decimal" placeholder="0.00" onChange={(e) => set({ in: e.target.value, out: e.target.value ? '' : f.out })} onKeyDown={keys} disabled={lockMoney} aria-label={inLabel} /></td>
       </>
@@ -489,7 +544,7 @@ export default function Register({ focusTxn, onFocusHandled }) {
       {mode === 'register' && (
         <>
           <div className="bk-toolbar">
-            <input className="bk-input bk-search" placeholder="Search payee, memo, category, amount" value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} aria-label="Search" />
+            <input className="bk-input bk-search" placeholder="Search payee, notes, category, project, amount" value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} aria-label="Search" />
             <label className="bk-field-inline"><span>From</span><input type="date" className="bk-input bk-date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} /></label>
             <label className="bk-field-inline"><span>To</span><input type="date" className="bk-input bk-date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} /></label>
             <select className="bk-input bk-filter-cat" value={filters.pick} onChange={(e) => setFilters({ ...filters, pick: e.target.value })} aria-label="Category filter">
@@ -499,6 +554,11 @@ export default function Register({ focusTxn, onFocusHandled }) {
               {accounts.filter((a) => a.id !== accountId && a.kind !== 'intercompany').map((a) => <option key={a.id} value={`xfer:${a.id}`}>Transfer · {a.name}</option>)}
               <option value="ic">Intercompany</option>
             </select>
+            <select className="bk-input bk-filter-cat" value={filters.project} onChange={(e) => setFilters({ ...filters, project: e.target.value })} aria-label="Project filter">
+              <option value="*">All projects</option>
+              <option value="">No project</option>
+              {ledger.allProjects.map((p) => <option key={p.id} value={p.id}>{p.name}{p.archived ? ' (archived)' : ''}</option>)}
+            </select>
             <select className="bk-input bk-filter-status" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })} aria-label="Status filter">
               <option value="">Any status</option>
               <option value="uncleared">Uncleared</option>
@@ -507,21 +567,20 @@ export default function Register({ focusTxn, onFocusHandled }) {
             </select>
             <input className="bk-input bk-amt-filter" placeholder="Min $" value={filters.min} onChange={(e) => setFilters({ ...filters, min: e.target.value })} inputMode="decimal" aria-label="Minimum amount" />
             <input className="bk-input bk-amt-filter" placeholder="Max $" value={filters.max} onChange={(e) => setFilters({ ...filters, max: e.target.value })} inputMode="decimal" aria-label="Maximum amount" />
-            {filtersActive && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setFilters({ search: '', from: '', to: '', pick: '*', status: '', min: '', max: '' })}>Clear</button>}
+            {filtersActive && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setFilters({ search: '', from: '', to: '', pick: '*', status: '', min: '', max: '', project: '*' })}>Clear</button>}
           </div>
 
           <div className="bk-table-wrap" ref={tableRef}>
             <table className="bk-table bk-reg-table">
               <colgroup>
-                <col className="c-date" /><col className="c-payee" /><col className="c-cat" /><col className="c-memo" />
+                <col className="c-date" /><col className="c-payee" /><col className="c-cat" />
                 <col className="c-amt" /><col className="c-amt" /><col className="c-flag" /><col className="c-bal" /><col className="c-act" />
               </colgroup>
               <thead>
                 <tr>
                   <th><button type="button" className="bk-th" onClick={() => sortBy('date')}>Date{sortMark('date')}</button></th>
-                  <th><button type="button" className="bk-th" onClick={() => sortBy('payee')}>Payee{sortMark('payee')}</button></th>
-                  <th><button type="button" className="bk-th" onClick={() => sortBy('category')}>Category{sortMark('category')}</button></th>
-                  <th>Memo</th>
+                  <th><button type="button" className="bk-th" onClick={() => sortBy('payee')}>Payee · notes{sortMark('payee')}</button></th>
+                  <th><button type="button" className="bk-th" onClick={() => sortBy('category')}>Category · project{sortMark('category')}</button></th>
                   <th className="num"><button type="button" className="bk-th" onClick={() => sortBy('amount')}>{outLabel}{sortMark('amount')}</button></th>
                   <th className="num">{inLabel}</th>
                   <th className="center"><button type="button" className="bk-th" onClick={() => sortBy('status')} title="Cleared status">C{sortMark('status')}</button></th>
@@ -538,8 +597,8 @@ export default function Register({ focusTxn, onFocusHandled }) {
                     <td><button type="button" className="btn btn-primary btn-sm" onClick={saveNew} disabled={busy}>Add</button></td>
                   </tr>
                 )}
-                {rows === null && <tr><td colSpan={9}><Empty>Loading transactions…</Empty></td></tr>}
-                {rows !== null && !visible.length && <tr><td colSpan={9}><Empty>{filtersActive ? 'No transactions match these filters.' : 'No transactions in this period yet.'}</Empty></td></tr>}
+                {rows === null && <tr><td colSpan={8}><Empty>Loading transactions…</Empty></td></tr>}
+                {rows !== null && !visible.length && <tr><td colSpan={8}><Empty>{filtersActive ? 'No transactions match these filters.' : 'No transactions in this period yet.'}</Empty></td></tr>}
                 {visible.map((t) => {
                   if (t.id === editId && editForm) {
                     const legParent = t.role === 'leg';
@@ -578,21 +637,35 @@ export default function Register({ focusTxn, onFocusHandled }) {
                       className={`bk-row ${selected === t.id ? 'bk-selected' : ''} ${t.needsCategory ? 'bk-row-uncat' : ''} ${t.status === 'reconciled' ? 'bk-row-rec' : ''}`}
                       onClick={() => setSelected(t.id)} onDoubleClick={() => !isIc && startEdit(t)}>
                       <td className="bk-nowrap">{fmtDate(t.date)}</td>
-                      <td className="bk-payee" title={t.payee}>{t.payee || <span className="bk-muted">—</span>}{(t.attachmentPath || t.attachmentUrl) && <button type="button" className="bk-clip" title="Open receipt" aria-label="Open receipt" onClick={(e) => { e.stopPropagation(); openReceipt(t).catch((err) => setError(err.message)); }}>📎</button>}</td>
+                      <td className="bk-payee" title={t.memo ? `${t.payee}\n${t.memo}` : t.payee}>
+                        <div className="bk-ellipsis">{t.payee || <span className="bk-muted">—</span>}{(t.attachmentPath || t.attachmentUrl) && <button type="button" className="bk-clip" title="Open receipt" aria-label="Open receipt" onClick={(e) => { e.stopPropagation(); openReceipt(t).catch((err) => setError(err.message)); }}>📎</button>}</div>
+                        {t.memo && <div className="bk-row-note bk-ellipsis">{t.memo}</div>}
+                      </td>
                       <td className={`bk-cat ${t.needsCategory ? 'bk-uncat' : ''}`} title={describeTxn(t, ledger)}>
-                        {describeTxn(t, ledger)}
+                        <div className="bk-ellipsis">{describeTxn(t, ledger)}</div>
+                        {!(t.splits && t.splits.length) && <ProjectChip ledger={ledger} projectId={t.projectId} />}
                         {t.splits && t.splits.length > 0 && (
-                          <div className="bk-split-lines">{t.splits.map((l, i) => <div key={i}>{describeLine(l, ledger, t)} <span className="num">{fmt(Math.abs(l.amountCents))}</span></div>)}</div>
+                          <div className="bk-split-lines">{t.splits.map((l, i) => <div key={i}><span>{describeLine(l, ledger, t)}{l.projectId ? ` · ${(ledger.projectsById[l.projectId] || {}).name || ''}` : ''}</span> <span className="num">{fmt(Math.abs(l.amountCents))}</span></div>)}</div>
                         )}
                       </td>
-                      <td className="bk-memo" title={t.memo}>{t.memo}</td>
                       <td className="num">{t.amountCents < 0 ? fmt(-t.amountCents) : ''}</td>
                       <td className="num bk-pos">{t.amountCents > 0 ? fmt(t.amountCents) : ''}</td>
                       <td className="center"><StatusFlag status={t.status} onToggle={() => toggleCleared(t)} /></td>
                       <td className={`num ${!cardOwed && t.balance < 0 ? 'bk-neg' : ''}`}>{showBalance ? balanceText(t.balance) : ''}</td>
                       <td className="bk-actions">
-                        {!isIc && <button type="button" className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); startEdit(t); }} aria-label="Edit">Edit</button>}
-                        {t.role === 'main' && !isIc && t.status !== 'reconciled' && <button type="button" className="btn btn-ghost btn-sm bk-del" onClick={(e) => { e.stopPropagation(); remove(t); }} aria-label="Delete">✕</button>}
+                        {!isIc && <button type="button" className="btn btn-ghost btn-sm bk-icon-btn" onClick={(e) => { e.stopPropagation(); startEdit(t); }} aria-label="Edit" title="Edit (Enter)">✎</button>}
+                        {t.role === 'main' && !isIc && t.status !== 'reconciled' && <button type="button" className="btn btn-ghost btn-sm bk-icon-btn bk-del" onClick={(e) => { e.stopPropagation(); remove(t); }} aria-label="Delete" title="Delete (Del)">✕</button>}
+                        {(canBecomeAsset(t) || isConvertedAsset(t)) && (
+                          <span className="bk-menu-wrap">
+                            <button type="button" className="btn btn-ghost btn-sm bk-icon-btn" aria-label="More actions" aria-expanded={menuFor === t.id} title="More" onClick={(e) => { e.stopPropagation(); setMenuFor(menuFor === t.id ? null : t.id); }}>⋯</button>
+                            {menuFor === t.id && (
+                              <span className="bk-menu" role="menu">
+                                {canBecomeAsset(t) && <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setMenuFor(null); setAssetModal({ txn: t, name: (t.memo || t.payee || '').slice(0, 80), inService: t.date, lifeYears: '5', salvage: '' }); }}>Make this a fixed asset…</button>}
+                                {isConvertedAsset(t) && <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setMenuFor(null); undoAsset(t); }}>Undo fixed asset (make it an expense again)</button>}
+                              </span>
+                            )}
+                          </span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -655,6 +728,32 @@ export default function Register({ focusTxn, onFocusHandled }) {
 
       <datalist id="bk-payees">{payees.map((p) => <option key={p} value={p} />)}</datalist>
 
+      {assetModal && (
+        <div className="modal-overlay" onClick={() => setAssetModal(null)}>
+          <div className="modal bk-modal" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === 'Escape') setAssetModal(null); }}>
+            <div className="modal-header">
+              <div className="modal-title">Make this a fixed asset</div>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAssetModal(null)} aria-label="Close">✕</button>
+            </div>
+            <div className="modal-body">
+              <p className="bk-muted bk-small bk-mb">
+                {assetModal.txn.payee} · {fmtDate(assetModal.txn.date)} · {fmt(-assetModal.txn.amountCents)}. This creates a fixed asset with that cost and re-books the
+                transaction as <strong>Transfer · [asset]</strong>: it leaves the P&L and is depreciated monthly instead. You can undo it from the same row.
+              </p>
+              <div className="bk-form-grid">
+                <label className="bk-field bk-span2"><span>Asset name / description</span><input className="bk-input" value={assetModal.name} onChange={(e) => setAssetModal({ ...assetModal, name: e.target.value })} placeholder="e.g. MacBook Pro 16 for app development" /></label>
+                <label className="bk-field"><span>In service from</span><input className="bk-input bk-date" type="date" value={assetModal.inService} onChange={(e) => setAssetModal({ ...assetModal, inService: e.target.value })} /></label>
+                <label className="bk-field"><span>Useful life (years)</span><input className="bk-input bk-amt" value={assetModal.lifeYears} onChange={(e) => setAssetModal({ ...assetModal, lifeYears: e.target.value })} inputMode="decimal" /></label>
+                <label className="bk-field"><span>Salvage value</span><input className="bk-input bk-amt" value={assetModal.salvage} onChange={(e) => setAssetModal({ ...assetModal, salvage: e.target.value })} inputMode="decimal" placeholder="0.00" /></label>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="btn btn-secondary" onClick={() => setAssetModal(null)}>Cancel</button>
+              <button type="button" className="btn btn-primary" onClick={saveAsset} disabled={busy}>Make fixed asset</button>
+            </div>
+          </div>
+        </div>
+      )}
       {split && (
         <SplitEditor ledger={ledger} accountId={accountId} totalCents={split.totalCents} lines={split.lines} payee={split.payee}
           onSave={onSplitSaved} onClose={() => setSplit(null)} />

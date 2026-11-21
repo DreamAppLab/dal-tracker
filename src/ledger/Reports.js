@@ -11,7 +11,7 @@ import * as core from './core';
 import { useLedger } from './LedgerContext';
 import { fetchAccountAll, fetchRange, postDepreciation } from './ledgerStore';
 import {
-  BalanceSheetView, FixedAssetsView, GeneralLedgerView, OwnerEquityView, TrialBalanceView, statementCsvRows,
+  BalanceSheetView, FixedAssetsView, GeneralLedgerView, OwnerEquityView, ProjectReportView, TrialBalanceView, statementCsvRows,
 } from './ReportsStatements';
 import { csvCell, downloadText, Empty, fmt, fmtDate, monthLabel, todayISO } from './ui';
 
@@ -41,6 +41,7 @@ const TABS = [
   ['categories', 'Category breakdown', 'Analysis'],
   ['trends', 'Category trends', 'Analysis'],
   ['income', 'Income by source', 'Analysis'],
+  ['projects', 'By project', 'Analysis'],
   ['assets', 'Fixed assets', 'Schedules'],
   ['owner', 'Owner contributions & distributions', 'Schedules'],
   ['ic', 'Intercompany', 'Schedules'],
@@ -103,7 +104,7 @@ export default function Reports({ onOpenTxn }) {
   const statementRanges = useMemo(() => {
     const list = [];
     if (['bs', 'tb'].includes(tab) && core.needsMonthTxns(asOf)) list.push({ from: core.monthStart(asOf), to: asOf });
-    if (['gl', 'owner'].includes(tab)) {
+    if (['gl', 'owner', 'projects'].includes(tab)) {
       list.push({ from: range.from, to: range.to });
       if (range.from !== core.monthStart(range.from)) list.push({ from: core.monthStart(range.from), to: core.addDays(range.from, -1) });
     }
@@ -172,6 +173,9 @@ export default function Reports({ onOpenTxn }) {
         tb: core.trialBalance({ accounts: allAccounts, categories: categoriesById, totals, totalsBeforeFy, companyId, asOf }),
       };
     }
+    if (tab === 'projects') {
+      return { projects: core.projectReport({ txns: rangeTxns, categories: categoriesById, projects: ledger.projectsById, companyId, from: range.from, to: range.to }) };
+    }
     if (['gl', 'owner'].includes(tab)) {
       const before = core.addDays(range.from, -1);
       const totalsBefore = core.totalsAsOf({ monthly, monthTxns: rangeTxns, companyId, asOf: before });
@@ -180,7 +184,7 @@ export default function Reports({ onOpenTxn }) {
       return { owner: core.ownerEquityReport({ categories: categoriesById, txns: rangeTxns, companyId, from: range.from, to: range.to, totalsBefore }) };
     }
     return {};
-  }, [tab, validRange, haveAll, rangeTxns, monthly, companyId, asOf, range, categoriesById, ledger.raw.accountsMine, assetSummaries]);
+  }, [tab, validRange, haveAll, rangeTxns, monthly, companyId, asOf, range, categoriesById, ledger.raw.accountsMine, assetSummaries, ledger.projectsById]);
 
   function loadInto(wanted, isCancelled) {
     if (!wanted.length) return;
@@ -281,7 +285,7 @@ export default function Reports({ onOpenTxn }) {
     } else if (tab === 'trends') {
       lines.push(['Month', ...trendCats.map((id) => (categoriesById[id] || {}).name || id)]);
       trend.forEach((r) => lines.push([r.month, ...trendCats.map((id) => (r[id] || 0).toFixed(2))]));
-    } else if (['bs', 'tb', 'gl', 'assets', 'owner'].includes(tab)) {
+    } else if (['bs', 'tb', 'gl', 'assets', 'owner', 'projects'].includes(tab)) {
       lines.push(...statementCsvRows(tab, { ...statements, assets: assetSummaries }));
     } else if (tab === 'ic') {
       lines.push(['Month end', `Balance (+ due from ${ledger.otherMeta.short}, − due to)`]);
@@ -441,6 +445,7 @@ export default function Reports({ onOpenTxn }) {
         {tab === 'tb' && <TrialBalanceView tb={statements.tb} asOf={asOf} />}
         {tab === 'gl' && <GeneralLedgerView gl={statements.gl} accountsById={accountsById} onOpenTxn={onOpenTxn} />}
         {tab === 'owner' && <OwnerEquityView report={statements.owner} onOpenTxn={onOpenTxn} />}
+        {tab === 'projects' && <ProjectReportView report={statements.projects} onPick={(r) => setDrill({ title: `${r.name} · income & expense`, range, rows: r.lines.map((l) => ({ ...l, line: 0, split: false })) })} />}
         {tab === 'assets' && (
           <>
             {notice && <div className="bk-notice">{notice}</div>}
@@ -547,7 +552,7 @@ export default function Reports({ onOpenTxn }) {
               {!drill.rows ? <Empty>Loading…</Empty> : (
                 <div className="bk-table-wrap">
                   <table className="bk-table">
-                    <thead><tr><th>Date</th><th>Payee</th><th>Account</th><th>Memo</th><th className="num">Amount</th><th aria-label="Open" /></tr></thead>
+                    <thead><tr><th>Date</th><th>Payee</th><th>Account</th><th>Notes</th><th className="num">Amount</th><th aria-label="Open" /></tr></thead>
                     <tbody>
                       {!drill.rows.length && <tr><td colSpan={6}><Empty>No transactions.</Empty></td></tr>}
                       {drill.rows.map((r) => (

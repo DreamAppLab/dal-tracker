@@ -381,7 +381,7 @@ const ensureDepreciationCategory = (companyId, categories) => ensureCategory(com
 export async function createFixedAsset(companyId, f, categories) {
   const depId = await ensureDepreciationCategory(companyId, categories);
   const id = newId(companyId, 'fa');
-  await setDoc(doc(db, COL.accounts, id), {
+  const data = {
     companyId,
     kind: 'fixed_asset',
     name: f.name,
@@ -400,10 +400,55 @@ export async function createFixedAsset(companyId, f, categories) {
     vaultCreditCardId: null,
     archived: false,
     sort: 10,
-    createdAt: serverTimestamp(),
-  });
+    ...(f.fromTxnId ? { fromTxnId: f.fromTxnId } : {}),
+  };
+  await setDoc(doc(db, COL.accounts, id), { ...data, createdAt: serverTimestamp() });
   recordAuditEvent('ledger_update', `ledgerAccounts/${id}`, { action: 'fixed_asset_created', companyId, costCents: f.openingCostCents || 0 });
-  return id;
+  return { id, data };
+}
+
+/**
+ * "Make this a fixed asset": creates an asset from an expense and re-books
+ * the expense as Transfer · [asset] (off the P&L, onto the depreciation
+ * schedule). The original category is kept on the transaction for undo.
+ */
+export async function convertToFixedAsset(txn, f, accounts, categories) {
+  if (txn.role !== 'main' || (txn.splits && txn.splits.length) || !txn.categoryId) throw new Error('Only a single-category expense can become a fixed asset.');
+  if (txn.amountCents >= 0) throw new Error('Only a payment or charge can become a fixed asset.');
+  const { id: assetId, data } = await createFixedAsset(txn.companyId, {
+    name: f.name, acquiredDate: txn.date, openingDate: txn.date, inServiceDate: f.inServiceDate || txn.date,
+    lifeMonths: f.lifeMonths, salvageCents: f.salvageCents || 0, openingCostCents: 0, openingAccumulatedCents: 0, fromTxnId: txn.id,
+  }, categories);
+  const accts = { ...accounts, [assetId]: { ...data, id: assetId } };
+  await runPlans([{ id: txn.id, makeDraft: (before) => {
+    if (!before || before.deleted) throw new Error('Transaction not found.');
+    return { ...before, categoryId: null, icCategoryId: null, splits: [], transferAccountId: assetId, convertedFromCategoryId: before.categoryId };
+  } }], accts, categories);
+  recordAuditEvent('ledger_update', `ledgerTransactions/${txn.id}`, { action: 'converted_to_fixed_asset', companyId: txn.companyId, assetId, amountCents: txn.amountCents });
+  return assetId;
+}
+
+/** Undo "Make this a fixed asset": removes its depreciation, restores the expense, archives the asset. */
+export async function undoFixedAsset(txn, accounts, categories) {
+  const asset = accounts[txn.transferAccountId];
+  if (!txn.convertedFromCategoryId || !asset || asset.kind !== 'fixed_asset') throw new Error('This transaction was not turned into a fixed asset here.');
+  const rows = await fetchAccountAll(txn.companyId, asset.id);
+  const live = rows.filter((t) => !t.deleted);
+  if (live.some((t) => t.source === 'disposal')) throw new Error('The asset has been sold or disposed of; undo that first.');
+  const other = live.filter((t) => t.parentId !== txn.id && t.source !== 'depreciation');
+  if (other.length || asset.openingBalanceCents) throw new Error('The asset has other entries (more purchases or adjustments). Remove them first.');
+  const dep = live.filter((t) => t.source === 'depreciation');
+  for (let i = 0; i < dep.length; i += 100) {
+    // eslint-disable-next-line no-await-in-loop
+    await runPlans(dep.slice(i, i + 100).map((t) => ({ id: t.id, makeDraft: (before) => (before && !before.deleted ? { ...before, deleted: true } : undefined) })), accounts, categories);
+  }
+  await runPlans([{ id: txn.id, makeDraft: (before) => {
+    if (!before) throw new Error('Transaction not found.');
+    return { ...before, transferAccountId: null, categoryId: before.convertedFromCategoryId, convertedFromCategoryId: null };
+  } }], accounts, categories);
+  await setDoc(doc(db, COL.accounts, asset.id), { archived: true, updatedAt: serverTimestamp() }, { merge: true });
+  recordAuditEvent('ledger_update', `ledgerTransactions/${txn.id}`, { action: 'fixed_asset_undone', companyId: txn.companyId, assetId: asset.id, removedDepreciation: dep.length });
+  return dep.length;
 }
 
 /** Sell or write off an asset: depreciation through the date, then one disposal entry, then archive. */
