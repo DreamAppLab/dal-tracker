@@ -18,6 +18,7 @@
 .bk-error { margin: 10px 0; padding: 10px 14px; border-radius: var(--radius-sm); background: var(--coral-dim); border: 1px solid rgba(255,91,91,0.35); color: #ffb4b4; font-size: 13px; }
 .bk-notice { margin: 10px 0; padding: 10px 14px; border-radius: var(--radius-sm); background: rgba(76,193,243,0.1); border: 1px solid rgba(76,193,243,0.3); color: #bfe8fb; font-size: 13px; }
 .bk-notice-warn { background: rgba(201,133,0,0.12); border-color: rgba(201,133,0,0.4); color: #f3d79b; }
+.bk-warn-text { color: #f3d79b; display: flex; gap: 6px; align-items: flex-start; margin-top: 4px; }
 .bk-warn { margin: 10px 0; padding: 10px 14px; border-radius: var(--radius-sm); background: var(--amber-dim); border: 1px solid rgba(245,158,11,0.35); color: #fcd58a; font-size: 13px; }
 .bk-h3 { font-family: var(--font-display); font-size: 15px; font-weight: 700; margin: 24px 0 10px; color: var(--text-primary); }
 .bk-kicker { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; margin-bottom: 6px; }
@@ -255,7 +256,12 @@ select.bk-input { cursor: pointer; padding-right: 4px; }
 
 /* ── Setup ──────────────────────────────────────────────────── */
 .bk-setup-seed { display: flex; gap: 16px; align-items: center; justify-content: space-between; border-left: 4px solid var(--bk-co); }
-.bk-accounts-table { min-width: 980px; }
+.bk-accounts-table { min-width: 1080px; }
+.bk-accounts-table td:first-child { min-width: 190px; }
+.bk-accounts-table td:first-child .bk-input { width: 100%; }
+.bk-accounts-table td.bk-actions { white-space: nowrap; }
+.bk-accounts-table td.bk-actions .bk-small { display: block; white-space: normal; max-width: 260px; }
+.bk-accounts-table .bk-check { display: flex; margin-top: 4px; white-space: nowrap; }
 .bk-maint { display: flex; flex-direction: column; gap: 14px; }
 .bk-maint-row { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
 

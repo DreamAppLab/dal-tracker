@@ -75,6 +75,12 @@ export function describeTxn(t, ledger) {
  * Category <select> with groups: expense, income, equity, transfers (same
  * company), intercompany (paid for the other company → their category).
  */
+// Plain-English hints so "pay an owner back" is an obvious choice in the register.
+const EQUITY_HINTS = {
+  owner_draw: 'reimburse / pay back an owner',
+  owner_contribution: 'owner put money in',
+};
+
 export function CategorySelect({ ledger, value, onChange, accountId, allowSplit = true, className = 'bk-input', autoFocus, onKeyDown, id, disabled, inputRef }) {
   const { categories, accounts, otherCategories, otherMeta } = ledger;
   const active = categories.filter((c) => !c.archived || value === `cat:${c.id}`);
@@ -87,7 +93,7 @@ export function CategorySelect({ ledger, value, onChange, accountId, allowSplit 
       {allowSplit && <option value="split">Split…</option>}
       <optgroup label="Expense">{group('expense').map((c) => <option key={c.id} value={`cat:${c.id}`}>{c.name}</option>)}</optgroup>
       <optgroup label="Income">{group('income').map((c) => <option key={c.id} value={`cat:${c.id}`}>{c.name}</option>)}</optgroup>
-      <optgroup label="Owner equity (not P&L)">{group('equity').map((c) => <option key={c.id} value={`cat:${c.id}`}>{c.name}</option>)}</optgroup>
+      <optgroup label="Owner money (not P&L)">{group('equity').map((c) => <option key={c.id} value={`cat:${c.id}`}>{EQUITY_HINTS[c.slug] ? `${c.name} — ${EQUITY_HINTS[c.slug]}` : c.name}</option>)}</optgroup>
       <optgroup label="Transfer (same company)">{transferTargets.map((a) => <option key={a.id} value={`xfer:${a.id}`}>Transfer · {a.name}</option>)}</optgroup>
       <optgroup label={`Paid for ${otherMeta.short} (intercompany)`}>
         <option value="ic:">{otherMeta.short} · category later</option>

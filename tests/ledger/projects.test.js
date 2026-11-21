@@ -156,3 +156,37 @@ test('old Expenses report: fields, app tags, notes, and rows still missing both;
   assert.equal(core.planLegacyNotes(expenses, after).length, 0, 'idempotent');
   assert.deepEqual(core.planLegacyNotesUndo(after), [{ id: 'dal_mig_e4', memo: 'April invoice' }]);
 });
+
+test('a purchase paid personally can become a fixed asset: still an owner contribution, off the P&L, depreciated', () => {
+  const L = makeLedger();
+  L.accounts.dal_personal.openingDate = '2026-01-01';
+  const id = L.add('dal', { accountId: 'dal_personal', date: '2026-06-25', amountCents: -311749, payee: 'Best Buy', memo: 'ASUS laptop', categoryId: cat('dal', 'hardware') });
+  L.accounts.dal_fa_laptop = { companyId: 'dal', kind: 'fixed_asset', name: 'ASUS laptop', openingBalanceCents: 0, openingDate: '2026-06-25', inServiceDate: '2026-06-25', lifeMonths: 60, salvageCents: 0, depreciationCategoryId: cat('dal', 'depreciation') };
+  L.save(id, { ...L.txns[id], categoryId: null, transferAccountId: 'dal_fa_laptop', convertedFromCategoryId: cat('dal', 'hardware') });
+  core.depreciationToPost({ id: 'dal_fa_laptop', ...L.accounts.dal_fa_laptop }, L.txnList(), '2026-11-21').forEach((e) => L.save(e.id, e.draft));
+  const pnl = core.pnlFromMonthly(L.monthlyList(), L.categories, 'dal', '2026-01-01', '2026-12-31');
+  assert.equal(pnl.expense.find((x) => x.categoryId === cat('dal', 'hardware')), undefined);
+  assert.equal(pnl.expense.find((x) => x.categoryId === cat('dal', 'depreciation')).cents, 5 * 5196);
+  assert.equal(L.balance('dal_fa_laptop'), 311749 - 5 * 5196, 'book value');
+  assert.equal(L.balance('dal_personal'), -311749, 'the owners still paid it');
+  const accounts = Object.entries(L.accounts).map(([aid, a]) => ({ id: aid, ...a }));
+  const owner = core.ownerEquityReport({ accounts, categories: L.categories, txns: L.txnList(), companyId: 'dal', from: '2026-01-01', to: '2026-12-31', totalsBefore: { acct: {}, cat: {} } });
+  assert.equal(owner.totals.contributions, 311749);
+  const totals = core.totalsAsOf({ monthly: L.monthlyList(), monthTxns: [], companyId: 'dal', asOf: '2026-12-31' });
+  const bs = core.balanceSheet({ accounts, categories: L.categories, totals, totalsBeforeFy: { acct: {}, cat: {} }, companyId: 'dal', asOf: '2026-12-31' });
+  assert.ok(bs.balanced);
+});
+
+test('paid personally: refunds reduce contributions; covered amount on a payment is clamped to the payment', () => {
+  const L = makeLedger();
+  L.accounts.dal_personal.openingDate = '2026-01-01';
+  L.add('dal', { accountId: 'dal_personal', date: '2026-03-01', amountCents: -10000, payee: 'Store', categoryId: cat('dal', 'office') });
+  L.add('dal', { accountId: 'dal_personal', date: '2026-03-05', amountCents: 2500, payee: 'Store refund', categoryId: cat('dal', 'office') });
+  const accounts = Object.entries(L.accounts).map(([id, a]) => ({ id, ...a }));
+  const r = core.ownerEquityReport({ accounts, categories: L.categories, txns: L.txnList(), companyId: 'dal', from: '2026-01-01', to: '2026-12-31', totalsBefore: { acct: {}, cat: {} } });
+  assert.deepEqual([r.totals.contributions, r.totals.distributions], [7500, 0]);
+  const p = L.add('dal', { accountId: 'dal_card', date: '2026-03-09', amountCents: 5000, payee: 'PAYMENT', categoryId: cat('dal', 'owner_contribution'), coversHistoricalCents: 9000 });
+  assert.equal(L.txns[p].coversHistoricalCents, 5000);
+  L.save(p, { ...L.txns[p], amountCents: 3000 });
+  assert.equal(L.txns[p].coversHistoricalCents, 3000, 'editing the amount down never fails');
+});

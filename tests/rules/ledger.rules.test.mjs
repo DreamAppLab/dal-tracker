@@ -265,3 +265,14 @@ test('ledger: bulk-change records are company-scoped, created once, then only th
   await assertSucceeds(updateDoc(doc(db, 'ledgerTransactions', 'dal_rc1'), { categoryId: 'dal_cat_contractors' }));
   await assertFails(updateDoc(doc(db, 'ledgerTransactions', 'dal_rc1'), { amountCents: -1 }));
 });
+
+test('ledger: "Paid personally" accounts are a valid kind; kind cannot change; extra cards can be added and closed', async () => {
+  const db = admin();
+  const acct = (over) => ({ companyId: 'dal', kind: 'personal', name: 'Paid personally', last4: '', openingBalanceCents: 0, openingDate: '2025-01-01', archived: false, ...over });
+  await assertSucceeds(setDoc(doc(db, 'ledgerAccounts', 'dal_personal2'), acct()));
+  await assertFails(updateDoc(doc(db, 'ledgerAccounts', 'dal_personal2'), { kind: 'checking' }));
+  await assertSucceeds(setDoc(doc(db, 'ledgerAccounts', 'dal_acct_chase1'), acct({ kind: 'credit_card', name: 'Chase Ink', cardPaymentsPaidPersonally: false })));
+  await assertSucceeds(updateDoc(doc(db, 'ledgerAccounts', 'dal_acct_chase1'), { archived: true }));
+  await assertFails(setDoc(doc(db, 'ledgerAccounts', 'dal_acct_bad'), acct({ kind: 'loan' })));
+  await assertSucceeds(setDoc(doc(db, 'ledgerTransactions', 'dal_pp1'), txn({ accountId: 'dal_personal2', categoryId: 'dal_cat_contractors', coversHistoricalCents: null })));
+});

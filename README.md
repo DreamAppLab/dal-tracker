@@ -74,7 +74,7 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
 ### Data model (Firestore, all top-level, every doc has `companyId`)
 | Collection | Holds |
 |---|---|
-| `ledgerAccounts` | `checking`, `credit_card`, `fixed_asset` (one per asset: life, salvage, in-service date) and one `intercompany` account per company (`dal_checking`, `dal_card`, `dal_ic_zerbiq`, …). Each has an opening balance (cents) and opening date, plus an optional link to the vault's `bankAccounts` / `creditCards` record and its last 4 digits. |
+| `ledgerAccounts` | `checking`, `credit_card` (any number per company; close = archive, history kept; `cardPaymentsPaidPersonally` makes imported card payments owner contributions), `personal` ("Paid personally", `<company>_personal`), `fixed_asset` (one per asset: life, salvage, in-service date) and one `intercompany` account per company (`dal_checking`, `dal_card`, `dal_ic_zerbiq`, …). Each has an opening balance (cents) and opening date, plus an optional link to the vault's `bankAccounts` / `creditCards` record and its last 4 digits. |
 | `ledgerCategories` | Per-company `income` / `expense` / `equity` categories. These are archived, never deleted. |
 | `ledgerTransactions` | `date`, `amountCents` (integer, signed), `payee`, `memo` (shown as **Description / notes**), `projectId` (optional), `status` (`uncleared` / `cleared` / `reconciled`), `type`, `categoryId` or `transferAccountId`, `splits[]`, `fingerprint`, `deleted` (soft delete). `role` is `main`, `leg` or `mirror`. `convertedFromCategoryId` is set when an expense was turned into a fixed asset. |
 | `ledgerProjects` | Per-company projects / apps (`name`, `archived`). Ids are `<companyId>_proj_<slug>`. They are archived, never deleted. |
@@ -141,6 +141,29 @@ violet). The selected company is saved per user in `ledgerPrefs/{uid}`.
    left out. The project and the notes are optional, searchable in the register, and included in the
    CSV/PDF exports and the general ledger. The rules check that a `projectId` on a transaction or vendor
    rule belongs to the same company.
+6c. **Paid personally** (account kind `personal`, `<company>_personal`) is for business expenses an owner
+   paid with their own money (a personal card, or a business card whose bills were paid personally).
+   - Its rows are normal category lines, so the P&L counts them.
+   - Its balance is owner equity: the balance sheet shows "Owner contributions · Paid personally", the trial
+     balance puts it under Equity, and the owner contributions report counts each row as a contribution
+     (refunds reduce it). It is never a liability and never touches checking.
+   - When the business pays an owner back, record it from checking as *Owner draw* (the register labels it
+     "reimburse / pay back an owner").
+   - Setup (DAL) → *Card charges paid on a personal card*: migrated card charges that were typed in by hand
+     (no statement, still uncleared) move from the card to Paid personally (`migrate` modes
+     `personal-preview` / `personal-move` / `personal-undo`, audited). Each moved row is marked
+     `personalMovedFrom`, and "Card payments before Books" is recomputed so it covers only real card
+     charges. The card still owes $0.00, and P&L and total owner contributions are unchanged (when the old
+     card payments are booked as owner contributions). It refuses before writing anything if a reconciled
+     "Card payments before Books" month would have to change.
+   - A card payment's `coversHistoricalCents` is clamped to the payment. Editing, deleting or restoring such a
+     payment re-runs settle. With more than one card, the import asks which card the payments pair with,
+     and charges already moved to Paid personally are flagged (unticked) if they show up on a card statement.
+   - Card import: on a card with *Payments paid personally*, card payments import as Owner contribution, not a
+     transfer from checking. On the DAL card, a payment bigger than what the card owes at that point is
+     paying charges already covered by "Card payments before Books". The preview flags it, the row stores
+     `coversHistoricalCents`, and `planHistoricalPayments` shrinks the estimate by that much (newest month
+     first). So the owners' money isn't counted twice and the card doesn't go below $0.00.
 7. **Reconciled rows are locked by the rules.** Their amount, date, account, status and delete flag can't
    change. **Undo reconcile** is server-side (`/api/ledger/unreconcile`), requires a sign-in within the last
    15 minutes, is written to the audit log first, and works on the latest statement only.

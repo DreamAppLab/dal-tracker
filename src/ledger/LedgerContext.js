@@ -72,8 +72,10 @@ export function LedgerProvider({ children }) {
     [...(categoriesMine || []), ...(categoriesOther || [])].forEach((c) => { categoriesById[c.id] = c; });
     const sortAccounts = (list) => [...(list || [])].filter((a) => !a.archived).sort((a, b) => (a.sort || 9) - (b.sort || 9) || a.name.localeCompare(b.name));
     const accounts = sortAccounts(accountsMine);
+    // Closed (archived) bank/card accounts keep their history; shown on request.
+    const closedAccounts = [...(accountsMine || [])].filter((a) => a.archived && a.kind !== 'fixed_asset').sort((a, b) => a.name.localeCompare(b.name));
     const balances = {};
-    accounts.forEach((a) => { balances[a.id] = core.accountBalance(a, a.id, monthly || []); });
+    [...accounts, ...closedAccounts].forEach((a) => { balances[a.id] = core.accountBalance(a, a.id, monthly || []); });
     const otherBalances = {};
     sortAccounts(accountsOther).forEach((a) => { otherBalances[a.id] = core.accountBalance(a, a.id, monthlyOther || []); });
     return {
@@ -85,6 +87,7 @@ export function LedgerProvider({ children }) {
       ready,
       error,
       accounts,
+      closedAccounts,
       otherAccounts: sortAccounts(accountsOther),
       accountsById,
       categories: [...(categoriesMine || [])].sort((a, b) => (a.sort ?? 999) - (b.sort ?? 999) || a.name.localeCompare(b.name)),

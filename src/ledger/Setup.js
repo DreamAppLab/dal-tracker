@@ -6,7 +6,7 @@ import { collection, onSnapshot } from 'firebase/firestore';
 import * as core from './core';
 import { useLedger } from './LedgerContext';
 import { apiPost, COL, createFixedAsset, db, deleteRule, disposeAsset, newId, saveDoc, seedCompany } from './ledgerStore';
-import { Empty, fmt } from './ui';
+import { Empty, fmt, fmtDate } from './ui';
 import BulkRecategorize from './BulkRecategorize';
 import LegacyReport from './LegacyReport';
 import { recordAuditEvent } from '../lib/audit';
@@ -28,19 +28,22 @@ function last4Of(rec, field) {
   return d.slice(-4);
 }
 
+const KIND_LABEL = { checking: 'Checking', credit_card: 'Credit card', personal: 'Paid personally' };
+
 function AccountRow({ account, vault, ledger }) {
   const isCard = account.kind === 'credit_card';
+  const isPersonal = account.kind === 'personal';
   const [f, setF] = useState(() => ({
     name: account.name,
     last4: account.last4 || '',
-    opening: core.centsToDecimalString(isCard ? -(account.openingBalanceCents || 0) : account.openingBalanceCents || 0),
+    opening: core.centsToDecimalString(isCard || isPersonal ? -(account.openingBalanceCents || 0) : account.openingBalanceCents || 0),
     openingDate: account.openingDate,
     vaultId: (isCard ? account.vaultCreditCardId : account.vaultBankAccountId) || '',
   }));
   const [msg, setMsg] = useState('');
   const options = isCard ? vault.cards : vault.banks;
   const dirty = f.name !== account.name || f.last4 !== (account.last4 || '') || f.openingDate !== account.openingDate
-    || core.parseMoneyToCents(f.opening) !== (isCard ? -(account.openingBalanceCents || 0) : account.openingBalanceCents || 0)
+    || core.parseMoneyToCents(f.opening) !== (isCard || isPersonal ? -(account.openingBalanceCents || 0) : account.openingBalanceCents || 0)
     || f.vaultId !== ((isCard ? account.vaultCreditCardId : account.vaultBankAccountId) || '');
   const save = async () => {
     const cents = core.parseMoneyToCents(f.opening);
@@ -57,11 +60,11 @@ function AccountRow({ account, vault, ledger }) {
         ...rest,
         name: f.name.trim().slice(0, 80) || account.name,
         last4: f.last4.replace(/\D/g, '').slice(-4),
-        openingBalanceCents: isCard ? -cents : cents,
+        openingBalanceCents: isCard || isPersonal ? -cents : cents,
         openingDate: f.openingDate,
         ...(isCard ? { vaultCreditCardId: f.vaultId || null } : { vaultBankAccountId: f.vaultId || null }),
       });
-      const newCents = isCard ? -cents : cents;
+      const newCents = isCard || isPersonal ? -cents : cents;
       if (newCents !== (account.openingBalanceCents || 0) || f.openingDate !== account.openingDate) {
         recordAuditEvent('ledger_update', `ledgerAccounts/${id}`, {
           companyId: account.companyId, fromOpeningCents: account.openingBalanceCents || 0, toOpeningCents: newCents, fromDate: account.openingDate, toDate: f.openingDate,
@@ -81,22 +84,48 @@ function AccountRow({ account, vault, ledger }) {
       name: rec && p.name.startsWith('Business') ? rec.nickname || p.name : p.name,
     }));
   };
+  const balance = ledger.balances[account.id] || 0;
+  const flag = async (patch, done) => {
+    try {
+      const { id, updatedAt, createdAt, ...rest } = account;
+      await saveDoc(COL.accounts, id, { ...rest, ...patch });
+      recordAuditEvent('ledger_update', `ledgerAccounts/${id}`, { action: 'account_settings', companyId: account.companyId, ...patch });
+      setMsg(done);
+    } catch (e) {
+      setMsg(e.message);
+    }
+  };
+  const toggleClosed = () => {
+    if (!account.archived && balance && !isPersonal) { setMsg(`It still shows ${fmt(isCard ? -balance : balance)}. Bring it to $0.00 before closing it.`); return; }
+    flag({ archived: !account.archived }, account.archived ? 'Reopened.' : 'Closed. Its history stays in reports; see it under “Closed accounts” in the register.');
+  };
   return (
-    <tr className="bk-row">
+    <tr className={`bk-row ${account.archived ? 'bk-row-dim' : ''}`}>
       <td><input className="bk-input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} aria-label="Account name" /></td>
-      <td>{isCard ? 'Credit card' : 'Checking'}</td>
       <td>
-        <select className="bk-input" value={f.vaultId} onChange={(e) => pickVault(e.target.value)} aria-label="Vault record">
-          <option value="">{options.length ? 'Not linked' : 'No vault records'}</option>
-          {options.map((o) => <option key={o.id} value={o.id}>{o.nickname}{last4Of(o, isCard ? 'cardNumber' : 'accountNumber') ? ` ··${last4Of(o, isCard ? 'cardNumber' : 'accountNumber')}` : ''}</option>)}
-        </select>
+        {KIND_LABEL[account.kind] || account.kind}{account.archived ? ' (closed)' : ''}
+        {isCard && (
+          <label className="bk-check bk-small" title="Card payments on imported statements are booked as owner contributions instead of transfers from business checking">
+            <input type="checkbox" checked={!!account.cardPaymentsPaidPersonally} onChange={(e) => flag({ cardPaymentsPaidPersonally: e.target.checked }, e.target.checked ? 'Card payments on this card will import as owner contributions.' : 'Card payments will import as transfers from checking.')} />
+            Payments paid personally
+          </label>
+        )}
+      </td>
+      <td>
+        {isPersonal ? <span className="bk-muted bk-small">Owners’ own money</span> : (
+          <select className="bk-input" value={f.vaultId} onChange={(e) => pickVault(e.target.value)} aria-label="Vault record">
+            <option value="">{options.length ? 'Not linked' : 'No vault records'}</option>
+            {options.map((o) => <option key={o.id} value={o.id}>{o.nickname}{last4Of(o, isCard ? 'cardNumber' : 'accountNumber') ? ` ··${last4Of(o, isCard ? 'cardNumber' : 'accountNumber')}` : ''}</option>)}
+          </select>
+        )}
       </td>
       <td><input className="bk-input bk-last4" value={f.last4} onChange={(e) => setF({ ...f, last4: e.target.value })} maxLength={4} inputMode="numeric" aria-label="Last 4" /></td>
       <td className="num"><input className="bk-input bk-amt" value={f.opening} onChange={(e) => setF({ ...f, opening: e.target.value })} inputMode="decimal" aria-label={isCard ? 'Opening balance owed' : 'Opening balance'} /></td>
       <td><input className="bk-input bk-date" type="date" value={f.openingDate} onChange={(e) => setF({ ...f, openingDate: e.target.value })} aria-label="Opening date" /></td>
-      <td className="num">{fmt(isCard ? -(ledger.balances[account.id] || 0) : ledger.balances[account.id] || 0)}</td>
+      <td className="num">{fmt(isCard || isPersonal ? -balance : balance)}</td>
       <td className="bk-actions">
         <button type="button" className="btn btn-primary btn-sm" onClick={save} disabled={!dirty}>Save</button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={toggleClosed}>{account.archived ? 'Reopen' : 'Close'}</button>
         {msg && <span className="bk-muted bk-small">{msg}</span>}
       </td>
     </tr>
@@ -261,6 +290,34 @@ export default function Setup() {
   const [migration, setMigration] = useState(null);
   const [confirmRollback, setConfirmRollback] = useState(false);
 
+  const [newAcct, setNewAcct] = useState({ kind: 'credit_card', name: '', last4: '', openingDate: '' });
+  const [personalPreview, setPersonalPreview] = useState(null);
+  const addAccount = () => {
+    const name = newAcct.name.trim() || ({ credit_card: 'Business credit card', checking: 'Business checking', personal: 'Paid personally' })[newAcct.kind];
+    const openingDate = newAcct.openingDate || new Date().toISOString().slice(0, 10);
+    if (!core.DATE_RE.test(openingDate)) { setMsg('Pick an opening date.'); return; }
+    const id = newAcct.kind === 'personal' && !raw.accountsMine.some((a) => a.id === core.ids.personal(companyId)) ? core.ids.personal(companyId) : newId(companyId, 'acct');
+    run(() => saveDoc(COL.accounts, id, {
+      companyId, kind: newAcct.kind, name: name.slice(0, 80), last4: newAcct.last4.replace(/\D/g, '').slice(-4), openingBalanceCents: 0, openingDate,
+      vaultBankAccountId: null, vaultCreditCardId: null, archived: false, sort: newAcct.kind === 'personal' ? 4 : 5,
+    }, false), () => { setNewAcct({ kind: newAcct.kind, name: '', last4: '', openingDate: '' }); return `Added “${name}”. Set its opening balance in the table if it didn’t start at $0.00.`; });
+  };
+  const personalMove = (mode) => run(() => apiPost('/api/ledger/migrate', { mode }), (r) => {
+    const p = r.summary.personal;
+    if (mode === 'personal-preview') {
+      setPersonalPreview(p);
+      if (p.blocked && p.blocked.length) return `${p.count} charge(s) found, but these reconciled “Card payments before Books” months would have to change: ${p.blocked.map((id) => id.replace('dal_hist_', '')).join(', ')}. Undo those card reconciliations first.`;
+      return `${p.count} hand-entered card charge(s), ${fmt(Math.abs(p.totalCents))}, would move to Paid personally.`;
+    }
+    setPersonalPreview(null);
+    if (!p.count) return 'Nothing to move.';
+    const problems = [
+      p.errors.length ? `${p.errors.length} row(s) could not be moved` : '',
+      p.settled.errors && p.settled.errors.length ? `${p.settled.errors.length} “Card payments before Books” month(s) could not be updated` : '',
+    ].filter(Boolean).join('; ');
+    const owed = -(p.cardBalanceCents || 0);
+    return `${mode === 'personal-undo' ? 'Moved back to the card' : 'Moved to Paid personally'}: ${p.moved} charge(s), ${fmt(Math.abs(p.totalCents))}. “Card payments before Books” is now ${fmt(p.settled.totalCents)}. The card's history ${owed === 0 ? 'still owes $0.00' : `now shows ${fmt(owed)} owed — check Setup → Mark as paid`}. P&L is unchanged; ${p.as === 'owner' ? 'total owner contributions are unchanged.' : `owner contributions ${mode === 'personal-undo' ? 'drop' : 'rise'} by ${fmt(Math.abs(p.totalCents))} because the old card payments are booked as opening balance equity.`}${problems ? ` Problems: ${problems}.` : ''}`;
+  });
   const usedCats = new Set(monthly.flatMap((m) => Object.entries(m.cat || {}).filter(([, v]) => v !== 0).map(([k]) => k)));
   const missingDefaults = !accounts.some((a) => a.kind === 'checking') || !accounts.some((a) => a.kind === 'credit_card') || !accounts.some((a) => a.kind === 'intercompany') || !categories.length;
 
@@ -310,7 +367,8 @@ export default function Setup() {
   const rebuild = () => run(() => apiPost('/api/ledger/rebuild', { companyId }), (r) => `Rebuilt ${r.result.months} months from ${r.result.transactions} transactions.`);
 
   if (!ledger.ready) return <Empty>Loading…</Empty>;
-  const bankish = accounts.filter((a) => a.kind === 'checking' || a.kind === 'credit_card');
+  const bankish = raw.accountsMine.filter((a) => ['checking', 'credit_card', 'personal'].includes(a.kind))
+    .sort((a, b) => (!!a.archived - !!b.archived) || (a.sort || 9) - (b.sort || 9) || a.name.localeCompare(b.name));
   const catName = (id) => (ledger.categoriesById[id] || {}).name || 'Unknown';
 
   return (
@@ -336,6 +394,18 @@ export default function Setup() {
           </tbody>
         </table>
       </div>
+      <div className="bk-inline-form bk-mt">
+        <select className="bk-input" value={newAcct.kind} onChange={(e) => setNewAcct({ ...newAcct, kind: e.target.value })} aria-label="New account type">
+          <option value="credit_card">Credit card</option>
+          <option value="checking">Checking</option>
+          <option value="personal">Paid personally</option>
+        </select>
+        <input className="bk-input" placeholder="Name (e.g. Chase Ink ··1234)" value={newAcct.name} onChange={(e) => setNewAcct({ ...newAcct, name: e.target.value })} aria-label="New account name" />
+        <input className="bk-input bk-last4" placeholder="Last 4" value={newAcct.last4} onChange={(e) => setNewAcct({ ...newAcct, last4: e.target.value })} maxLength={4} inputMode="numeric" aria-label="New account last 4" />
+        <input className="bk-input bk-date" type="date" value={newAcct.openingDate} onChange={(e) => setNewAcct({ ...newAcct, openingDate: e.target.value })} aria-label="New account opening date" />
+        <button type="button" className="btn btn-primary btn-sm" onClick={addAccount} disabled={busy}>Add account</button>
+      </div>
+      <div className="bk-muted bk-small">A company can have any number of cards and bank accounts. <strong>Close</strong> an account you no longer use: its history stays in every report and under “Closed accounts” in the register. <strong>Paid personally</strong> is for business expenses an owner paid with their own money: they count as normal expenses, the money counts as an owner contribution, and it’s never a business debt. When the business pays an owner back, record it from checking as <em>Owner draw — reimburse / pay back an owner</em>.</div>
       <div className="bk-muted bk-small">Credit card balances are entered as the amount owed. Linking a vault record copies its nickname and last 4 so both modules show the same account; full numbers stay encrypted in the vault.</div>
 
       <h3 className="bk-h3">Projects / apps</h3>
@@ -467,6 +537,31 @@ export default function Setup() {
                 <option value="equity">Opening balance equity</option>
               </select>
               <button type="button" className="btn btn-primary btn-sm" onClick={settle} disabled={busy}>Mark as paid</button>
+            </div>
+          </div>
+        )}
+        {companyId === 'dal' && (
+          <div className="bk-maint-row">
+            <div>
+              <strong>Card charges paid on a personal card</strong>
+              <div className="bk-muted bk-small">
+                Migrated charges that were typed in by hand (not from a Capital One statement) and are still uncleared were paid on an owner's
+                personal card. This moves them from the card to <em>Paid personally</em> and recomputes “Card payments before Books” so it covers
+                only the real card charges. The card still owes $0.00, and P&L and total owner contributions don't change. You can undo it.
+              </div>
+              {personalPreview && !!personalPreview.rows.length && (
+                <div className="bk-table-wrap bk-scroll-y bk-mt">
+                  <table className="bk-table">
+                    <thead><tr><th>Date</th><th>Payee</th><th>Notes</th><th className="num">Amount</th></tr></thead>
+                    <tbody>{personalPreview.rows.map((r) => <tr key={r.id} className="bk-row"><td>{fmtDate(r.date)}</td><td>{r.payee}</td><td className="bk-memo">{r.memo}</td><td className="num">{fmt(-r.cents)}</td></tr>)}</tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <div className="bk-row-actions">
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => personalMove('personal-preview')} disabled={busy}>Preview</button>
+              {personalPreview && personalPreview.count > 0 && <button type="button" className="btn btn-primary btn-sm" onClick={() => personalMove('personal-move')} disabled={busy}>Move {personalPreview.count} to Paid personally</button>}
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => personalMove('personal-undo')} disabled={busy} title="Moves them back to the card">Undo move</button>
             </div>
           </div>
         )}

@@ -200,7 +200,21 @@ export async function saveTransaction({ id, draft, before, accounts, categories 
       companyId: prev.companyId, fromAmountCents: prev.amountCents, toAmountCents: clean.amountCents, fromDate: prev.date, toDate: clean.date,
     });
   }
+  if ((prev && prev.coversHistoricalCents) || clean.coversHistoricalCents) {
+    if (!prev || prev.amountCents !== clean.amountCents || prev.accountId !== clean.accountId || prev.coversHistoricalCents !== clean.coversHistoricalCents || !!prev.deleted !== !!clean.deleted) await resettleCardHistory();
+  }
   return plan;
+}
+
+/**
+ * A card payment that covered part of "Card payments before Books" changed:
+ * recompute that estimate so the card owes the right amount. Best effort —
+ * Setup → "Mark as paid" does the same.
+ */
+async function resettleCardHistory() {
+  try {
+    await apiPost('/api/ledger/migrate', { mode: 'settle' });
+  } catch (_) { /* Setup → Mark as paid recomputes it */ }
 }
 
 /** Ids that must change together: a reimbursement's two halves. */
@@ -223,6 +237,7 @@ export async function setDeleted({ txn, deleted, accounts, categories }) {
   recordAuditEvent(deleted ? 'ledger_delete' : 'ledger_restore', `ledgerTransactions/${txn.id}`, {
     companyId: txn.companyId, accountId: txn.accountId, date: txn.date, amountCents: txn.amountCents, bothCompanies: entries.length > 1,
   });
+  if (txn.coversHistoricalCents) await resettleCardHistory();
   return plan;
 }
 
