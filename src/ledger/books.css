@@ -312,3 +312,4 @@ select.bk-input { cursor: pointer; padding-right: 4px; }
 .bk-menu button:hover { background: var(--bg-card-hover); }
 .bk-reg-table td.bk-actions { overflow: visible; }
 .bk-reg-table td.center { padding-left: 2px; padding-right: 2px; text-overflow: clip; }
+.bk-update { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
