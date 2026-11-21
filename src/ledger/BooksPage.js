@@ -105,10 +105,48 @@ function BooksInner() {
   );
 }
 
+/**
+ * One bad render in Books must not blank the whole of Mission Control: show
+ * the error with a way back instead.
+ */
+export class BooksErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    // eslint-disable-next-line no-console
+    console.error('Books crashed', error, info && info.componentStack);
+  }
+
+  render() {
+    const { error } = this.state;
+    if (!error) return this.props.children;
+    return (
+      <div className="page bk-page">
+        <div className="bk-notice bk-notice-warn" role="alert">
+          <strong>Books hit an error and stopped this screen.</strong> Nothing was saved by the failed step. {String(error.message || error)}
+          <div className="bk-row-actions bk-mt">
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => { try { window.localStorage.setItem('mc.books.tab', 'register'); } catch (_) { /* ignore */ } this.setState({ error: null }); }}>Back to Books</button>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => window.location.reload()}>Reload</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+}
+
 export default function BooksPage() {
   return (
-    <LedgerProvider>
-      <BooksInner />
-    </LedgerProvider>
+    <BooksErrorBoundary>
+      <LedgerProvider>
+        <BooksInner />
+      </LedgerProvider>
+    </BooksErrorBoundary>
   );
 }

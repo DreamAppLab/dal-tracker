@@ -65,7 +65,10 @@ export default function Reports({ onOpenTxn }) {
   const { companyId, meta, categoriesById, categories, monthly, accountsById } = ledger;
   const [tab, setTab] = useState('pnl');
   const [kind, setKind] = useState('ytd');
-  const [anchor, setAnchor] = useState(todayISO());
+  const [anchorInput, setAnchor] = useState(todayISO());
+  const lastGoodAnchor = useRef(anchorInput);
+  if (core.isValidDate(anchorInput)) lastGoodAnchor.current = anchorInput;
+  const anchor = core.isValidDate(anchorInput) ? anchorInput : lastGoodAnchor.current;
   const [custom, setCustom] = useState({ from: `${todayISO().slice(0, 4)}-01-01`, to: todayISO() });
   const [compare, setCompare] = useState(true);
   const [txCache, setTxCache] = useState({});
@@ -76,8 +79,12 @@ export default function Reports({ onOpenTxn }) {
   const [exporting, setExporting] = useState(false);
   const reportRef = useRef(null);
 
-  const range = useMemo(() => (kind === 'custom' ? { ...custom, kind: 'custom' } : core.periodRange(kind, anchor)), [kind, anchor, custom]);
-  const prior = useMemo(() => core.priorRange(range), [range]);
+  // While a custom date is being typed it is briefly invalid: keep using the last complete, valid range.
+  const lastGoodCustom = useRef(custom);
+  if (core.isValidRange(custom.from, custom.to)) lastGoodCustom.current = custom;
+  const effCustom = core.isValidRange(custom.from, custom.to) ? custom : lastGoodCustom.current;
+  const range = useMemo(() => (kind === 'custom' ? { ...effCustom, kind: 'custom' } : core.periodRange(kind, anchor)), [kind, anchor, effCustom]);
+  const prior = useMemo(() => core.priorRange(range) || range, [range]);
   const validRange = core.DATE_RE.test(range.from) && core.DATE_RE.test(range.to) && range.from <= range.to;
   const needsTx = (r) => !core.isMonthAligned(r.from, r.to);
   // Cached transactions are keyed by the aggregates' state, so any edit refreshes them.
@@ -378,7 +385,7 @@ export default function Reports({ onOpenTxn }) {
           ))}
         </div>
         {kind !== 'custom'
-          ? <label className="bk-field-inline"><span>{kind === 'ytd' ? 'Through' : 'Period of'}</span><input className="bk-input bk-date" type="date" value={anchor} onChange={(e) => e.target.value && setAnchor(e.target.value)} /></label>
+          ? <label className="bk-field-inline"><span>{kind === 'ytd' ? 'Through' : 'Period of'}</span><input className="bk-input bk-date" type="date" value={anchorInput} onChange={(e) => setAnchor(e.target.value)} /></label>
           : (
             <>
               <label className="bk-field-inline"><span>From</span><input className="bk-input bk-date" type="date" value={custom.from} onChange={(e) => setCustom({ ...custom, from: e.target.value })} /></label>

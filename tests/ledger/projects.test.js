@@ -384,3 +384,12 @@ test('intercompany totals: owners settlements are not "reimbursed" (no money mov
   assert.deepEqual(r.totals, { paidForThem: 71821, paidForUs: 14, settledIn: 500, settledOut: 0, ownersIn: 71321, ownersOut: 14 });
   assert.equal(r.balance, 0);
 });
+
+test('report dates: half-typed custom dates never throw; prior period only for valid ranges', () => {
+  for (const bad of ['', '0002-12-31', '2026-13-01', '2026-02-30', '20261231', '2026-1-01']) assert.equal(core.isValidDate(bad), false, bad);
+  assert.equal(core.isValidDate('2026-12-31'), true);
+  assert.equal(core.isValidRange('2026-12-31', '2026-01-01'), false, 'out of order');
+  assert.equal(core.priorRange({ from: '2026-01-01', to: '0002-12-31', kind: 'custom' }), null);
+  assert.equal(core.priorRange({ from: '2026-01-01', to: '', kind: 'custom' }), null);
+  assert.deepEqual(core.priorRange({ from: '2026-01-01', to: '2026-01-31', kind: 'custom' }), { from: '2025-12-01', to: '2025-12-31', kind: 'custom' });
+});
