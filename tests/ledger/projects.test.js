@@ -190,3 +190,28 @@ test('paid personally: refunds reduce contributions; covered amount on a payment
   L.save(p, { ...L.txns[p], amountCents: 3000 });
   assert.equal(L.txns[p].coversHistoricalCents, 3000, 'editing the amount down never fails');
 });
+
+test('vendor rules: date/account-limited intercompany rules (Zerbiq vendors from 2026-08-28 on the DAL card)', () => {
+  const rules = [
+    { id: 'd1', pattern: 'VERCEL', categoryId: cat('dal', 'hosting') },
+    { id: 'd2', pattern: 'EXPO', categoryId: cat('dal', 'software') },
+    { id: 'z1', pattern: 'VERCEL', fromDate: '2026-08-28', accountId: 'dal_card', icCategoryId: cat('zerbiq', 'hosting'), categoryId: cat('dal', 'hosting') },
+    { id: 'z2', pattern: 'EXPO', wholeWord: true, fromDate: '2026-08-28', accountId: 'dal_card', icCategoryId: cat('zerbiq', 'software'), categoryId: cat('dal', 'software') },
+  ];
+  const m = (payee, date, accountId) => core.rulePick(core.matchVendorRule(payee, rules, { date, accountId }));
+  assert.equal(m('VERCEL INC', '2026-09-03', 'dal_card'), `ic:${cat('zerbiq', 'hosting')}`);
+  assert.equal(m('VERCEL DOMAINS', '2026-08-28', 'dal_card'), `ic:${cat('zerbiq', 'hosting')}`, 'from the start date');
+  assert.equal(m('VERCEL INC', '2026-08-27', 'dal_card'), `cat:${cat('dal', 'hosting')}`, 'earlier: DAL');
+  assert.equal(m('VERCEL INC', '2026-09-03', 'dal_checking'), `cat:${cat('dal', 'hosting')}`, 'other account: DAL');
+  assert.equal(m('EXPO.DEV', '2026-09-03', 'dal_card'), `ic:${cat('zerbiq', 'software')}`);
+  assert.equal(m('EXPORT HUB', '2026-09-03', 'dal_card'), `cat:${cat('dal', 'software')}`, 'whole word: EXPORT is not EXPO');
+  assert.equal(core.applyVendorRules('VERCEL INC', rules), cat('dal', 'hosting'), 'no date → dated rules ignored');
+  // Booked as "Paid for Zerbiq": Zerbiq expense, DAL receivable, DAL P&L excludes it.
+  const L = makeLedger();
+  const id = L.add('dal', { accountId: 'dal_card', date: '2026-09-03', amountCents: -2000, payee: 'VERCEL INC', transferAccountId: 'dal_ic_zerbiq', icCategoryId: cat('zerbiq', 'hosting') });
+  assert.ok(L.txns[id]);
+  assert.equal(L.balance('dal_ic_zerbiq'), 2000, 'due from Zerbiq');
+  assert.equal(L.balance('dal_card'), -2000, 'still owed on the card');
+  assert.equal(core.pnlFromMonthly(L.monthlyList(), L.categories, 'dal', '2026-09-01', '2026-09-30').totalExpense, 0);
+  assert.equal(core.pnlFromMonthly(L.monthlyList(), L.categories, 'zerbiq', '2026-09-01', '2026-09-30').totalExpense, 2000);
+});

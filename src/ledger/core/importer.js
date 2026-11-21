@@ -114,17 +114,41 @@ function classifyRows(rows, existing, opts) {
 }
 
 // ── Vendor rules ──────────────────────────────────────────────────────────
-/** Best matching vendor rule (longest pattern contained in the payee), or null. */
-function matchVendorRule(payee, rules) {
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Does a rule's pattern match this (normalized) payee? `wholeWord` stops EXPO matching EXPORT. */
+function rulePatternMatches(rule, hay) {
+  const pat = normalizePayee(rule.pattern);
+  if (!pat) return false;
+  if (!rule.wholeWord) return hay.includes(pat);
+  return new RegExp(`(^|[^A-Z0-9])${escapeRe(pat)}($|[^A-Z0-9])`).test(hay);
+}
+
+/**
+ * Best matching vendor rule, or null: the longest pattern contained in the
+ * payee wins; on a tie, a rule limited by date or account beats a general one.
+ * ctx { date, accountId } applies rules' optional fromDate / toDate / accountId.
+ */
+function matchVendorRule(payee, rules, ctx = {}) {
   const hay = normalizePayee(payee);
   if (!hay) return null;
   let best = null;
   for (const r of rules || []) {
-    const pat = normalizePayee(r.pattern);
-    if (!pat || !hay.includes(pat)) continue;
-    if (!best || pat.length > best.len) best = { len: pat.length, rule: r };
+    if (!rulePatternMatches(r, hay)) continue;
+    if ((r.fromDate || r.toDate) && !ctx.date) continue;
+    if (r.fromDate && ctx.date < r.fromDate) continue;
+    if (r.toDate && ctx.date > r.toDate) continue;
+    if (r.accountId && r.accountId !== ctx.accountId) continue;
+    const score = normalizePayee(r.pattern).length * 10 + (r.fromDate || r.toDate ? 2 : 0) + (r.accountId ? 1 : 0);
+    if (!best || score > best.score) best = { score, rule: r };
   }
   return best ? best.rule : null;
+}
+
+/** The register/import pick a rule gives: its category, or "Paid for <other company>" for an intercompany rule. */
+function rulePick(rule) {
+  if (!rule) return '';
+  return rule.icCategoryId ? `ic:${rule.icCategoryId}` : `cat:${rule.categoryId}`;
 }
 
 function applyVendorRules(payee, rules) {
@@ -402,6 +426,8 @@ module.exports = {
   applyVendorRules,
   matchVendorRule,
   isLikelyCardPayment,
+  rulePick,
+  rulePatternMatches,
   suggestTransfer,
   detectDelimiter,
   parseCsvText,

@@ -168,6 +168,14 @@ service cloud.firestore {
         && ownedBy(id, request.resource.data.companyId)
         && ownedBy(request.resource.data.categoryId, request.resource.data.companyId)
         && optOwnedBy(request.resource.data, 'projectId', request.resource.data.companyId)
+        && optOwnedBy(request.resource.data, 'accountId', request.resource.data.companyId)
+        // "Paid for the other company" rules point at the OTHER company's category.
+        && (request.resource.data.get('icCategoryId', null) == null
+          || (request.resource.data.icCategoryId is string
+            && ledgerCompany(request.resource.data.icCategoryId.split('_')[0])
+            && request.resource.data.icCategoryId.split('_')[0] != request.resource.data.companyId))
+        && (request.resource.data.get('fromDate', null) == null || isDate(request.resource.data.fromDate))
+        && (request.resource.data.get('toDate', null) == null || isDate(request.resource.data.toDate))
         && request.resource.data.pattern is string && request.resource.data.pattern.size() > 0
         && request.resource.data.pattern.size() <= 100
         && (resource == null || sameCompany());

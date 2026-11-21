@@ -347,6 +347,37 @@ export default function Setup() {
     if (!pattern || !newRule.categoryId) return;
     run(() => saveDoc(COL.vendorRules, newId(companyId, 'rule'), { companyId, pattern: pattern.slice(0, 100), categoryId: newRule.categoryId, projectId: newRule.projectId || null, isDefault: false }, false), () => { setNewRule({ pattern: '', categoryId: newRule.categoryId, projectId: '' }); return `Rule added: payees containing “${pattern}”.`; });
   };
+  // Zerbiq work began 2026-08-28: from then on these vendors' charges on the
+  // DAL card are Zerbiq's (booked "Paid for Zerbiq": Zerbiq expense, DAL receivable).
+  const ZERBIQ_FROM = '2026-08-28';
+  const zerbiqPresets = [
+    ['anthropic', 'ANTHROPIC', false, 'ai_apis', 'software'],
+    ['claude_ai', 'CLAUDE.AI', false, 'ai_apis', 'software'],
+    ['expo', 'EXPO', true, 'software', 'software'],
+    ['expo_650', '650 INDUSTRIES', false, 'software', 'software'],
+    ['vercel', 'VERCEL', false, 'hosting', 'hosting'],
+  ];
+  const addZerbiqRules = () => run(async () => {
+    const zcat = (slug) => {
+      const id = core.ids.category('zerbiq', slug);
+      return ledger.categoriesById[id] ? id : core.ids.category('zerbiq', 'software');
+    };
+    for (const [slug, pattern, wholeWord, zSlug, dSlug] of zerbiqPresets) {
+      // eslint-disable-next-line no-await-in-loop
+      await saveDoc(COL.vendorRules, `dal_rule_ic_${slug}`, {
+        companyId: 'dal', pattern, wholeWord, categoryId: core.ids.category('dal', dSlug), icCategoryId: zcat(zSlug),
+        fromDate: ZERBIQ_FROM, toDate: null, accountId: core.ACCOUNT, projectId: null, isDefault: false,
+      }, false);
+    }
+    recordAuditEvent('ledger_update', 'ledgerVendorRules/dal_rule_ic_*', { action: 'zerbiq_vendor_rules', companyId: 'dal', fromDate: ZERBIQ_FROM, count: zerbiqPresets.length });
+  }, () => `Added ${zerbiqPresets.length} rules: Anthropic, Claude.ai, Expo (whole word), 650 Industries and Vercel charges on the business card dated ${fmtDate(ZERBIQ_FROM)} or later are booked as Paid for Zerbiq. Earlier charges keep the DAL rules.`);
+  const ruleExtra = (r) => [
+    r.icCategoryId ? `→ ${ledger.otherMeta.short} · ${(ledger.categoriesById[r.icCategoryId] || {}).name || 'category'}` : '',
+    r.fromDate ? `from ${fmtDate(r.fromDate)}` : '',
+    r.toDate ? `to ${fmtDate(r.toDate)}` : '',
+    r.accountId ? `${(ledger.accountsById[r.accountId] || {}).name || r.accountId} only` : '',
+    r.wholeWord ? 'whole word' : '',
+  ].filter(Boolean).join(' · ');
   const addProject = () => {
     const name = newProject.trim();
     if (!name) return;
@@ -469,7 +500,7 @@ export default function Setup() {
                 {!rules.length && <tr><td colSpan={4}><Empty>No rules yet.</Empty></td></tr>}
                 {[...rules].sort((a, b) => a.pattern.localeCompare(b.pattern)).map((r) => (
                   <tr key={r.id} className="bk-row">
-                    <td className="bk-mono">{r.pattern}</td>
+                    <td className="bk-mono">{r.pattern}{ruleExtra(r) && <div className="bk-muted bk-small bk-sans">{ruleExtra(r)}</div>}</td>
                     <td>
                       <select className="bk-input" value={r.categoryId} onChange={(e) => saveDoc(COL.vendorRules, r.id, { companyId, pattern: r.pattern, categoryId: e.target.value })} aria-label="Rule category">
                         {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -488,7 +519,10 @@ export default function Setup() {
               </tbody>
             </table>
           </div>
-          <div className="bk-muted bk-small">Rules fill the category when you type a payee or import a statement. The longest matching text wins.</div>
+          <div className="bk-muted bk-small">Rules fill the category when you type a payee or import a statement. The longest matching text wins; on a tie, a rule limited to a date range or account wins. A rule marked “→ {ledger.otherMeta.short}” books the charge as paid for {ledger.otherMeta.short} (their expense, a receivable here); the category next to it is only used outside its dates.</div>
+          {companyId === 'dal' && !rules.some((r) => r.id === 'dal_rule_ic_anthropic') && (
+            <button type="button" className="btn btn-secondary btn-sm bk-mt" onClick={addZerbiqRules} disabled={busy}>Add Zerbiq rules (Anthropic, Expo, Vercel from 08/28/26)</button>
+          )}
         </div>
       </div>
 

@@ -276,3 +276,14 @@ test('ledger: "Paid personally" accounts are a valid kind; kind cannot change; e
   await assertFails(setDoc(doc(db, 'ledgerAccounts', 'dal_acct_bad'), acct({ kind: 'loan' })));
   await assertSucceeds(setDoc(doc(db, 'ledgerTransactions', 'dal_pp1'), txn({ accountId: 'dal_personal2', categoryId: 'dal_cat_contractors', coversHistoricalCents: null })));
 });
+
+test('ledger: intercompany vendor rules point at the other company only; dates and account are validated', async () => {
+  const db = admin();
+  const rule = (over) => ({ companyId: 'dal', pattern: 'VERCEL', categoryId: 'dal_cat_hosting', icCategoryId: 'zerbiq_cat_hosting', fromDate: '2026-08-28', toDate: null, accountId: 'dal_card', wholeWord: false, ...over });
+  await assertSucceeds(setDoc(doc(db, 'ledgerVendorRules', 'dal_rule_ic_vercel'), rule()));
+  await assertFails(setDoc(doc(db, 'ledgerVendorRules', 'dal_rule_ic_bad1'), rule({ icCategoryId: 'dal_cat_hosting' })));
+  await assertFails(setDoc(doc(db, 'ledgerVendorRules', 'dal_rule_ic_bad2'), rule({ icCategoryId: 'acme_cat_x' })));
+  await assertFails(setDoc(doc(db, 'ledgerVendorRules', 'dal_rule_ic_bad3'), rule({ fromDate: '08/28/2026' })));
+  await assertFails(setDoc(doc(db, 'ledgerVendorRules', 'dal_rule_ic_bad4'), rule({ accountId: 'zerbiq_card' })));
+  await assertSucceeds(updateDoc(doc(db, 'ledgerVendorRules', 'dal_rule_ic_vercel'), { categoryId: 'dal_cat_software' }));
+});

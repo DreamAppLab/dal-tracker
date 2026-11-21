@@ -55,7 +55,7 @@ export default function BulkRecategorize({ ledger }) {
       let ruleNote = '';
       const pattern = q.payee.trim().toUpperCase().replace(/\s+/g, ' ').slice(0, 100);
       if (addRule && pattern) {
-        const existing = rules.find((r) => core.normalizePayee(r.pattern) === core.normalizePayee(pattern));
+        const existing = rules.find((r) => !r.icCategoryId && !r.fromDate && !r.toDate && !r.accountId && core.normalizePayee(r.pattern) === core.normalizePayee(pattern));
         if (existing) await saveDoc(COL.vendorRules, existing.id, { companyId, pattern: existing.pattern, categoryId: q.to });
         else await saveDoc(COL.vendorRules, newId(companyId, 'rule'), { companyId, pattern, categoryId: q.to, projectId: null, isDefault: false }, false);
         ruleNote = ` Vendor rule “${pattern}” → ${catName(q.to)} ${existing ? 'updated' : 'added'}.`;
