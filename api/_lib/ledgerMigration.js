@@ -158,9 +158,15 @@ async function settleHistory(db, opts) {
  * charges. P&L and total owner contributions are unchanged. direction 'undo'
  * moves them back. Idempotent; each row goes through the planner.
  */
-async function movePersonal(db, direction, preview) {
+async function movePersonal(db, direction, preview, onlyIds) {
   const dalTxns = await readCompany(db, 'ledgerTransactions', core.COMPANY);
-  const rows = direction === 'undo' ? core.planPersonalUndo(dalTxns) : core.planPersonalMove(dalTxns);
+  const cardNow = (await db.collection('ledgerAccounts').doc(core.ACCOUNT).get()).data() || {};
+  const imports = await readCompany(db, 'ledgerImports', core.COMPANY);
+  const statementsThrough = imports.filter((i) => i.accountId === core.ACCOUNT && i.periodEnd).map((i) => i.periodEnd).sort().pop() || null;
+  const planned = direction === 'undo' ? core.planPersonalUndo(dalTxns) : core.planPersonalMove(dalTxns, cardNow.historicalCutoffDate || null, statementsThrough);
+  // Held-back rows are shown, never moved; an apply moves only rows the user previewed.
+  const heldBack = planned.filter((t) => t.holdBack);
+  const rows = planned.filter((t) => !t.holdBack && (!onlyIds || onlyIds.includes(t.id)));
   const cardDoc = (await db.collection('ledgerAccounts').doc(core.ACCOUNT).get()).data() || {};
   const as = cardDoc.historicalPaymentsAs || 'owner';
   // Preflight: the re-settle after the move changes some "Card payments before
@@ -181,7 +187,8 @@ async function movePersonal(db, direction, preview) {
   ];
   const summary = {
     direction, as, count: rows.length, totalCents: rows.reduce((s, t) => s + t.amountCents, 0),
-    rows: rows.map((t) => ({ id: t.id, date: t.date, payee: t.payee, cents: t.amountCents, memo: t.memo || '' })),
+    rows: rows.map((t) => ({ id: t.id, date: t.date, payee: t.payee, cents: t.amountCents, memo: t.memo || '', reason: t.moveReason || '' })),
+    heldBack: heldBack.map((t) => ({ id: t.id, date: t.date, payee: t.payee, cents: t.amountCents, memo: t.memo || '', reason: t.moveReason || '' })),
     blocked,
   };
   if (blocked.length && !preview) {
@@ -210,7 +217,7 @@ async function movePersonal(db, direction, preview) {
   const ops = [];
   const errors = [];
   for (const t of rows) {
-    const { id, ...before } = t;
+    const { id, moveReason, holdBack, ...before } = t; // eslint-disable-line no-unused-vars
     const draft = direction === 'undo'
       ? { ...before, accountId: core.ACCOUNT, personalMovedFrom: null }
       : { ...before, accountId: personalId, personalMovedFrom: core.ACCOUNT };
@@ -229,6 +236,80 @@ async function movePersonal(db, direction, preview) {
   const after = await readCompany(db, 'ledgerTransactions', core.COMPANY);
   const cardBalanceCents = (cardDoc.openingBalanceCents || 0) + after.filter((t) => t.accountId === core.ACCOUNT && !t.deleted).reduce((s, t) => s + t.amountCents, 0);
   return { ...summary, moved: rows.length - errors.length, errors, settled, rebuilt, cardBalanceCents };
+}
+
+/**
+ * Duplicate charges on the DAL card: receipt-sourced migrated rows that repeat
+ * a statement row. Merge keeps the statement row (gaining the receipt, notes,
+ * project and, if it had none, the category) and soft-deletes the receipt
+ * row; undo reverses it. Then "Card payments before Books" and both
+ * companies' totals are recomputed.
+ */
+async function mergeCardDuplicates(db, mode, onlyIds) {
+  const dalTxns = await readCompany(db, 'ledgerTransactions', core.COMPANY);
+  const byId = Object.fromEntries(dalTxns.map((t) => [t.id, t]));
+  if (mode === 'dupes-preview') {
+    const pairs = core.findCardDuplicates(dalTxns, core.ACCOUNT);
+    return { count: pairs.length, totalCents: pairs.reduce((s, p) => s - p.amountCents, 0), pairs };
+  }
+  const zerbiqTxns = await readCompany(db, 'ledgerTransactions', 'zerbiq');
+  const allById = Object.fromEntries([...dalTxns, ...zerbiqTxns].map(({ id, ...d }) => [id, d]));
+  const { accounts, categories } = accountsAndCategories(
+    [...(await readCompany(db, 'ledgerAccounts', 'dal')), ...(await readCompany(db, 'ledgerAccounts', 'zerbiq'))],
+    [...(await readCompany(db, 'ledgerCategories', 'dal')), ...(await readCompany(db, 'ledgerCategories', 'zerbiq'))]
+  );
+  const work = mode === 'dupes-undo'
+    ? dalTxns.filter((t) => t.deleted && t.mergedInto && byId[t.mergedInto] && byId[t.mergedInto].mergedFrom === t.id)
+      .map((d) => ({ keep: byId[d.mergedInto], drop: d }))
+    : core.findCardDuplicates(dalTxns, core.ACCOUNT).filter((p) => !onlyIds || onlyIds.includes(p.dropId)).map((p) => ({ keep: byId[p.keepId], drop: byId[p.dropId] }));
+  const errors = [];
+  const merged = [];
+  let done = 0;
+  let totalCents = 0;
+  let batch = db.batch();
+  let inBatch = 0;
+  for (const { keep, drop } of work) {
+    const { id: kid, ...kBefore } = keep;
+    const { id: did, ...dBefore } = drop;
+    const kDraft = mode === 'dupes-undo' ? core.unmergedKeep(kBefore) : core.mergedKeep(kBefore, { ...dBefore, id: did });
+    const dDraft = mode === 'dupes-undo' ? { ...dBefore, deleted: false, mergedInto: null } : { ...dBefore, deleted: true, mergedInto: kid };
+    try {
+      const plans = [
+        core.planTransactionWrite({ id: kid, draft: kDraft, before: kBefore, existing: allById, accounts, categories }),
+        core.planTransactionWrite({ id: did, draft: dDraft, before: dBefore, existing: allById, accounts, categories }),
+      ];
+      // Both halves of a pair always go in the same batch.
+      for (const p of plans) {
+        for (const { id: docId, data } of p.sets) {
+          batch.set(db.collection('ledgerTransactions').doc(docId), { ...data, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+          inBatch += 1;
+        }
+        for (const { id: docId } of p.deletes) {
+          batch.delete(db.collection('ledgerTransactions').doc(docId));
+          inBatch += 1;
+        }
+      }
+      done += 1;
+      totalCents += -drop.amountCents;
+      merged.push(did);
+      if (inBatch >= 400) {
+        // eslint-disable-next-line no-await-in-loop
+        await batch.commit();
+        batch = db.batch();
+        inBatch = 0;
+      }
+    } catch (e) {
+      errors.push({ id: did, error: e.message });
+    }
+  }
+  if (inBatch) await batch.commit();
+  const settled = await settleHistory(db, {});
+  const rebuilt = await rebuildMonthly(db, core.COMPANY);
+  await rebuildMonthly(db, 'zerbiq');
+  const after = await readCompany(db, 'ledgerTransactions', core.COMPANY);
+  const card = (await db.collection('ledgerAccounts').doc(core.ACCOUNT).get()).data() || {};
+  const cardBalanceCents = (card.openingBalanceCents || 0) + after.filter((t) => t.accountId === core.ACCOUNT && !t.deleted).reduce((s, t) => s + t.amountCents, 0);
+  return { count: done, totalCents, errors, settled, rebuilt, cardBalanceCents, ids: merged };
 }
 
 /** Create projects from the migrated rows' old app tags and tag those rows (idempotent). */
@@ -275,8 +356,9 @@ async function migrateExpenses(db, opts) {
     return { mode, projects: await linkLegacyProjects(db) };
   }
 
+  if (mode === 'dupes-preview' || mode === 'dupes-merge' || mode === 'dupes-undo') return { mode, dupes: await mergeCardDuplicates(db, mode, opts.ids || null) };
   if (mode === 'personal-preview') return { mode, personal: await movePersonal(db, 'apply', true) };
-  if (mode === 'personal-move') return { mode, personal: await movePersonal(db, 'apply', false) };
+  if (mode === 'personal-move') return { mode, personal: await movePersonal(db, 'apply', false, opts.ids || null) };
   if (mode === 'personal-undo') return { mode, personal: await movePersonal(db, 'undo', false) };
 
   if (mode === 'legacy-report') {

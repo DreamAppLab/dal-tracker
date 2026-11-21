@@ -42,22 +42,29 @@ const ReceiptSchema = z
   })
   .strict();
 
-const MigrateSchema = z.object({ mode: z.enum(['dry-run', 'apply', 'rollback', 'settle', 'projects', 'legacy-report', 'legacy-notes', 'legacy-notes-undo', 'personal-preview', 'personal-move', 'personal-undo']), as: z.enum(['equity', 'owner']).optional(),
+const MigrateSchema = z.object({ mode: z.enum(['dry-run', 'apply', 'rollback', 'settle', 'projects', 'legacy-report', 'legacy-notes', 'legacy-notes-undo', 'personal-preview', 'personal-move', 'personal-undo', 'dupes-preview', 'dupes-merge', 'dupes-undo']), as: z.enum(['equity', 'owner']).optional(),
   // Card-statement cut-over for "Card payments before Books" (null clears it).
+  // Ids the user previewed (personal-move, dupes-merge): only those are touched.
+  ids: z.array(z.string().regex(/^dal_[A-Za-z0-9_-]{1,150}$/)).max(1000).optional(),
   cutoff: z.union([z.null(), z.object({ date: z.string().regex(/^(20\d{2})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).refine((d) => !Number.isNaN(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d, 'Invalid date'), owedCents: z.number().int().min(0).max(1e10) }).strict()]).optional() }).strict();
 const RebuildSchema = z.object({ companyId }).strict();
 
 async function migrate(req, res) {
-  const { mode, as, cutoff } = validate(MigrateSchema, parseJsonBody(req, { maxBytes: 1024 }));
+  const { mode, as, cutoff, ids } = validate(MigrateSchema, parseJsonBody(req, { maxBytes: 64 * 1024 }));
   // Apply is additive, backed up and idempotent; rollback removes rows.
   if (mode === 'rollback') requireRecentAuth(req.auth, RECENT_AUTH_SECONDS);
   const db = getMcDb();
-  if (mode !== 'dry-run' && mode !== 'legacy-report' && mode !== 'personal-preview') {
+  if (mode !== 'dry-run' && mode !== 'legacy-report' && mode !== 'personal-preview' && mode !== 'dupes-preview') {
     // Strict audit before any write.
     await writeAudit({ type: 'ledger_migration', actor: req.auth, target: 'expenses', meta: { mode, ...(as ? { as } : {}), ...(cutoff !== undefined ? { cutoffDate: cutoff ? cutoff.date : 'none', cutoffOwedCents: cutoff ? cutoff.owedCents : 0 } : {}) } }, req);
   }
   try {
-    const summary = await migrateExpenses(db, { mode, as, cutoff, getBucket: getMcBucket });
+    const summary = await migrateExpenses(db, { mode, as, cutoff, ids, getBucket: getMcBucket });
+    const done = summary.dupes || summary.personal;
+    if (done && (mode === 'dupes-merge' || mode === 'dupes-undo' || mode === 'personal-move' || mode === 'personal-undo')) {
+      // What actually changed (the first audit entry, written before any change, has only the request).
+      await writeAudit({ type: 'ledger_migration', actor: req.auth, target: 'ledgerTransactions', meta: { mode, phase: 'done', count: done.count || done.moved || 0, totalCents: done.totalCents || 0, errors: (done.errors || []).length } }, req).catch(() => null);
+    }
     return res.status(200).json({ ok: true, summary });
   } catch (e) {
     if (e && e.status) throw new HttpError(e.status, e.message);
